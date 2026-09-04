@@ -70,6 +70,12 @@ def test_nested_blocks():
 
 
 def test_border_styles():
+    corners = {
+        "solid": ("┌", "┐"),
+        "dashed": ("┌", "┐"),
+        "dotted": ("┌", "┐"),
+        "double": ("╔", "╗"),
+    }
     for style in ["solid", "dashed", "dotted", "double"]:
         result = _render([{
             "block_type": "box",
@@ -79,8 +85,9 @@ def test_border_styles():
             "border_style": style,
         }])
         lines = result.split("\n")
-        assert lines[0][0] == "┌"
-        assert lines[0][5] == "┐"
+        tl, tr = corners[style]
+        assert lines[0][0] == tl
+        assert lines[0][5] == tr
 
 
 def test_no_border():
@@ -100,7 +107,7 @@ def test_multiple_blocks():
         {
             "block_type": "header",
             "x": 0, "y": 0,
-            "width": 30, "height": 2,
+            "width": 30, "height": 3,
             "content": "My App",
             "border_style": "solid",
         },
@@ -113,7 +120,7 @@ def test_multiple_blocks():
         },
     ])
     lines = result.split("\n")
-    assert "My App" in lines[0]
+    assert "My App" in lines[1]
     assert "Main content area" in lines[4]
 
 

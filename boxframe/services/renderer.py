@@ -116,21 +116,30 @@ class PseudoGraphicRenderer:
 
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""
-        if not block.content:
-            # Show type hint if no content
-            if block.border_style != "none" and block.width >= 4:
-                hint = f"[{block.block_type}]"
-                x, y = block.x + 1, block.y + 1
-                for i, ch in enumerate(hint):
-                    if x + i < block.x + block.width - 1 and y < self.grid_height:
-                        self.grid[y][x + i] = ch
+        # Clamp block position and size to grid (same logic as _draw_border)
+        x = max(0, min(block.x, self.grid_width - 2))
+        y = max(0, min(block.y, self.grid_height - 2))
+        w = min(block.width, self.grid_width - x)
+        h = min(block.height, self.grid_height - y)
+
+        if w < 1 or h < 1:
             return
 
-        x, y = block.x, block.y
-        w, h = block.width, block.height
+        has_border = block.border_style != "none"
+        if has_border and (w < 2 or h < 2):
+            return
+
+        if not block.content:
+            # Show type hint if no content
+            if has_border and w >= 4:
+                hint = f"[{block.block_type}]"
+                hx, hy = x + 1, y + 1
+                for i, ch in enumerate(hint):
+                    if hx + i < x + w - 1 and hy < self.grid_height:
+                        self.grid[hy][hx + i] = ch
+            return
 
         # Determine content area
-        has_border = block.border_style != "none"
         content_x = x + (1 if has_border else 0)
         content_y = y + (1 if has_border else 0)
         content_w = w - (2 if has_border else 0)
