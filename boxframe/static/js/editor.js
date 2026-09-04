@@ -12,15 +12,24 @@ function editorApp() {
         loading: true,
 
         // ── Drag state ──────────────────────────────────────────
-        dragMode: null,          // 'palette' | 'move' | null
+        dragMode: null,          // 'palette' | 'move' | 'resize' | null
         dragType: null,          // block type string (palette drag)
-        dragBlock: null,         // block object (move drag)
+        dragBlock: null,         // block object (move / resize drag)
         dragStartX: 0,
         dragStartY: 0,
         dragOffsetX: 0,
         dragOffsetY: 0,
         dragGridX: -1,
         dragGridY: -1,
+
+        // ── Resize state ───────────────────────────────────────
+        resizeStartW: 0,         // block width at resize start (grid cells)
+        resizeStartH: 0,         // block height at resize start (grid cells)
+        resizeStartClientX: 0,   // mouse X at resize start (client coords)
+        resizeStartClientY: 0,   // mouse Y at resize start (client coords)
+        resizePreviewW: 0,       // preview width during drag (grid cells)
+        resizePreviewH: 0,       // preview height during drag (grid cells)
+
         previewEl: null,
         charWidth: 0,
         charHeight: 0,
@@ -43,6 +52,7 @@ function editorApp() {
 
             this._measureCharSize();
             this._bindGlobalMouseUp();
+            this._bindResizeHandles();
             this.loading = false;
         },
 
@@ -121,6 +131,17 @@ function editorApp() {
             }
         },
 
+        _setPreviewMode(mode) {
+            if (!this.previewEl) return;
+            if (mode === 'resize') {
+                this.previewEl.style.border = '2px solid #2ecc71';
+                this.previewEl.style.background = 'rgba(46, 204, 113, 0.15)';
+            } else {
+                this.previewEl.style.border = '2px dashed #e94560';
+                this.previewEl.style.background = 'rgba(233, 69, 96, 0.15)';
+            }
+        },
+
         // ── Global mouse-up (catches drops outside canvas) ──────
 
         _bindGlobalMouseUp() {
@@ -134,6 +155,10 @@ function editorApp() {
                 this._commitBlockMove();
             }
 
+            if (this.dragMode === 'resize' && this.dragBlock) {
+                this._commitBlockResize();
+            }
+
             this._clearDragState();
         },
 
@@ -143,6 +168,56 @@ function editorApp() {
             this.dragBlock = null;
             this._hidePreview();
             this.previewEl = null;
+        },
+
+        // ── Resize handle binding ───────────────────────────────
+
+        _bindResizeHandles() {
+            const canvas = document.querySelector('.canvas-container');
+            if (!canvas) return;
+            const handles = canvas.querySelectorAll('.resize-handle');
+            handles.forEach(handle => {
+                // Remove old listener by cloning (preserves other listeners)
+                const newHandle = handle.cloneNode(true);
+                handle.parentNode.replaceChild(newHandle, handle);
+                newHandle.addEventListener('mousedown', (e) => this.onResizeHandleMouseDown(e));
+            });
+        },
+
+        onResizeHandleMouseDown(e) {
+            if (e.button !== 0) return;
+
+            const blockPreview = e.target.closest('.block-preview');
+            if (!blockPreview) return;
+
+            const blockId = blockPreview.dataset.blockId;
+            const block = this.blocks.find(b => b.id === blockId);
+            if (!block) return;
+
+            this.dragMode = 'resize';
+            this.dragBlock = block;
+            this.resizeStartW = block.width;
+            this.resizeStartH = block.height;
+            this.resizeStartClientX = e.clientX;
+            this.resizeStartClientY = e.clientY;
+            this.resizePreviewW = block.width;
+            this.resizePreviewH = block.height;
+
+            if (!this.charWidth) {
+                this._measureCharSize();
+            }
+
+            const preview = this._ensurePreviewEl();
+            if (preview) {
+                preview.style.width = (block.width * this.charWidth) + 'px';
+                preview.style.height = (block.height * this.charHeight) + 'px';
+                preview.style.display = 'block';
+                this._setPreviewMode('resize');
+                this._showPreview(block.x, block.y);
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
         },
 
         // ── Palette drag ────────────────────────────────────────
@@ -257,19 +332,50 @@ function editorApp() {
         },
 
         onCanvasMouseMove(e) {
-            if (this.dragMode !== 'move' || !this.dragBlock) return;
+            if (this.dragMode === 'move' && this.dragBlock) {
+                const pos = this._pixelToGrid(e.clientX, e.clientY);
+                const gx = Math.max(0, pos.x - this.dragOffsetX);
+                const gy = Math.max(0, pos.y - this.dragOffsetY);
+                const block = this.dragBlock;
 
-            const pos = this._pixelToGrid(e.clientX, e.clientY);
-            const gx = Math.max(0, pos.x - this.dragOffsetX);
-            const gy = Math.max(0, pos.y - this.dragOffsetY);
-            const block = this.dragBlock;
+                // Clamp to layout bounds
+                const clampedX = Math.min(gx, this.layoutWidth - block.width);
+                const clampedY = Math.min(gy, this.layoutHeight - block.height);
 
-            // Clamp to layout bounds
-            const clampedX = Math.min(gx, this.layoutWidth - block.width);
-            const clampedY = Math.min(gy, this.layoutHeight - block.height);
+                this._showPreview(clampedX, clampedY);
+                e.preventDefault();
+                return;
+            }
 
-            this._showPreview(clampedX, clampedY);
-            e.preventDefault();
+            if (this.dragMode === 'resize' && this.dragBlock) {
+                const dx = e.clientX - this.resizeStartClientX;
+                const dy = e.clientY - this.resizeStartClientY;
+                const gridDx = dx / this.charWidth;
+                const gridDy = dy / this.charHeight;
+
+                let newW = this.resizeStartW + gridDx;
+                let newH = this.resizeStartH + gridDy;
+
+                // Snap to grid (0.5 char threshold)
+                newW = Math.round(newW * 2) / 2;
+                newH = Math.round(newH * 2) / 2;
+
+                // Clamp to minimum and layout bounds
+                newW = Math.max(2, Math.min(newW, this.layoutWidth - this.dragBlock.x));
+                newH = Math.max(2, Math.min(newH, this.layoutHeight - this.dragBlock.y));
+
+                this.resizePreviewW = newW;
+                this.resizePreviewH = newH;
+
+                // Update preview dimensions
+                if (this.previewEl) {
+                    this.previewEl.style.width = (newW * this.charWidth) + 'px';
+                    this.previewEl.style.height = (newH * this.charHeight) + 'px';
+                }
+
+                e.preventDefault();
+                e.stopPropagation();
+            }
         },
 
         async _commitBlockMove() {
@@ -292,6 +398,40 @@ function editorApp() {
                 block.x = oldX;
                 block.y = oldY;
                 console.error('Failed to move block:', err);
+            }
+        },
+
+        async _commitBlockResize() {
+            if (!this.dragBlock) return;
+            const block = this.dragBlock;
+            const oldW = block.width;
+            const oldH = block.height;
+
+            // Calculate new dimensions from preview
+            const newW = Math.round(this.resizePreviewW);
+            const newH = Math.round(this.resizePreviewH);
+
+            // Minimum size: 2x2
+            const clampedW = Math.max(2, newW);
+            const clampedH = Math.max(2, newH);
+
+            if (clampedW === oldW && clampedH === oldH) {
+                return; // No change
+            }
+
+            try {
+                await fetch(`/api/layouts/${this.layoutId}/blocks/${block.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ width: clampedW, height: clampedH })
+                });
+                block.width = clampedW;
+                block.height = clampedH;
+                await this.refreshRender();
+            } catch (err) {
+                block.width = oldW;
+                block.height = oldH;
+                console.error('Failed to resize block:', err);
             }
         },
 
@@ -332,6 +472,8 @@ function editorApp() {
             const data = await res.json();
             this.rawText = data.ascii;
             this.htmlPreview = data.html;
+            // Re-bind resize handle listeners after DOM update
+            this._bindResizeHandles();
         },
 
         async addBlock(type) {

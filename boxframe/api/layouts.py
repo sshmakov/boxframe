@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from boxframe.database import get_db
 from boxframe.services.layout_service import LayoutService
+from boxframe.services.renderer import PseudoGraphicRenderer
 
 router = APIRouter(prefix="/api/layouts", tags=["layouts"])
 
@@ -178,10 +179,65 @@ async def render_layout(layout_id: str, db: AsyncSession = Depends(get_db)):
     if ascii_art is None:
         raise HTTPException(status_code=404, detail="Layout not found")
 
-    # Generate simple HTML for browser display
-    html = f'<pre style="font-family: monospace; font-size: 12px; line-height: 1.2; background: #1a1a2e; color: #e0e0e0; padding: 16px; border-radius: 8px; overflow-x: auto;">{ascii_art.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</pre>'
+    # Generate HTML preview with block overlays and resize handles
+    layout = await service.get_layout(layout_id)
+    html = ""
+    if layout:
+        ascii_html = (
+            f'<pre style="font-family: monospace; font-size: 12px; '
+            f'line-height: 1.2; background: #1a1a2e; color: #e0e0e0; '
+            f'padding: 16px; border-radius: 8px; overflow-x: auto;">'
+            f"{ascii_art.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</pre>"
+        )
+        blocks_data = _serialize_blocks_for_html(layout.blocks)
+        overlay_html = PseudoGraphicRenderer.render_html_preview(
+            blocks_data,
+            char_width="1em",
+            char_height="1.2em",
+        )
+        html = (
+            f'<div class="render-wrapper">'
+            f"{ascii_html}"
+            f'<div class="render-overlay">{overlay_html}</div>'
+            f"</div>"
+        )
 
     return RenderOut(ascii=ascii_art, html=html)
+
+
+def _serialize_blocks_for_html(blocks: list) -> list[dict]:
+    """Serialize ORM blocks to dicts for HTML preview generation."""
+    by_id = {b.id: b for b in blocks}
+    result = []
+    for block in blocks:
+        if block.parent_id and block.parent_id in by_id:
+            continue
+        bd = {
+            "id": block.id,
+            "x": block.x,
+            "y": block.y,
+            "width": block.width,
+            "height": block.height,
+            "block_type": block.block_type,
+            "content": block.content,
+            "border_style": block.border_style,
+            "children": [
+                {
+                    "id": c.id,
+                    "x": c.x,
+                    "y": c.y,
+                    "width": c.width,
+                    "height": c.height,
+                    "block_type": c.block_type,
+                    "content": c.content,
+                    "border_style": c.border_style,
+                }
+                for c in blocks
+                if c.parent_id == block.id
+            ],
+        }
+        result.append(bd)
+    return result
 
 
 @router.get("/{layout_id}/export", response_model=ExportOut)

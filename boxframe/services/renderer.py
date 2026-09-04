@@ -11,6 +11,16 @@ from dataclasses import dataclass, field
 from boxframe.models.block import BLOCK_TYPES, BORDER_STYLES
 
 
+# SVG icon for resize handle (diagonal arrow in bottom-right corner)
+_RESIZE_HANDLE_SVG = (
+    'data:image/svg+xml,'
+    '%3Csvg xmlns="http://www.w3.org/2000/svg" width="10" height="10"'
+    '%3E%3Cpath d="M9 1L5 5M9 3L3 9M7 1L9 1L9 3" '
+    'stroke="%23888" stroke-width="1.2" fill="none"'
+    '%3E%3C/path%3E%3C/svg%3E'
+)
+
+
 @dataclass
 class RenderBlock:
     """Flattened block for rendering."""
@@ -23,6 +33,53 @@ class RenderBlock:
     border_style: str
     is_root: bool = False
     children: list["RenderBlock"] = field(default_factory=list)
+
+    # ── HTML preview generation ─────────────────────────────
+
+    def to_html_preview(self, block_id: str, char_width: str = "1em", char_height: str = "1.2em") -> str:
+        """Generate an HTML preview div for this block with a resize handle."""
+        cw = float(char_width.rstrip("em"))
+        ch = float(char_height.rstrip("em"))
+
+        def _fmt(v: int, factor: float) -> str:
+            result = round(v * factor, 4)
+            # Use integer format when possible (e.g. "2em" not "2.0em")
+            if result == int(result):
+                return f"{int(result)}em"
+            return f"{result}em"
+
+        left = _fmt(self.x, cw)
+        top = _fmt(self.y, ch)
+        w = _fmt(self.width, cw)
+        h = _fmt(self.height, ch)
+
+        return (
+            f'<div class="block-preview" data-block-id="{block_id}"'
+            f' style="position:absolute;left:{left};top:{top};'
+            f'width:{w};height:{h};">'
+            f'<div class="block-inner block-{self.block_type}">'
+            f"{self._border_html()}"
+            f"</div>"
+            f'<div class="resize-handle" title="Drag to resize"></div>'
+            f"</div>"
+        )
+
+    def _border_html(self) -> str:
+        """Generate border HTML for a block."""
+        border_map = {
+            "solid": "solid",
+            "dashed": "dashed",
+            "dotted": "dotted",
+            "double": "double",
+        }
+        style = border_map.get(self.border_style, "solid")
+        if self.border_style == "none":
+            return ""
+        return (
+            f'<div class="block-border block-border--{style}"'
+            f' style="width:100%;height:100%;">'
+            f"</div>"
+        )
 
 
 # Border character maps: {style: {corner_tl, corner_tr, corner_bl, corner_br, h, v, t_l, t_r, t_t, b_l, b_b, cross}}
@@ -207,3 +264,39 @@ class PseudoGraphicRenderer:
 
         renderer = cls(width, height)
         return renderer.render(blocks)
+
+    @classmethod
+    def render_html_preview(
+        cls,
+        blocks_data: list[dict],
+        width: int = 80,
+        height: int = 24,
+        char_width: str = "1em",
+        char_height: str = "1.2em",
+    ) -> str:
+        """Generate an HTML preview with positioned block divs and resize handles."""
+        parts: list[str] = []
+        for bd in blocks_data:
+            rb = RenderBlock(
+                x=bd.get("x", 0),
+                y=bd.get("y", 0),
+                width=bd.get("width", 20),
+                height=bd.get("height", 3),
+                block_type=bd.get("block_type", "box"),
+                content=bd.get("content", ""),
+                border_style=bd.get("border_style", "solid"),
+            )
+            # Flatten children for the preview (all blocks on the same layer)
+            parts.append(rb.to_html_preview(bd["id"], char_width, char_height))
+            for c in bd.get("children", []):
+                crb = RenderBlock(
+                    x=c.get("x", 0),
+                    y=c.get("y", 0),
+                    width=c.get("width", 10),
+                    height=c.get("height", 1),
+                    block_type=c.get("block_type", "box"),
+                    content=c.get("content", ""),
+                    border_style=c.get("border_style", "solid"),
+                )
+                parts.append(crb.to_html_preview(c["id"], char_width, char_height))
+        return "\n".join(parts)

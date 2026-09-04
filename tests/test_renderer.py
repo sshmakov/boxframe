@@ -150,3 +150,94 @@ def test_double_border():
     assert lines[0][0] == "╔"
     assert lines[0][5] == "╗"
     assert all(c == "═" for c in lines[0][1:5])
+
+
+# ── HTML preview tests ────────────────────────────────────
+
+
+def test_render_block_to_html_preview():
+    rb = RenderBlock(
+        x=2, y=1, width=10, height=3,
+        block_type="box", content="", border_style="solid",
+    )
+    html = rb.to_html_preview("block-123")
+    assert 'data-block-id="block-123"' in html
+    assert 'class="block-preview"' in html
+    assert 'class="resize-handle"' in html
+    assert "left:2em" in html
+    assert "top:1.2em" in html
+    assert "width:10em" in html
+    assert "height:3.6em" in html
+
+
+def test_render_block_to_html_preview_no_border():
+    rb = RenderBlock(
+        x=0, y=0, width=5, height=2,
+        block_type="text", content="hello", border_style="none",
+    )
+    html = rb.to_html_preview("block-456")
+    assert 'data-block-id="block-456"' in html
+    assert 'class="resize-handle"' in html
+
+
+def test_render_html_preview_single_block():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "b1",
+        "x": 0, "y": 0,
+        "width": 20, "height": 3,
+        "block_type": "box",
+        "content": "Header",
+        "border_style": "solid",
+    }])
+    assert 'data-block-id="b1"' in html
+    assert 'class="block-preview"' in html
+    assert 'class="resize-handle"' in html
+    assert "left:0em" in html
+
+
+def test_render_html_preview_with_children():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent",
+        "x": 0, "y": 0,
+        "width": 30, "height": 10,
+        "block_type": "box",
+        "content": "",
+        "border_style": "solid",
+        "children": [{
+            "id": "child-1",
+            "x": 1, "y": 1,
+            "width": 10, "height": 2,
+            "block_type": "button",
+            "content": "Click",
+            "border_style": "dashed",
+        }],
+    }])
+    # Both parent and child should have resize handles
+    assert 'data-block-id="parent"' in html
+    assert 'data-block-id="child-1"' in html
+    # Count resize handles — should be 2
+    assert html.count('class="resize-handle"') == 2
+
+
+def test_render_html_preview_dashed_border():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "b1",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "block_type": "box",
+        "content": "",
+        "border_style": "dashed",
+    }])
+    assert 'class="block-border block-border--dashed"' in html
+
+
+def test_render_html_preview_double_border():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "b1",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "block_type": "box",
+        "content": "",
+        "border_style": "double",
+    }])
+    assert 'class="block-border block-border--double"' in html
