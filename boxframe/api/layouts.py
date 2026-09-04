@@ -197,9 +197,11 @@ async def render_layout(
         # Compute exact pixel dimensions so <pre> and overlays share the same size.
         pre_width = layout.width * char_width_px
         pre_height = round(layout.height * char_height_px, 1)
+        # Padding lives on .render-wrapper; <pre> has no margin so overlay
+        # coordinates (padding_offset + grid * char_size) align exactly.
         ascii_html = (
             f'<pre style="font-family: monospace; font-size: 12px; '
-            f'line-height: 1.2; display: block; margin: 16px; '
+            f'line-height: 1.2; display: block; '
             f'width:{pre_width}px; height:{pre_height}px; '
             f'background: #1a1a2e; color: #e0e0e0;">'
             f"{ascii_art.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</pre>"
@@ -209,6 +211,7 @@ async def render_layout(
             blocks_data,
             char_width_px=char_width_px,
             char_height_px=char_height_px,
+            padding_offset=16.0,
         )
         html = (
             f'<div class="render-wrapper" '

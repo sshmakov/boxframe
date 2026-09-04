@@ -36,14 +36,20 @@ class RenderBlock:
 
     # ── HTML preview generation ─────────────────────────────
 
-    def to_html_preview(self, block_id: str, char_width_px: float = 12.0, char_height_px: float = 14.4) -> str:
+    def to_html_preview(
+        self,
+        block_id: str,
+        char_width_px: float = 12.0,
+        char_height_px: float = 14.4,
+        padding_offset: float = 16.0,
+    ) -> str:
         """Generate an HTML preview div for this block with a resize handle.
 
         Uses pixel dimensions so the overlay matches the actual character size
         (which may differ from font-size in some fonts).
         """
-        left = round(self.x * char_width_px, 1)
-        top = round(self.y * char_height_px, 1)
+        left = round(padding_offset + self.x * char_width_px, 1)
+        top = round(padding_offset + self.y * char_height_px, 1)
         w = round(self.width * char_width_px, 1)
         h = round(self.height * char_height_px, 1)
 
@@ -272,6 +278,7 @@ class PseudoGraphicRenderer:
         height: int = 24,
         char_width_px: float = 12.0,
         char_height_px: float = 14.4,
+        padding_offset: float = 16.0,
     ) -> str:
         """Generate an HTML preview with positioned block divs and resize handles."""
         parts: list[str] = []
@@ -286,7 +293,9 @@ class PseudoGraphicRenderer:
                 border_style=bd.get("border_style", "solid"),
             )
             # Flatten children for the preview (all blocks on the same layer)
-            parts.append(rb.to_html_preview(bd["id"], char_width_px, char_height_px))
+            parts.append(rb.to_html_preview(
+                bd["id"], char_width_px, char_height_px, padding_offset,
+            ))
             for c in bd.get("children", []):
                 crb = RenderBlock(
                     x=c.get("x", 0),
@@ -297,5 +306,7 @@ class PseudoGraphicRenderer:
                     content=c.get("content", ""),
                     border_style=c.get("border_style", "solid"),
                 )
-                parts.append(crb.to_html_preview(c["id"], char_width_px, char_height_px))
+                parts.append(crb.to_html_preview(
+                    c["id"], char_width_px, char_height_px, padding_offset,
+                ))
         return "\n".join(parts)

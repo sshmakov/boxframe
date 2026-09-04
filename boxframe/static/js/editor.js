@@ -50,7 +50,13 @@ function editorApp() {
                 this.refreshRender()
             ]);
 
-            this._measureCharSize();
+            // Measure char size AFTER Alpine.js has rendered the <pre>,
+            // then re-render with exact pixel dimensions so overlays align.
+            this.$nextTick(() => {
+                this._measureCharSize();
+                this.refreshRender();
+            });
+
             this._bindGlobalMouseUp();
             // Defer binding until Alpine.js has updated the DOM via x-html
             this.$nextTick(() => this._bindResizeHandles());
@@ -62,21 +68,20 @@ function editorApp() {
         _measureCharSize() {
             const pre = document.querySelector('.canvas-container pre');
             if (!pre) return;
-            // Measure a single character width from the rendered <pre>
+            // Measure character width from a span (getBoundingClientRect works)
             const sample = document.createElement('span');
             sample.style.fontFamily = getComputedStyle(pre).fontFamily;
             sample.style.fontSize = getComputedStyle(pre).fontSize;
             sample.style.fontWeight = getComputedStyle(pre).fontWeight;
-            sample.style.lineHeight = getComputedStyle(pre).lineHeight;
             sample.textContent = 'W';
             pre.appendChild(sample);
             this.charWidth = sample.getBoundingClientRect().width;
-            this.charHeight = sample.getBoundingClientRect().height;
             pre.removeChild(sample);
-            // Fallback to line-height if getBoundingClientRect returns 0
-            if (this.charHeight <= 0) {
-                this.charHeight = parseFloat(getComputedStyle(pre).lineHeight) || 14;
-            }
+            // Use computed line-height — it's the actual pixel value
+            // the browser uses for each row, regardless of how
+            // line-height: 1.2 is parsed (unitless vs %).
+            const lh = getComputedStyle(pre).lineHeight;
+            this.charHeight = parseFloat(lh) || 14;
         },
 
         // ── Pixel → grid conversion ─────────────────────────────

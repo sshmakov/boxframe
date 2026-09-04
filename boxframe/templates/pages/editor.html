@@ -79,8 +79,7 @@
     position: relative;
     display: block;
     font-size: 12px;
-    /* padding moved to <pre> margin so overlay coordinates align with
-       the actual character grid (no padding-vs-margin offset mismatch) */
+    padding: 16px;
 }
 
 .drag-preview {
@@ -116,7 +115,6 @@
 }
 
 .canvas-container pre {
-    margin: 0;
     font-family: 'Courier New', monospace;
     font-size: 11px;
     line-height: 1.3;
@@ -130,10 +128,6 @@
     position: absolute;
     pointer-events: auto;
     z-index: 10;
-    /* Shift overlays to match <pre> margin so coordinates align with
-       the actual character grid */
-    margin-left: 16px;
-    margin-top: 16px;
 }
 
 .block-inner {
