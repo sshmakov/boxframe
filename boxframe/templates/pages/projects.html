@@ -33,16 +33,17 @@
     <!-- Projects list -->
     <div id="projects-list" class="grid">
         {% for project in projects %}
-        <div class="card">
+        <div class="card" id="card-{{ project.id }}">
             <a href="/project/{{ project.id }}" class="card-link">
                 <h3>{{ project.name }}</h3>
                 <p class="text-muted">{{ project.layouts|length }} layout(s)</p>
                 <p class="text-small text-muted">Updated: {{ project.updated_at.strftime('%Y-%m-%d %H:%M') if project.updated_at else '' }}</p>
             </a>
-            <form method="POST" action="/api/projects/{{ project.id }}"
-                  onsubmit="return confirm('Delete project?')">
-                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-            </form>
+            <button hx-delete="/api/projects/{{ project.id }}"
+                    hx-confirm="Delete project?"
+                    hx-target="closest .card"
+                    hx-swap="delete"
+                    class="btn btn-danger btn-sm">Delete</button>
         </div>
         {% else %}
         <div class="card empty">
