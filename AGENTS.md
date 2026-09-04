@@ -33,6 +33,14 @@ boxframe/
 │   ├── database.py             # Async engine + session
 │   └── main.py                 # FastAPI app + page routes
 ├── tests/
+│   ├── api/                    # API unit-тесты (httpx + TestClient)
+│   │   ├── test_projects.py    # CRUD проектов
+│   │   └── test_layouts.py     # CRUD layout/blocks + render + export
+│   ├── e2e/                    # End-to-end тесты (Playwright)
+│   │   ├── conftest.py         # fixture reset_page_state
+│   │   ├── test_editor.py      # Загрузка страниц editor/project/index
+│   │   └── test_projects.py    # New Project / New Layout кнопки + форма
+│   ├── conftest.py             # API-файстуры (async engine + TestClient)
 │   └── test_renderer.py        # 10 тестов рендерера
 ├── Dockerfile
 ├── pyproject.toml

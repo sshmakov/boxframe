@@ -125,3 +125,17 @@ async def project_info(project_id: str, db: AsyncSession = Depends(get_db)):
         "block_types": BLOCK_TYPES,
         "border_styles": BORDER_STYLES,
     }
+
+
+class LayoutCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    width: int = Field(default=80, ge=20, le=200)
+    height: int = Field(default=24, ge=10, le=100)
+
+
+@router.post("/{project_id}/layouts", response_model=LayoutOut)
+async def create_layout(project_id: str, data: LayoutCreate, db: AsyncSession = Depends(get_db)):
+    """Create a new layout for a project."""
+    service = LayoutService(db)
+    layout = await service.create_layout(project_id, data.name, data.width, data.height)
+    return layout
