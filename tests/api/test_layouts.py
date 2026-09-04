@@ -46,6 +46,29 @@ def test_get_layout(client: TestClient):
     assert data["name"] == "Test Layout"
 
 
+def test_get_layout_returns_blocks(client: TestClient):
+    """Test that GET /api/layouts/{id} returns the blocks list."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create a block
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 20, "height": 5,
+        "content": "Test block",
+    })
+    assert r.status_code == 200
+
+    # Fetch layout and verify blocks are in the response
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.status_code == 200
+    data = r.json()
+    assert "blocks" in data
+    assert isinstance(data["blocks"], list)
+    assert len(data["blocks"]) == 1
+    assert data["blocks"][0]["block_type"] == "box"
+    assert data["blocks"][0]["content"] == "Test block"
+
+
 def test_get_layout_not_found(client: TestClient):
     """Test getting a non-existent layout."""
     r = client.get("/api/layouts/00000000-0000-0000-0000-000000000000")
