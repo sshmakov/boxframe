@@ -67,7 +67,7 @@ async def page_project(request: Request, project_id: str):
         service = LayoutService(db)
         project = await service.get_project(project_id)
         if not project:
-            return templates.TemplateResponse("404.html", {
+            return templates.TemplateResponse("pages/404.html", {
                 "request": request, "message": "Project not found"
             }, status_code=404)
     return templates.TemplateResponse("pages/project.html", {
@@ -85,7 +85,7 @@ async def page_editor(request: Request, layout_id: str):
         service = LayoutService(db)
         layout = await service.get_layout(layout_id)
         if not layout:
-            return templates.TemplateResponse("404.html", {
+            return templates.TemplateResponse("pages/404.html", {
                 "request": request, "message": "Layout not found"
             }, status_code=404)
         project = await service.get_project(layout.project_id)
