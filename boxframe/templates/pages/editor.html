@@ -123,19 +123,13 @@
 .render-wrapper {
     position: relative;
     display: inline-block;
-}
-
-.render-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    pointer-events: none;
-    z-index: 10;
+    padding: 16px;
 }
 
 .block-preview {
     position: absolute;
     pointer-events: auto;
+    z-index: 10;
 }
 
 .block-inner {
@@ -187,7 +181,7 @@
     z-index: 20;
 }
 
-.block-preview:hover .resize-handle {
+.resize-handle.visible {
     opacity: 1;
 }
 

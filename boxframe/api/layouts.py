@@ -186,11 +186,11 @@ async def render_layout(layout_id: str, db: AsyncSession = Depends(get_db)):
         ascii_html = (
             f'<pre style="font-family: monospace; font-size: 12px; '
             f'line-height: 1.2; background: #1a1a2e; color: #e0e0e0; '
-            f'padding: 16px; border-radius: 8px; overflow-x: auto;">'
+            f'border-radius: 8px; overflow-x: auto;">'
             f"{ascii_art.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</pre>"
         )
         blocks_data = _serialize_blocks_for_html(layout.blocks)
-        overlay_html = PseudoGraphicRenderer.render_html_preview(
+        block_previews_html = PseudoGraphicRenderer.render_html_preview(
             blocks_data,
             char_width="1em",
             char_height="1.2em",
@@ -198,7 +198,7 @@ async def render_layout(layout_id: str, db: AsyncSession = Depends(get_db)):
         html = (
             f'<div class="render-wrapper">'
             f"{ascii_html}"
-            f'<div class="render-overlay">{overlay_html}</div>'
+            f"{block_previews_html}"
             f"</div>"
         )
 

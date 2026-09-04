@@ -52,7 +52,8 @@ function editorApp() {
 
             this._measureCharSize();
             this._bindGlobalMouseUp();
-            this._bindResizeHandles();
+            // Defer binding until Alpine.js has updated the DOM via x-html
+            this.$nextTick(() => this._bindResizeHandles());
             this.loading = false;
         },
 
@@ -175,12 +176,24 @@ function editorApp() {
         _bindResizeHandles() {
             const canvas = document.querySelector('.canvas-container');
             if (!canvas) return;
-            const handles = canvas.querySelectorAll('.resize-handle');
-            handles.forEach(handle => {
+            const previews = canvas.querySelectorAll('.block-preview');
+            console.log('[editor] Found', previews.length, 'block previews');
+            previews.forEach(preview => {
+                const handle = preview.querySelector('.resize-handle');
+                if (!handle) return;
+
                 // Remove old listener by cloning (preserves other listeners)
                 const newHandle = handle.cloneNode(true);
                 handle.parentNode.replaceChild(newHandle, handle);
                 newHandle.addEventListener('mousedown', (e) => this.onResizeHandleMouseDown(e));
+
+                // JS-based hover: toggle .visible class on resize handle
+                preview.addEventListener('mouseenter', () => {
+                    newHandle.classList.add('visible');
+                });
+                preview.addEventListener('mouseleave', () => {
+                    newHandle.classList.remove('visible');
+                });
             });
         },
 
@@ -472,8 +485,8 @@ function editorApp() {
             const data = await res.json();
             this.rawText = data.ascii;
             this.htmlPreview = data.html;
-            // Re-bind resize handle listeners after DOM update
-            this._bindResizeHandles();
+            // Re-bind resize handle listeners after Alpine.js updates the DOM
+            this.$nextTick(() => this._bindResizeHandles());
         },
 
         async addBlock(type) {
