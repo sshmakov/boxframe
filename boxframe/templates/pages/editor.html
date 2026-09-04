@@ -1,0 +1,258 @@
+{% extends "pages/base.html" %}
+
+{% block title %}{{ layout.name }} — boxframe{% endblock %}
+
+{% block head %}
+<style>
+/* Editor-specific styles */
+.editor-layout {
+    display: grid;
+    grid-template-columns: 200px 1fr 1fr;
+    grid-template-rows: auto 1fr;
+    gap: 16px;
+    height: calc(100vh - 80px);
+}
+
+.editor-palette {
+    grid-row: 1 / -1;
+}
+
+.editor-canvas {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.editor-raw {
+    grid-column: 3;
+    grid-row: 1 / -1;
+}
+
+.palette-title, .canvas-title, .raw-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #888;
+    margin-bottom: 8px;
+}
+
+.palette-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+}
+
+.palette-btn {
+    padding: 8px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #ccc;
+    font-size: 11px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+}
+
+.palette-btn:hover {
+    background: #16213e;
+    border-color: #0f3460;
+    color: #e94560;
+}
+
+.canvas-container {
+    background: #1a1a2e;
+    border-radius: 8px;
+    padding: 16px;
+    overflow: auto;
+}
+
+.canvas-container pre {
+    margin: 0;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.3;
+    color: #e0e0e0;
+    white-space: pre;
+}
+
+.raw-container {
+    background: #1a1a2e;
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+}
+
+.raw-container textarea {
+    flex: 1;
+    background: #0f0f23;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.3;
+    padding: 12px;
+    resize: none;
+    outline: none;
+}
+
+.raw-container textarea:focus {
+    border-color: #e94560;
+}
+
+.raw-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.export-menu {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #333;
+}
+
+.export-menu h4 {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 8px;
+}
+
+.export-btn {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    margin-bottom: 4px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #ccc;
+    font-size: 11px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.export-btn:hover {
+    background: #16213e;
+    border-color: #0f3460;
+}
+
+.block-list {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #333;
+}
+
+.block-list h4 {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 8px;
+}
+
+.block-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: #aaa;
+    border-bottom: 1px solid #222;
+}
+
+.block-item .delete-block {
+    color: #e94560;
+    cursor: pointer;
+    background: none;
+    border: none;
+    font-size: 14px;
+    padding: 0 4px;
+}
+
+@media (max-width: 1200px) {
+    .editor-layout {
+        grid-template-columns: 180px 1fr;
+        grid-template-rows: auto auto;
+        height: auto;
+    }
+    .editor-palette { grid-row: auto; }
+    .editor-canvas { grid-column: 2; grid-row: 1; }
+    .editor-raw { grid-column: 1 / -1; grid-row: 2; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="editorApp()" x-init="init()">
+    <div class="flex-between mb-4">
+        <div>
+            <a href="/project/{{ layout.project_id }}" class="back-link">← {{ project_name }}</a>
+            <h1>{{ layout.name }}</h1>
+            <p class="text-muted">{{ layout.width }}×{{ layout.height }} grid</p>
+        </div>
+        <div class="flex gap-2">
+            <button @click="refreshRender()" class="btn">↻ Refresh</button>
+        </div>
+    </div>
+
+    <div class="editor-layout">
+        <!-- Palette -->
+        <div class="editor-palette">
+            <div class="palette-title">Components</div>
+            <div class="palette-grid">
+                <template x-for="type in blockTypes" :key="type">
+                    <button class="palette-btn" @click="addBlock(type)"
+                            :title="'Add ' + type">
+                        <span x-text="type"></span>
+                    </button>
+                </template>
+            </div>
+
+            <div class="block-list">
+                <h4>Blocks ({{ blocks.length }})</h4>
+                <template x-for="(block, idx) in blocks" :key="block.id">
+                    <div class="block-item">
+                        <span>
+                            <strong x-text="block.block_type"></strong>
+                            <span x-text="' @(' + block.x + ',' + block.y + ')'"></span>
+                        </span>
+                        <button class="delete-block" @click="deleteBlock(block.id)" title="Delete">×</button>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Canvas -->
+        <div class="editor-canvas">
+            <div class="canvas-title">Preview</div>
+            <div class="canvas-container">
+                <div x-html="htmlPreview"></div>
+            </div>
+        </div>
+
+        <!-- Raw text editor -->
+        <div class="editor-raw">
+            <div class="raw-title">Raw Pseudo-Graphic</div>
+            <div class="raw-container">
+                <textarea x-model="rawText" placeholder="Pseudo-graphic output will appear here..."
+                          spellcheck="false"></textarea>
+                <div class="raw-actions">
+                    <button @click="syncFromRaw()" class="btn btn-primary btn-sm">Apply Changes</button>
+                    <button @click="copyRaw()" class="btn btn-sm">Copy</button>
+                </div>
+
+                <div class="export-menu">
+                    <h4>Export</h4>
+                    <button @click="exportAs('json')" class="export-btn">📋 JSON</button>
+                    <button @click="exportAs('markdown')" class="export-btn">📝 Markdown</button>
+                    <button @click="exportAs('ascii')" class="export-btn">📄 ASCII</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/editor.js"></script>
+{% endblock %}

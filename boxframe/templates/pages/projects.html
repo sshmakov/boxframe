@@ -1,0 +1,54 @@
+{% extends "pages/base.html" %}
+
+{% block title %}Projects — boxframe{% endblock %}
+
+{% block content %}
+<div x-data="{ showNew: false, name: '' }">
+    <div class="flex-between mb-4">
+        <h1>Projects</h1>
+        <button @click="showNew = !showNew" class="btn btn-primary">
+            + New Project
+        </button>
+    </div>
+
+    <!-- New project form -->
+    <div x-show="showNew" x-cloak class="card mb-4" hx-post="/api/projects/"
+         hx-target="#projects-list" hx-swap="afterbegin">
+        <form @submit.prevent="
+            fetch('/api/projects/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name})
+            }).then(r => r.json()).then(data => {
+                window.location.href = '/project/' + data.id;
+            });
+            showNew = false; name = '';
+        ">
+            <input type="text" x-model="name" placeholder="Project name..."
+                   class="input" required autofocus>
+            <button type="submit" class="btn btn-primary">Create</button>
+        </form>
+    </div>
+
+    <!-- Projects list -->
+    <div id="projects-list" class="grid">
+        {% for project in projects %}
+        <div class="card">
+            <a href="/project/{{ project.id }}" class="card-link">
+                <h3>{{ project.name }}</h3>
+                <p class="text-muted">{{ project.layouts|length }} layout(s)</p>
+                <p class="text-small text-muted">Updated: {{ project.updated_at[:19] if project.updated_at else '' }}</p>
+            </a>
+            <form method="POST" action="/api/projects/{{ project.id }}"
+                  onsubmit="return confirm('Delete project?')">
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+            </form>
+        </div>
+        {% else %}
+        <div class="card empty">
+            <p>No projects yet. Create one to get started!</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

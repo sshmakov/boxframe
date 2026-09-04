@@ -1,0 +1,53 @@
+{% extends "pages/base.html" %}
+
+{% block title %}{{ project.name }} — boxframe{% endblock %}
+
+{% block content %}
+<div class="project-page">
+    <div class="flex-between mb-4">
+        <div>
+            <a href="/" class="back-link">← Projects</a>
+            <h1>{{ project.name }}</h1>
+        </div>
+        <button @click="showNew = true" class="btn btn-primary">+ New Layout</button>
+    </div>
+
+    <!-- New layout form -->
+    <div x-data="{ showNew: false, name: '', width: 80, height: 24 }" x-show="showNew" x-cloak class="card mb-4">
+        <form @submit.prevent="
+            fetch('/api/projects/{{ project.id }}/layouts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, width: parseInt(width), height: parseInt(height)})
+            }).then(r => r.json()).then(data => {
+                window.location.href = '/layout/' + data.id;
+            });
+            showNew = false;
+        ">
+            <div class="form-row">
+                <input type="text" x-model="name" placeholder="Layout name..." class="input" required>
+                <input type="number" x-model="width" placeholder="Width (80)" class="input input-sm" min="20" max="200">
+                <input type="number" x-model="height" placeholder="Height (24)" class="input input-sm" min="10" max="100">
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Layouts list -->
+    <div class="grid">
+        {% for layout in project.layouts %}
+        <div class="card">
+            <a href="/layout/{{ layout.id }}" class="card-link">
+                <h3>{{ layout.name }}</h3>
+                <p class="text-muted">{{ layout.width }}×{{ layout.height }} grid</p>
+                <p class="text-small text-muted">Created: {{ layout.created_at[:10] if layout.created_at else '' }}</p>
+            </a>
+        </div>
+        {% else %}
+        <div class="card empty">
+            <p>No layouts yet. Create your first mockup!</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
