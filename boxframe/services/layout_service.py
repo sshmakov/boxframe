@@ -85,7 +85,7 @@ class LayoutService:
         content: str = "",
         border_style: str = "solid",
         parent_id: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> Block:
         block = Block(
             layout_id=layout_id,
@@ -97,7 +97,7 @@ class LayoutService:
             content=content,
             border_style=border_style,
             parent_id=parent_id,
-            metadata=metadata or {},
+            meta=meta or {},
         )
         self.db.add(block)
         await self.db.commit()
@@ -187,7 +187,7 @@ class LayoutService:
                     "height": b.height,
                     "content": b.content,
                     "border_style": b.border_style,
-                    "metadata": b.metadata,
+                    "metadata": b.meta,
                     "children": [
                         {
                             "id": c.id,
@@ -198,7 +198,7 @@ class LayoutService:
                             "height": c.height,
                             "content": c.content,
                             "border_style": c.border_style,
-                            "metadata": c.metadata,
+                            "metadata": c.meta,
                         }
                         for c in b.children
                     ],

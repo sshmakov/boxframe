@@ -26,6 +26,19 @@ class LayoutUpdate(BaseModel):
     height: int | None = None
 
 
+class LayoutOut(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    width: int
+    height: int
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
 class BlockCreate(BaseModel):
     block_type: str = Field(..., description="Type of block (box, button, input, etc.)")
     x: int = 0
@@ -35,7 +48,7 @@ class BlockCreate(BaseModel):
     content: str = ""
     border_style: str = "solid"
     parent_id: str | None = None
-    metadata: dict = {}
+    meta: dict = {}
 
 
 class BlockUpdate(BaseModel):
@@ -47,7 +60,7 @@ class BlockUpdate(BaseModel):
     content: str | None = None
     border_style: str | None = None
     parent_id: str | None = None
-    metadata: dict | None = None
+    meta: dict | None = None
 
 
 class BlockOut(BaseModel):
@@ -60,7 +73,7 @@ class BlockOut(BaseModel):
     content: str
     border_style: str
     parent_id: str | None
-    metadata: dict
+    meta: dict
     order: int
     created_at: str
     updated_at: str
@@ -75,7 +88,7 @@ class RenderOut(BaseModel):
 
 
 class ExportOut(BaseModel):
-    json: dict | None = None
+    layout_json: dict | None = None
     markdown: str | None = None
     ascii: str | None = None
 
@@ -123,7 +136,7 @@ async def create_block(layout_id: str, data: BlockCreate, db: AsyncSession = Dep
         content=data.content,
         border_style=data.border_style,
         parent_id=data.parent_id,
-        metadata=data.metadata,
+        meta=data.meta,
     )
     return block
 
@@ -178,4 +191,4 @@ async def export_layout(layout_id: str, db: AsyncSession = Depends(get_db)):
     markdown = await service.export_markdown(layout_id)
     ascii_art = await service.render_layout(layout_id)
 
-    return ExportOut(json=json_data, markdown=markdown, ascii=ascii_art)
+    return ExportOut(layout_json=json_data, markdown=markdown, ascii=ascii_art)

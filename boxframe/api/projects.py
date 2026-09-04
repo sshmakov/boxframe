@@ -51,7 +51,7 @@ class BlockSchema(BaseModel):
     content: str = ""
     border_style: str = "solid"
     parent_id: str | None = None
-    metadata: dict = {}
+    meta: dict = {}
     order: int = 0
 
 
@@ -65,7 +65,7 @@ class BlockOut(BaseModel):
     content: str
     border_style: str
     parent_id: str | None
-    metadata: dict
+    meta: dict
     order: int
     created_at: str
     updated_at: str

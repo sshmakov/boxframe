@@ -39,7 +39,7 @@ class Block(Base):
     height: Mapped[int] = mapped_column(Integer, default=3)
     content: Mapped[str] = mapped_column(String(2000), default="")
     border_style: Mapped[str] = mapped_column(String(16), default="solid")
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
     order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
