@@ -19,4 +19,8 @@ class Layout(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     project: Mapped["Project"] = relationship(back_populates="layouts")
-    blocks: Mapped[list["Block"]] = relationship(back_populates="layout", cascade="all, delete-orphan")
+    blocks: Mapped[list["Block"]] = relationship(
+        back_populates="layout",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )

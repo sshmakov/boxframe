@@ -328,7 +328,7 @@
             </div>
 
             <div class="block-list">
-                <h4>Blocks ({{ blocks.length }})</h4>
+                <h4 x-text="'Blocks (' + blocks.length + ')'"></h4>
                 <template x-for="(block, idx) in blocks" :key="block.id">
                     <div class="block-item">
                         <span>

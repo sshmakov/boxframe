@@ -17,6 +17,25 @@ router = APIRouter(prefix="/api/layouts", tags=["layouts"])
 
 # ── Pydantic schemas ──────────────────────────────────────
 
+class BlockOut(BaseModel):
+    id: str
+    block_type: str
+    x: int
+    y: int
+    width: int
+    height: int
+    content: str
+    border_style: str
+    parent_id: str | None
+    meta: dict
+    order: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class LayoutCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     width: int = Field(default=80, ge=20, le=200)
@@ -35,6 +54,7 @@ class LayoutOut(BaseModel):
     name: str
     width: int
     height: int
+    blocks: list[BlockOut] = []
     created_at: datetime
     updated_at: datetime
 
@@ -64,25 +84,6 @@ class BlockUpdate(BaseModel):
     border_style: str | None = None
     parent_id: str | None = None
     meta: dict | None = None
-
-
-class BlockOut(BaseModel):
-    id: str
-    block_type: str
-    x: int
-    y: int
-    width: int
-    height: int
-    content: str
-    border_style: str
-    parent_id: str | None
-    meta: dict
-    order: int
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class RenderOut(BaseModel):
