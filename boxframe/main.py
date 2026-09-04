@@ -4,7 +4,10 @@ boxframe — Pseudo-graphic UI mockup editor.
 FastAPI backend with HTMX + Alpine.js frontend.
 """
 
+import logging
+import logging.handlers
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse
@@ -12,6 +15,36 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from boxframe.database import init_db
+
+# ── Server logging ─────────────────────────────────────────
+
+LOG_DIR = Path(__file__).resolve().parent.parent / "log"
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / "boxframe.log"
+
+file_handler = logging.handlers.RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=5 * 1024 * 1024,  # 5 MB
+    backupCount=3,
+    encoding="utf-8",
+)
+file_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+))
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+))
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[file_handler, console_handler],
+)
+logger = logging.getLogger("boxframe")
+
 from boxframe.api.projects import router as projects_router
 from boxframe.api.layouts import router as layouts_router
 from boxframe.api.test_cleanup import router as test_cleanup_router
@@ -24,7 +57,9 @@ from sqlalchemy import select
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("boxframe starting — logs: %s", LOG_FILE)
     await init_db()
+    logger.info("boxframe ready")
     yield
 
 app = FastAPI(
@@ -115,3 +150,13 @@ async def api_page_project(request: Request, project_id: str):
         "project": project,
         "project_name": project.name,
     })
+
+
+# ── Request logging middleware ─────────────────────────────
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info("%s %s", request.method, request.url.path)
+    response = await call_next(request)
+    logger.info("%s %s → %d", request.method, request.url.path, response.status_code)
+    return response
