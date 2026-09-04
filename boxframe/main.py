@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from boxframe.database import init_db
 from boxframe.api.projects import router as projects_router
 from boxframe.api.layouts import router as layouts_router
+from boxframe.api.test_cleanup import router as test_cleanup_router
 from boxframe.models.layout import Layout
 from boxframe.models.project import Project
 from boxframe.services.layout_service import LayoutService
@@ -42,6 +43,7 @@ templates = Jinja2Templates(directory="boxframe/templates")
 
 app.include_router(projects_router)
 app.include_router(layouts_router)
+app.include_router(test_cleanup_router)
 
 
 # ── Page routes ───────────────────────────────────────────
@@ -93,6 +95,7 @@ async def page_editor(request: Request, layout_id: str):
         "request": request,
         "layout": layout,
         "project_name": project.name if project else "Unknown",
+        "blocks": layout.blocks,
     })
 
 

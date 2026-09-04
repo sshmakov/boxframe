@@ -55,12 +55,12 @@ def test_new_layout_button_toggles_form(page: Page):
     expect(page.get_by_placeholder("Project name...")).to_be_visible()
 
     # Fill and submit the project form
-    page.get_by_placeholder("Project name...").fill("E2E Layout Test")
+    page.get_by_placeholder("Project name...").fill("E2E: Layout Test")
     page.get_by_role("button", name="Create").click()
 
     # Should redirect to the project page
-    expect(page).to_have_title("E2E Layout Test — boxframe")
-    expect(page.get_by_role("heading", name="E2E Layout Test")).to_be_visible()
+    expect(page).to_have_title("E2E: Layout Test — boxframe")
+    expect(page.get_by_role("heading", name="E2E: Layout Test")).to_be_visible()
 
     # Layout form should be hidden initially (x-cloak)
     expect(page.get_by_placeholder("Layout name...")).not_to_be_visible()
@@ -85,11 +85,11 @@ def test_new_layout_submit_creates_layout(page: Page):
     expect(page.get_by_placeholder("Project name...")).to_be_visible()
 
     # Fill and submit the project form
-    page.get_by_placeholder("Project name...").fill("E2E Layout Create Test")
+    page.get_by_placeholder("Project name...").fill("E2E: Layout Create Test")
     page.get_by_role("button", name="Create").click()
 
     # Should redirect to the project page
-    expect(page).to_have_title("E2E Layout Create Test — boxframe")
+    expect(page).to_have_title("E2E: Layout Create Test — boxframe")
 
     # Open the "New Layout" form
     page.get_by_role("button", name="+ New Layout").click()
