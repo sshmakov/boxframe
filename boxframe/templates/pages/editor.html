@@ -62,7 +62,6 @@
 .canvas-container {
     background: #1a1a2e;
     border-radius: 8px;
-    padding: 16px;
     overflow: auto;
     position: relative;
     min-height: 200px;
@@ -70,11 +69,18 @@
 
 .canvas-drag-overlay {
     position: absolute;
-    top: 16px;
-    left: 16px;
-    right: 16px;
-    bottom: 16px;
+    inset: 0;
     pointer-events: none;
+}
+
+/* ── Render wrapper: shared coordinate system with <pre> ──── */
+
+.render-wrapper {
+    position: relative;
+    display: block;
+    font-size: 12px;
+    /* padding moved to <pre> margin so overlay coordinates align with
+       the actual character grid (no padding-vs-margin offset mismatch) */
 }
 
 .drag-preview {
@@ -120,16 +126,14 @@
 
 /* ── Render overlay (block previews + resize handles) ──── */
 
-.render-wrapper {
-    position: relative;
-    display: inline-block;
-    padding: 16px;
-}
-
 .block-preview {
     position: absolute;
     pointer-events: auto;
     z-index: 10;
+    /* Shift overlays to match <pre> margin so coordinates align with
+       the actual character grid */
+    margin-left: 16px;
+    margin-top: 16px;
 }
 
 .block-inner {
@@ -145,23 +149,19 @@
 }
 
 .block-border--solid {
-    border: 2px solid rgba(136, 136, 170, 0.5);
-    border-radius: 2px;
+    outline: 1px solid rgba(136, 136, 170, 0.5);
 }
 
 .block-border--dashed {
-    border: 2px dashed rgba(136, 136, 170, 0.5);
-    border-radius: 2px;
+    outline: 1px dashed rgba(136, 136, 170, 0.5);
 }
 
 .block-border--dotted {
-    border: 2px dotted rgba(136, 136, 170, 0.5);
-    border-radius: 2px;
+    outline: 1px dotted rgba(136, 136, 170, 0.5);
 }
 
 .block-border--double {
-    border: 3px double rgba(136, 136, 170, 0.5);
-    border-radius: 2px;
+    outline: 2px double rgba(136, 136, 170, 0.5);
 }
 
 /* Resize handle — bottom-right corner */

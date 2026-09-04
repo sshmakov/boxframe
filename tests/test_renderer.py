@@ -164,10 +164,11 @@ def test_render_block_to_html_preview():
     assert 'data-block-id="block-123"' in html
     assert 'class="block-preview"' in html
     assert 'class="resize-handle"' in html
-    assert "left:2em" in html
-    assert "top:1.2em" in html
-    assert "width:10em" in html
-    assert "height:3.6em" in html
+    # Default char_width_px=12, char_height_px=14.4
+    assert "left:24px" in html
+    assert "top:14.4px" in html
+    assert "width:120px" in html
+    assert "height:43.2px" in html
 
 
 def test_render_block_to_html_preview_no_border():
@@ -192,7 +193,9 @@ def test_render_html_preview_single_block():
     assert 'data-block-id="b1"' in html
     assert 'class="block-preview"' in html
     assert 'class="resize-handle"' in html
-    assert "left:0em" in html
+    # Default char_width_px=12 → left:0px, width:240px
+    assert "left:0px" in html
+    assert "width:240px" in html
 
 
 def test_render_html_preview_with_children():

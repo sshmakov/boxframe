@@ -64,24 +64,30 @@ function editorApp() {
             if (!pre) return;
             // Measure a single character width from the rendered <pre>
             const sample = document.createElement('span');
-            sample.style.fontFamily = "'Courier New', monospace";
+            sample.style.fontFamily = getComputedStyle(pre).fontFamily;
             sample.style.fontSize = getComputedStyle(pre).fontSize;
             sample.style.fontWeight = getComputedStyle(pre).fontWeight;
+            sample.style.lineHeight = getComputedStyle(pre).lineHeight;
             sample.textContent = 'W';
             pre.appendChild(sample);
             this.charWidth = sample.getBoundingClientRect().width;
+            this.charHeight = sample.getBoundingClientRect().height;
             pre.removeChild(sample);
-            // Character height ≈ line-height
-            this.charHeight = parseFloat(getComputedStyle(pre).lineHeight) || 14;
+            // Fallback to line-height if getBoundingClientRect returns 0
+            if (this.charHeight <= 0) {
+                this.charHeight = parseFloat(getComputedStyle(pre).lineHeight) || 14;
+            }
         },
 
         // ── Pixel → grid conversion ─────────────────────────────
+        // Coordinate origin: top-left of .render-wrapper content area.
+        // Offset = wrapper padding only (container has no padding now).
 
         _pixelToGrid(px, py) {
             const container = document.querySelector('.canvas-container');
             if (!container || !this.charWidth) return { x: 0, y: 0 };
             const rect = container.getBoundingClientRect();
-            const pad = 16; // matches CSS padding
+            const pad = 16; // wrapper padding only
             const gx = Math.max(0, Math.min(
                 (px - rect.left - pad) / this.charWidth,
                 this.layoutWidth - 1
@@ -481,7 +487,18 @@ function editorApp() {
         },
 
         async refreshRender() {
-            const res = await fetch(`/api/layouts/${this.layoutId}/render`);
+            // Measure real character size and pass it to the server so overlays
+            // use exact pixel dimensions instead of assuming 1em = font-size.
+            if (!this.charWidth) {
+                this._measureCharSize();
+            }
+            const cw = this.charWidth || 12;
+            const ch = this.charHeight || 14.4;
+            const res = await fetch(
+                `/api/layouts/${this.layoutId}/render`
+                + `?char_width_px=${cw.toFixed(2)}`
+                + `&char_height_px=${ch.toFixed(2)}`
+            );
             const data = await res.json();
             this.rawText = data.ascii;
             this.htmlPreview = data.html;

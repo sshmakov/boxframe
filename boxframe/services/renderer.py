@@ -36,27 +36,26 @@ class RenderBlock:
 
     # ── HTML preview generation ─────────────────────────────
 
-    def to_html_preview(self, block_id: str, char_width: str = "1em", char_height: str = "1.2em") -> str:
-        """Generate an HTML preview div for this block with a resize handle."""
-        cw = float(char_width.rstrip("em"))
-        ch = float(char_height.rstrip("em"))
+    def to_html_preview(self, block_id: str, char_width_px: float = 12.0, char_height_px: float = 14.4) -> str:
+        """Generate an HTML preview div for this block with a resize handle.
 
-        def _fmt(v: int, factor: float) -> str:
-            result = round(v * factor, 4)
-            # Use integer format when possible (e.g. "2em" not "2.0em")
-            if result == int(result):
-                return f"{int(result)}em"
-            return f"{result}em"
+        Uses pixel dimensions so the overlay matches the actual character size
+        (which may differ from font-size in some fonts).
+        """
+        left = round(self.x * char_width_px, 1)
+        top = round(self.y * char_height_px, 1)
+        w = round(self.width * char_width_px, 1)
+        h = round(self.height * char_height_px, 1)
 
-        left = _fmt(self.x, cw)
-        top = _fmt(self.y, ch)
-        w = _fmt(self.width, cw)
-        h = _fmt(self.height, ch)
+        def _fmt(v: float) -> str:
+            if v == int(v):
+                return f"{int(v)}px"
+            return f"{v}px"
 
         return (
             f'<div class="block-preview" data-block-id="{block_id}"'
-            f' style="position:absolute;left:{left};top:{top};'
-            f'width:{w};height:{h};">'
+            f' style="position:absolute;left:{_fmt(left)};top:{_fmt(top)};'
+            f'width:{_fmt(w)};height:{_fmt(h)};">'
             f'<div class="block-inner block-{self.block_type}">'
             f"{self._border_html()}"
             f"</div>"
@@ -271,8 +270,8 @@ class PseudoGraphicRenderer:
         blocks_data: list[dict],
         width: int = 80,
         height: int = 24,
-        char_width: str = "1em",
-        char_height: str = "1.2em",
+        char_width_px: float = 12.0,
+        char_height_px: float = 14.4,
     ) -> str:
         """Generate an HTML preview with positioned block divs and resize handles."""
         parts: list[str] = []
@@ -287,7 +286,7 @@ class PseudoGraphicRenderer:
                 border_style=bd.get("border_style", "solid"),
             )
             # Flatten children for the preview (all blocks on the same layer)
-            parts.append(rb.to_html_preview(bd["id"], char_width, char_height))
+            parts.append(rb.to_html_preview(bd["id"], char_width_px, char_height_px))
             for c in bd.get("children", []):
                 crb = RenderBlock(
                     x=c.get("x", 0),
@@ -298,5 +297,5 @@ class PseudoGraphicRenderer:
                     content=c.get("content", ""),
                     border_style=c.get("border_style", "solid"),
                 )
-                parts.append(crb.to_html_preview(c["id"], char_width, char_height))
+                parts.append(crb.to_html_preview(c["id"], char_width_px, char_height_px))
         return "\n".join(parts)

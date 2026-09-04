@@ -4,7 +4,7 @@ Layout API routes.
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -173,8 +173,18 @@ async def delete_block(layout_id: str, block_id: str, db: AsyncSession = Depends
 # ── Rendering ─────────────────────────────────────────────
 
 @router.get("/{layout_id}/render", response_model=RenderOut)
-async def render_layout(layout_id: str, db: AsyncSession = Depends(get_db)):
-    """Render layout to pseudo-graphic ASCII art."""
+async def render_layout(
+    layout_id: str,
+    char_width_px: float = Query(default=12.0, ge=1, le=50),
+    char_height_px: float = Query(default=14.4, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Render layout to pseudo-graphic ASCII art.
+
+    char_width_px / char_height_px — measured pixel dimensions of a single
+    character.  JS measures the real <pre> character size and passes them
+    back so overlays match exactly.
+    """
     service = LayoutService(db)
     ascii_art = await service.render_layout(layout_id)
     if ascii_art is None:
@@ -184,20 +194,25 @@ async def render_layout(layout_id: str, db: AsyncSession = Depends(get_db)):
     layout = await service.get_layout(layout_id)
     html = ""
     if layout:
+        # Compute exact pixel dimensions so <pre> and overlays share the same size.
+        pre_width = layout.width * char_width_px
+        pre_height = round(layout.height * char_height_px, 1)
         ascii_html = (
             f'<pre style="font-family: monospace; font-size: 12px; '
-            f'line-height: 1.2; background: #1a1a2e; color: #e0e0e0; '
-            f'border-radius: 8px; overflow-x: auto;">'
+            f'line-height: 1.2; display: block; margin: 16px; '
+            f'width:{pre_width}px; height:{pre_height}px; '
+            f'background: #1a1a2e; color: #e0e0e0;">'
             f"{ascii_art.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</pre>"
         )
         blocks_data = _serialize_blocks_for_html(layout.blocks)
         block_previews_html = PseudoGraphicRenderer.render_html_preview(
             blocks_data,
-            char_width="1em",
-            char_height="1.2em",
+            char_width_px=char_width_px,
+            char_height_px=char_height_px,
         )
         html = (
-            f'<div class="render-wrapper">'
+            f'<div class="render-wrapper" '
+            f'style="width:{pre_width}px; height:{pre_height}px;">'
             f"{ascii_html}"
             f"{block_previews_html}"
             f"</div>"
