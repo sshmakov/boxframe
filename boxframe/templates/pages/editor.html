@@ -183,7 +183,7 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="editorApp()" x-init="init()">
+<div x-data="editorApp()" x-init="init()" data-layout-id="{{ layout.id }}" data-project-id="{{ layout.project_id }}">
     <div class="flex-between mb-4">
         <div>
             <a href="/project/{{ layout.project_id }}" class="back-link">← {{ project_name }}</a>

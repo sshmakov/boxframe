@@ -29,9 +29,8 @@ function editorApp() {
         },
 
         async fetchInfo() {
-            // Determine project ID from page
-            const projectLink = document.querySelector('.back-link');
-            const projectId = projectLink?.href?.split('/project/')[1]?.split('/')[0];
+            const root = document.querySelector('[data-layout-id]');
+            const projectId = root?.dataset.projectId;
             if (!projectId) return;
 
             const res = await fetch(`/api/projects/${projectId}/info`);
