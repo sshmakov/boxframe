@@ -11,6 +11,22 @@ function editorApp() {
         htmlPreview: '',
         loading: true,
 
+        // ── Drag state ──────────────────────────────────────────
+        dragMode: null,          // 'palette' | 'move' | null
+        dragType: null,          // block type string (palette drag)
+        dragBlock: null,         // block object (move drag)
+        dragStartX: 0,
+        dragStartY: 0,
+        dragOffsetX: 0,
+        dragOffsetY: 0,
+        dragGridX: -1,
+        dragGridY: -1,
+        previewEl: null,
+        charWidth: 0,
+        charHeight: 0,
+        layoutWidth: 80,
+        layoutHeight: 24,
+
         async init() {
             // Extract layout ID from page (set by server)
             this.layoutId = document.querySelector('[data-layout-id]')?.dataset.layoutId;
@@ -25,7 +41,258 @@ function editorApp() {
                 this.refreshRender()
             ]);
 
+            this._measureCharSize();
+            this._bindGlobalMouseUp();
             this.loading = false;
+        },
+
+        // ── Char-size measurement ───────────────────────────────
+
+        _measureCharSize() {
+            const pre = document.querySelector('.canvas-container pre');
+            if (!pre) return;
+            // Measure a single character width from the rendered <pre>
+            const sample = document.createElement('span');
+            sample.style.fontFamily = "'Courier New', monospace";
+            sample.style.fontSize = getComputedStyle(pre).fontSize;
+            sample.style.fontWeight = getComputedStyle(pre).fontWeight;
+            sample.textContent = 'W';
+            pre.appendChild(sample);
+            this.charWidth = sample.getBoundingClientRect().width;
+            pre.removeChild(sample);
+            // Character height ≈ line-height
+            this.charHeight = parseFloat(getComputedStyle(pre).lineHeight) || 14;
+        },
+
+        // ── Pixel → grid conversion ─────────────────────────────
+
+        _pixelToGrid(px, py) {
+            const container = document.querySelector('.canvas-container');
+            if (!container || !this.charWidth) return { x: 0, y: 0 };
+            const rect = container.getBoundingClientRect();
+            const pad = 16; // matches CSS padding
+            const gx = Math.max(0, Math.min(
+                (px - rect.left - pad) / this.charWidth,
+                this.layoutWidth - 1
+            ));
+            const gy = Math.max(0, Math.min(
+                (py - rect.top - pad) / this.charHeight,
+                this.layoutHeight - 1
+            ));
+            return { x: Math.floor(gx), y: Math.floor(gy) };
+        },
+
+        // ── Preview overlay ─────────────────────────────────────
+
+        _showPreview(gx, gy) {
+            this.dragGridX = gx;
+            this.dragGridY = gy;
+            if (this.previewEl) {
+                this.previewEl.style.left = (gx * this.charWidth) + 'px';
+                this.previewEl.style.top = (gy * this.charHeight) + 'px';
+            }
+        },
+
+        _ensurePreviewEl() {
+            if (this.previewEl) return this.previewEl;
+            const container = document.querySelector('.canvas-container');
+            if (!container) return null;
+            const el = document.createElement('div');
+            el.className = 'drag-preview';
+            el.style.position = 'absolute';
+            el.style.pointerEvents = 'none';
+            el.style.width = (20 * this.charWidth) + 'px';
+            el.style.height = (3 * this.charHeight) + 'px';
+            el.style.border = '2px dashed #e94560';
+            el.style.borderRadius = '4px';
+            el.style.background = 'rgba(233, 69, 96, 0.15)';
+            el.style.display = 'none';
+            const overlay = container.querySelector('.canvas-drag-overlay');
+            if (overlay) {
+                overlay.appendChild(el);
+                this.previewEl = el;
+            }
+            return el;
+        },
+
+        _hidePreview() {
+            if (this.previewEl) {
+                this.previewEl.style.display = 'none';
+            }
+        },
+
+        // ── Global mouse-up (catches drops outside canvas) ──────
+
+        _bindGlobalMouseUp() {
+            document.addEventListener('mouseup', () => this._onGlobalMouseUp());
+        },
+
+        _onGlobalMouseUp() {
+            if (!this.dragMode) return;
+
+            if (this.dragMode === 'move' && this.dragBlock && this.dragGridX >= 0) {
+                this._commitBlockMove();
+            }
+
+            this._clearDragState();
+        },
+
+        _clearDragState() {
+            this.dragMode = null;
+            this.dragType = null;
+            this.dragBlock = null;
+            this._hidePreview();
+            this.previewEl = null;
+        },
+
+        // ── Palette drag ────────────────────────────────────────
+
+        onPaletteDragStart(e) {
+            this.dragMode = 'palette';
+            this.dragType = e.target.closest('.palette-btn')?.dataset?.blockType;
+            if (!this.dragType) {
+                this.dragMode = null;
+                return;
+            }
+            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.setData('text/plain', this.dragType);
+            // Delay visual so the button doesn't look "dragging"
+            requestAnimationFrame(() => {
+                if (e.target.closest('.palette-btn')) {
+                    e.target.closest('.palette-btn').style.opacity = '0.5';
+                }
+            });
+        },
+
+        onPaletteDragEnd(e) {
+            const btn = e.target.closest('.palette-btn');
+            if (btn) btn.style.opacity = '';
+            if (this.dragMode === 'palette') {
+                this._clearDragState();
+            }
+        },
+
+        onCanvasDragOver(e) {
+            if (this.dragMode === 'palette') {
+                e.currentTarget.classList.add('drag-over');
+            }
+        },
+
+        onCanvasDragLeave(e) {
+            e.currentTarget.classList.remove('drag-over');
+        },
+
+        // ── Canvas drop (palette → new block) ───────────────────
+
+        onCanvasDrop(e) {
+            e.preventDefault();
+            if (this.dragMode !== 'palette' || !this.dragType) return;
+
+            const pos = this._pixelToGrid(e.clientX, e.clientY);
+            const w = this.dragType === 'button' ? 12 : 20;
+            const h = this.dragType === 'button' ? 1 : 3;
+
+            // Clamp to layout bounds
+            pos.x = Math.max(0, Math.min(pos.x, this.layoutWidth - w));
+            pos.y = Math.max(0, Math.min(pos.y, this.layoutHeight - h));
+
+            fetch(`/api/layouts/${this.layoutId}/blocks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    block_type: this.dragType,
+                    x: pos.x,
+                    y: pos.y,
+                    width: w,
+                    height: h,
+                    content: this.dragType === 'button' ? 'Button' : `[${this.dragType}]`
+                })
+            }).then(r => r.json()).then(block => {
+                this.blocks.push(block);
+                this.refreshRender();
+            });
+
+            this._clearDragState();
+        },
+
+        // ── Canvas mouse drag (move existing block) ─────────────
+
+        onCanvasMouseDown(e) {
+            // Only left button
+            if (e.button !== 0) return;
+
+            // Find block under cursor by checking block-list order
+            // and using the canvas overlay position
+            const pos = this._pixelToGrid(e.clientX, e.clientY);
+
+            // Find the block whose area contains the cursor
+            const block = this.blocks.find(b =>
+                pos.x >= b.x && pos.y >= b.y &&
+                pos.x < b.x + b.width && pos.y < b.y + b.height
+            );
+            if (!block) return;
+
+            // Don't drag if clicking delete button
+            if (e.target.closest('.delete-block')) return;
+
+            this.dragMode = 'move';
+            this.dragBlock = block;
+            this.dragStartX = e.clientX;
+            this.dragStartY = e.clientY;
+            this.dragOffsetX = pos.x - block.x;
+            this.dragOffsetY = pos.y - block.y;
+            this.dragGridX = block.x;
+            this.dragGridY = block.y;
+
+            // Show preview
+            const preview = this._ensurePreviewEl();
+            if (preview) {
+                preview.style.width = (block.width * this.charWidth) + 'px';
+                preview.style.height = (block.height * this.charHeight) + 'px';
+                preview.style.display = 'block';
+                this._showPreview(block.x, block.y);
+            }
+
+            e.preventDefault();
+        },
+
+        onCanvasMouseMove(e) {
+            if (this.dragMode !== 'move' || !this.dragBlock) return;
+
+            const pos = this._pixelToGrid(e.clientX, e.clientY);
+            const gx = Math.max(0, pos.x - this.dragOffsetX);
+            const gy = Math.max(0, pos.y - this.dragOffsetY);
+            const block = this.dragBlock;
+
+            // Clamp to layout bounds
+            const clampedX = Math.min(gx, this.layoutWidth - block.width);
+            const clampedY = Math.min(gy, this.layoutHeight - block.height);
+
+            this._showPreview(clampedX, clampedY);
+            e.preventDefault();
+        },
+
+        async _commitBlockMove() {
+            if (!this.dragBlock || this.dragGridX < 0) return;
+            const block = this.dragBlock;
+            const oldX = block.x;
+            const oldY = block.y;
+
+            try {
+                await fetch(`/api/layouts/${this.layoutId}/blocks/${block.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ x: this.dragGridX, y: this.dragGridY })
+                });
+                block.x = this.dragGridX;
+                block.y = this.dragGridY;
+                await this.refreshRender();
+            } catch (err) {
+                // Rollback on error
+                block.x = oldX;
+                block.y = oldY;
+                console.error('Failed to move block:', err);
+            }
         },
 
         async fetchInfo() {
@@ -42,6 +309,9 @@ function editorApp() {
             // Fetch all blocks for this layout
             const res = await fetch(`/api/layouts/${this.layoutId}`);
             const data = await res.json();
+            // Capture layout dimensions for drag calculations
+            this.layoutWidth = data.width || 80;
+            this.layoutHeight = data.height || 24;
             // Blocks are nested in the layout response
             this.blocks = this._flattenBlocks(data.blocks || []);
         },
