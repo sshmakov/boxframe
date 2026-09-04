@@ -2,6 +2,8 @@
 Layout API routes.
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,8 +34,8 @@ class LayoutOut(BaseModel):
     name: str
     width: int
     height: int
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -75,8 +77,8 @@ class BlockOut(BaseModel):
     parent_id: str | None
     meta: dict
     order: int
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
