@@ -316,6 +316,7 @@ function editorApp() {
                 })
             }).then(r => r.json()).then(block => {
                 this.blocks.push(block);
+                this._reorderBlocks();
                 this.refreshRender();
             });
 
@@ -486,6 +487,7 @@ function editorApp() {
             this.layoutHeight = data.height || 24;
             // Blocks are nested in the layout response
             this.blocks = this._flattenBlocks(data.blocks || []);
+            this._reorderBlocks();
         },
 
         _flattenBlocks(blocks) {
@@ -499,6 +501,11 @@ function editorApp() {
             return flat;
         },
 
+        _reorderBlocks() {
+            // Sort blocks by order so list position matches z-order
+            this.blocks.sort((a, b) => a.order - b.order);
+        },
+
         get maxOrder() {
             if (this.blocks.length === 0) return 0;
             return Math.max(...this.blocks.map(b => b.order));
@@ -508,6 +515,7 @@ function editorApp() {
             const block = this.blocks.find(b => b.id === blockId);
             if (!block) return;
 
+            const oldOrder = block.order;
             const newOrder = block.order + delta;
             if (newOrder < 0) return;
 
@@ -528,10 +536,12 @@ function editorApp() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ order: block.order })
                 });
+                // Re-sort list so position reflects z-order
+                this._reorderBlocks();
                 await this.refreshRender();
             } catch (err) {
                 // Rollback on error
-                block.order -= delta;
+                block.order = oldOrder;
                 if (other) {
                     other.order = newOrder;
                 }
@@ -578,6 +588,7 @@ function editorApp() {
             });
             const block = await res.json();
             this.blocks.push(block);
+            this._reorderBlocks();
             await this.refreshRender();
         },
 
@@ -587,6 +598,7 @@ function editorApp() {
                 method: 'DELETE'
             });
             this.blocks = this.blocks.filter(b => b.id !== blockId);
+            this._reorderBlocks();
             await this.refreshRender();
         },
 
