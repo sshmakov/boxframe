@@ -45,8 +45,8 @@ def _create_e2e_layout(page: Page, project_id: str, name: str = "E2E: Canvas") -
     page.get_by_placeholder("Layout name...").fill(name)
     page.get_by_role("button", name="Create").click()
 
-    # Wait for navigation to editor page by checking the preview
-    expect(page.get_by_text("Preview")).to_be_visible()
+    # Wait for navigation to editor page by checking the canvas
+    expect(page.locator(".canvas-container").first).to_be_visible()
 
     layout_id = page.url.split("/")[-1]
     return layout_id
@@ -94,7 +94,7 @@ def test_drag_from_palette_creates_block(page: Page):
     layout_id = _create_e2e_layout(page, project_id)
 
     # Wait for editor to load
-    expect(page.get_by_text("Preview")).to_be_visible()
+    expect(page.locator(".canvas-container").first).to_be_visible()
 
     # Get palette button for "box" type
     box_button = page.locator(".palette-btn").filter(has_text="box").first
@@ -105,14 +105,7 @@ def test_drag_from_palette_creates_block(page: Page):
     # Perform drag and drop
     box_button.drag_to(canvas, force=True)
 
-    # Wait a moment for the API call to complete
-    page.wait_for_timeout(500)
-
-    # Refresh render to see the new block
-    page.get_by_role("button", name="↻ Refresh").click()
-    page.wait_for_timeout(300)
-
-    # Verify a block was created by checking the block list
+    # The editor auto-refreshes; wait for the block list to update
     block_items = page.locator(".block-item")
     expect(block_items).to_have_count(1)
 
@@ -155,11 +148,7 @@ def test_drag_existing_block_to_new_position(page: Page):
     page.wait_for_timeout(200)
     page.mouse.up()
 
-    # Refresh render to see the updated position
-    page.get_by_role("button", name="↻ Refresh").click()
-    page.wait_for_timeout(300)
-
-    # Verify the block still exists (wasn't deleted)
+    # The editor auto-refreshes; verify the block still exists (wasn't deleted)
     expect(block_items).to_have_count(1)
 
 
@@ -180,11 +169,7 @@ def test_multiple_blocks_via_palette_drag(page: Page):
     button_button.drag_to(canvas, force=True)
     page.wait_for_timeout(400)
 
-    # Refresh render
-    page.get_by_role("button", name="↻ Refresh").click()
-    page.wait_for_timeout(300)
-
-    # Verify two blocks were created
+    # The editor auto-refreshes; verify two blocks were created
     block_items = page.locator(".block-item")
     expect(block_items).to_have_count(2)
 
@@ -196,13 +181,8 @@ def test_block_list_shows_coordinates(page: Page):
 
     # Create a block
     page.get_by_role("button", name="box").first.click()
-    page.wait_for_timeout(300)
 
-    # Refresh to update the block list
-    page.get_by_role("button", name="↻ Refresh").click()
-    page.wait_for_timeout(300)
-
-    # The block list should show the block with its coordinates
+    # The editor auto-refreshes; the block list should show the block
     block_items = page.locator(".block-item")
     expect(block_items).to_be_visible()
 
