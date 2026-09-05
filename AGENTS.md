@@ -52,9 +52,9 @@ boxframe/
 
 ### Блоки
 
-Типы: `box`, `header`, `footer`, `sidebar`, `content`, `button`, `input`, `textarea`, `image`, `divider`, `text`, `grid`
+Типы: `box`, `header`, `footer`, `sidebar`, `content`, `button`, `input`, `textarea`, `image`, `divider`, `hline`, `vline`, `text`, `grid`
 
-Стили границ: `solid` (─│), `dashed` (┄┆), `dotted` (┈┊), `double` (═║), `none`
+Стили границ: `solid` (─│), `dashed` (┄┆), `dotted` (┈┊), `double` (═║), `none` — применяются и к рамкам блоков, и к линиям (`hline`/`vline` рисуются символом выбранного стиля)
 
 Дерево: `Block.parent_id → Block.children`, хранится в SQLite.
 

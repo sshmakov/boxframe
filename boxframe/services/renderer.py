@@ -76,6 +76,9 @@ class RenderBlock:
 
     def _border_html(self) -> str:
         """Generate border HTML for a block."""
+        if self.border_style == "none":
+            return ""
+
         border_map = {
             "solid": "solid",
             "dashed": "dashed",
@@ -83,8 +86,14 @@ class RenderBlock:
             "double": "double",
         }
         style = border_map.get(self.border_style, "solid")
-        if self.border_style == "none":
-            return ""
+
+        if self.block_type in ("hline", "vline"):
+            direction = "h" if self.block_type == "hline" else "v"
+            return (
+                f'<div class="block-line block-line--{direction} block-line--{style}">'
+                f"</div>"
+            )
+
         return (
             f'<div class="block-border block-border--{style}"'
             f' style="width:100%;height:100%;">'
@@ -140,6 +149,12 @@ class PseudoGraphicRenderer:
     def _render_block(self, block: RenderBlock) -> None:
         """Render a single block (including children) onto the grid."""
         style_map = BORDERS.get(block.border_style, BORDERS["solid"])
+
+        if block.block_type in ("hline", "vline"):
+            if block.border_style != "none":
+                self._draw_line(block, style_map)
+            return
+
         has_border = block.border_style != "none" and block.width >= 2 and block.height >= 2
 
         if has_border:
@@ -180,6 +195,20 @@ class PseudoGraphicRenderer:
         for j in range(1, h - 1):
             self.grid[y + j][x] = style["v"]
             self.grid[y + j][x + w - 1] = style["v"]
+
+    def _draw_line(self, block: RenderBlock, style: dict[str, str]) -> None:
+        """Draw an hline (top row) or vline (left column) with style characters."""
+        x = max(0, min(block.x, self.grid_width - 1))
+        y = max(0, min(block.y, self.grid_height - 1))
+
+        if block.block_type == "hline":
+            w = min(block.width, self.grid_width - x)
+            for i in range(max(1, w)):
+                self.grid[y][x + i] = style["h"]
+        else:  # vline
+            h = min(block.height, self.grid_height - y)
+            for j in range(max(1, h)):
+                self.grid[y + j][x] = style["v"]
 
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""

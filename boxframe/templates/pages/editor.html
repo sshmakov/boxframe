@@ -210,6 +210,22 @@
     cursor: default;
 }
 
+.style-select {
+    background: #1a1a2e;
+    color: #aaa;
+    border: 1px solid #333;
+    border-radius: 3px;
+    font-size: 10px;
+    padding: 1px 2px;
+    cursor: pointer;
+    max-width: 72px;
+}
+
+.style-select:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
 .delete-block {
     color: var(--accent);
     cursor: pointer;
@@ -301,6 +317,24 @@
 .block-border--dashed { outline: 1px dashed rgba(136, 136, 170, 0.5); }
 .block-border--dotted { outline: 1px dotted rgba(136, 136, 170, 0.5); }
 .block-border--double { outline: 2px double rgba(136, 136, 170, 0.5); }
+
+/* Line blocks (hline / vline) */
+.block-line {
+    position: absolute;
+    pointer-events: none;
+}
+
+.block-line--h { left: 0; right: 0; top: 50%; }
+.block-line--v { top: 0; bottom: 0; left: 50%; }
+
+.block-line--h.block-line--solid { border-top: 1px solid rgba(136, 136, 170, 0.5); }
+.block-line--h.block-line--dashed { border-top: 1px dashed rgba(136, 136, 170, 0.5); }
+.block-line--h.block-line--dotted { border-top: 1px dotted rgba(136, 136, 170, 0.5); }
+.block-line--h.block-line--double { border-top: 3px double rgba(136, 136, 170, 0.5); }
+.block-line--v.block-line--solid { border-left: 1px solid rgba(136, 136, 170, 0.5); }
+.block-line--v.block-line--dashed { border-left: 1px dashed rgba(136, 136, 170, 0.5); }
+.block-line--v.block-line--dotted { border-left: 1px dotted rgba(136, 136, 170, 0.5); }
+.block-line--v.block-line--double { border-left: 3px double rgba(136, 136, 170, 0.5); }
 
 /* Resize handle — bottom-right corner */
 .resize-handle {
@@ -425,6 +459,13 @@
                                 <span class="block-order" x-text="'#' + block.order"></span>
                             </span>
                             <span class="block-actions">
+                                <select class="style-select" :value="block.border_style"
+                                        @change="updateBlockStyle(block.id, $event.target.value)"
+                                        title="Border / line style">
+                                    <template x-for="s in borderStyles" :key="s">
+                                        <option :value="s" x-text="s"></option>
+                                    </template>
+                                </select>
                                 <button class="order-btn" @click="moveBlockOrder(block.id, -1)" :disabled="block.order <= 0" title="Move down (lower z-index)">↓</button>
                                 <button class="order-btn" @click="moveBlockOrder(block.id, 1)" :disabled="block.order >= maxOrder" title="Move up (higher z-index)">↑</button>
                                 <button class="delete-block" @click="deleteBlock(block.id)" title="Delete">×</button>

@@ -7,6 +7,7 @@ function editorApp() {
         layoutId: null,
         blocks: [],
         blockTypes: [],
+        borderStyles: [],
         rawText: '',
         htmlPreview: '',
         loading: true,
@@ -295,8 +296,9 @@ function editorApp() {
             if (this.dragMode !== 'palette' || !this.dragType) return;
 
             const pos = this._pixelToGrid(e.clientX, e.clientY);
-            const w = this.dragType === 'button' ? 12 : 20;
-            const h = this.dragType === 'button' ? 1 : 3;
+            const defaults = this._blockDefaults(this.dragType);
+            const w = defaults.width;
+            const h = defaults.height;
 
             // Clamp to layout bounds
             pos.x = Math.max(0, Math.min(pos.x, this.layoutWidth - w));
@@ -315,7 +317,7 @@ function editorApp() {
                     y: pos.y,
                     width: w,
                     height: h,
-                    content: this.dragType === 'button' ? 'Button' : `[${this.dragType}]`,
+                    content: defaults.content,
                     order: maxOrder + 1
                 })
             }).then(r => r.json()).then(block => {
@@ -400,9 +402,11 @@ function editorApp() {
                 newW = Math.round(newW * 2) / 2;
                 newH = Math.round(newH * 2) / 2;
 
-                // Clamp to minimum and layout bounds
-                newW = Math.max(2, Math.min(newW, this.layoutWidth - this.dragBlock.x));
-                newH = Math.max(2, Math.min(newH, this.layoutHeight - this.dragBlock.y));
+                // Clamp to minimum and layout bounds (lines can be 1 cell thin)
+                const minW = this.dragBlock.block_type === 'vline' ? 1 : 2;
+                const minH = this.dragBlock.block_type === 'hline' ? 1 : 2;
+                newW = Math.max(minW, Math.min(newW, this.layoutWidth - this.dragBlock.x));
+                newH = Math.max(minH, Math.min(newH, this.layoutHeight - this.dragBlock.y));
 
                 this.resizePreviewW = newW;
                 this.resizePreviewH = newH;
@@ -536,9 +540,11 @@ function editorApp() {
             const newW = Math.round(this.resizePreviewW);
             const newH = Math.round(this.resizePreviewH);
 
-            // Minimum size: 2x2
-            const clampedW = Math.max(2, newW);
-            const clampedH = Math.max(2, newH);
+            // Minimum size: 2x2 (lines can be 1 cell thin)
+            const minW = block.block_type === 'vline' ? 1 : 2;
+            const minH = block.block_type === 'hline' ? 1 : 2;
+            const clampedW = Math.max(minW, newW);
+            const clampedH = Math.max(minH, newH);
 
             if (clampedW === oldW && clampedH === oldH) {
                 return; // No change
@@ -568,6 +574,14 @@ function editorApp() {
             const res = await fetch(`/api/projects/${projectId}/info`);
             const data = await res.json();
             this.blockTypes = data.block_types || [];
+            this.borderStyles = data.border_styles || [];
+        },
+
+        _blockDefaults(type) {
+            if (type === 'button') return { width: 12, height: 1, content: 'Button' };
+            if (type === 'hline') return { width: 20, height: 1, content: '' };
+            if (type === 'vline') return { width: 1, height: 5, content: '' };
+            return { width: 20, height: 3, content: `[${type}]` };
         },
 
         async fetchBlocks() {
@@ -641,6 +655,25 @@ function editorApp() {
             }
         },
 
+        async updateBlockStyle(blockId, style) {
+            const block = this.blocks.find(b => b.id === blockId);
+            if (!block) return;
+
+            const oldStyle = block.border_style;
+            try {
+                await fetch(`/api/layouts/${this.layoutId}/blocks/${blockId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ border_style: style })
+                });
+                block.border_style = style;
+                await this.refreshRender();
+            } catch (err) {
+                block.border_style = oldStyle;
+                console.error('Failed to update border style:', err);
+            }
+        },
+
         async refreshRender() {
             // Measure real character size and pass it to the server so overlays
             // use exact pixel dimensions instead of assuming 1em = font-size.
@@ -665,6 +698,7 @@ function editorApp() {
             const maxOrder = this.blocks.length > 0
                 ? Math.max(...this.blocks.map(b => b.order))
                 : 0;
+            const defaults = this._blockDefaults(type);
             const res = await fetch(`/api/layouts/${this.layoutId}/blocks`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -672,9 +706,9 @@ function editorApp() {
                     block_type: type,
                     x: 1,
                     y: 1,
-                    width: type === 'button' ? 12 : 20,
-                    height: type === 'button' ? 1 : 3,
-                    content: type === 'button' ? 'Button' : `[${type}]`,
+                    width: defaults.width,
+                    height: defaults.height,
+                    content: defaults.content,
                     order: maxOrder + 1
                 })
             });

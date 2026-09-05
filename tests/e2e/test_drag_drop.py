@@ -15,6 +15,8 @@ import time
 
 from playwright.sync_api import Page, expect
 
+from boxframe.models.block import BLOCK_TYPES
+
 
 BASE_URL = "http://127.0.0.1:8000"
 
@@ -85,7 +87,7 @@ def test_palette_buttons_are_draggable(page: Page):
     # Palette buttons should be draggable
     palette_buttons = page.locator(".palette-btn[draggable='true']")
     expect(palette_buttons.first).to_be_visible()
-    expect(palette_buttons).to_have_count(12)  # All block types
+    expect(palette_buttons).to_have_count(len(BLOCK_TYPES))  # All block types
 
 
 def test_drag_from_palette_creates_block(page: Page):
