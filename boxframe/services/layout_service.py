@@ -70,16 +70,25 @@ class LayoutService:
         return layout
 
     def _normalize_block_orders(self, blocks: list[Block]) -> None:
-        """Assign sequential order to blocks that all share the same (default) order."""
-        orders = {b.order for b in blocks}
-        if len(orders) > 1:
-            # Some blocks have explicit orders — leave them alone
+        """Assign sequential order when there are duplicate values.
+
+        If all blocks have unique orders — leave them alone (user-set).
+        If there are duplicates (e.g. old blocks with order=0, or auto-assigned
+        blocks that collided) — reassign sequential 0,1,2... based on created_at,
+        preserving explicitly set unique orders.
+        """
+        orders = [b.order for b in blocks]
+        if len(orders) == len(set(orders)):
+            # All unique — user has explicitly set them
             return
-        # All blocks share the same order (likely 0 from default).
-        # Assign sequential order based on created_at to give a meaningful default.
+
+        # Duplicates exist — find the min order to use as base.
+        # This preserves explicitly set orders (e.g. order=0) and renumbers
+        # duplicates starting from the minimum.
+        min_order = min(orders)
         sorted_blocks = sorted(blocks, key=lambda b: b.created_at or b.id)
         for i, block in enumerate(sorted_blocks):
-            block.order = i
+            block.order = min_order + i
 
     async def delete_layout(self, layout_id: str) -> None:
         layout = await self.get_layout(layout_id)

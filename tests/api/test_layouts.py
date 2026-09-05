@@ -326,8 +326,8 @@ def test_normalize_block_orders_on_load(client: TestClient):
     assert len(orders) == len(set(orders))
 
 
-def test_normalize_does_not_touch_mixed_orders(client: TestClient):
-    """Blocks with mixed orders are not normalized."""
+def test_normalize_does_not_touch_unique_orders(client: TestClient):
+    """Blocks with all-unique orders are not normalized."""
     _, layout_id = _create_project_with_layout(client)
 
     # Create first block (gets order=1 by default)
@@ -346,4 +346,31 @@ def test_normalize_does_not_touch_mixed_orders(client: TestClient):
     r = client.get(f"/api/layouts/{layout_id}")
     assert r.status_code == 200
     orders = [b["order"] for b in r.json()["blocks"]]
-    assert sorted(orders) == [0, 5]  # Unchanged — mixed orders not normalized
+    assert sorted(orders) == [0, 5]  # Unchanged — all unique
+
+
+def test_normalize_with_duplicates(client: TestClient):
+    """Blocks with duplicate orders are normalized to sequential values."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create 3 blocks — orders auto-assigned: 1, 2, 3
+    r1 = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 2,
+    })
+    r2 = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 1, "width": 10, "height": 2,
+    })
+    r3 = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 2, "width": 10, "height": 2,
+    })
+
+    # Force first and second blocks to order=0 to create duplicates
+    client.put(f"/api/layouts/{layout_id}/blocks/{r1.json()['id']}", json={"order": 0})
+    client.put(f"/api/layouts/{layout_id}/blocks/{r2.json()['id']}", json={"order": 0})
+
+    # Now DB orders are [0, 0, 3] — duplicates exist
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.status_code == 200
+    orders = [b["order"] for b in r.json()["blocks"]]
+    assert sorted(orders) == [0, 1, 2]  # Normalized to sequential
+    assert len(orders) == len(set(orders))  # All unique
