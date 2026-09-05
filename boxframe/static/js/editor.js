@@ -11,6 +11,10 @@ function editorApp() {
         htmlPreview: '',
         loading: true,
 
+        // ── Inline content editing state ────────────────────
+        editingBlock: null,    // block being edited (null = editor closed)
+        editText: '',          // textarea content while editing
+
         // ── Drag state ──────────────────────────────────────────
         dragMode: null,          // 'palette' | 'move' | 'resize' | null
         dragType: null,          // block type string (palette drag)
@@ -329,6 +333,9 @@ function editorApp() {
             // Only left button
             if (e.button !== 0) return;
 
+            // Ignore clicks inside the inline content editor
+            if (e.target.closest('.block-edit-overlay')) return;
+
             // Find block under cursor by checking block-list order
             // and using the canvas overlay position
             const pos = this._pixelToGrid(e.clientX, e.clientY);
@@ -408,6 +415,91 @@ function editorApp() {
 
                 e.preventDefault();
                 e.stopPropagation();
+            }
+        },
+
+        // ── Inline content editing (double-click a block) ─────
+
+        get editOverlayStyle() {
+            if (!this.editingBlock) return 'display:none';
+            const pad = 16; // matches .render-wrapper padding
+            const b = this.editingBlock;
+            return (
+                `left:${pad + b.x * this.charWidth}px;` +
+                `top:${pad + b.y * this.charHeight}px;` +
+                `width:${b.width * this.charWidth}px;` +
+                `height:${b.height * this.charHeight}px;`
+            );
+        },
+
+        onCanvasDblClick(e) {
+            if (e.target.closest('.resize-handle')) return;
+            if (e.target.closest('.block-edit-overlay')) return;
+
+            // Commit the in-progress edit before switching blocks
+            if (this.editingBlock) {
+                this._commitEdit();
+            }
+
+            const pos = this._pixelToGrid(e.clientX, e.clientY);
+            const block = this.blocks.find(b =>
+                pos.x >= b.x && pos.y >= b.y &&
+                pos.x < b.x + b.width && pos.y < b.y + b.height
+            );
+            if (!block) return;
+
+            // Clear move-drag state left over from the preceding mousedowns
+            this._clearDragState();
+            this.editingBlock = block;
+            this.editText = block.content || '';
+            this.$nextTick(() => {
+                const ta = this.$refs.editInput;
+                if (ta) {
+                    ta.focus();
+                    ta.select();
+                }
+            });
+            e.preventDefault();
+        },
+
+        saveBlockContent() {
+            this._commitEdit();
+        },
+
+        cancelBlockEdit() {
+            this.editingBlock = null;
+        },
+
+        onEditKeydown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.saveBlockContent();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                this.cancelBlockEdit();
+            }
+        },
+
+        async _commitEdit() {
+            const block = this.editingBlock;
+            if (!block) return;
+            const newContent = this.editText;
+            this.editingBlock = null;
+            if (newContent === block.content) return;
+
+            try {
+                await fetch(`/api/layouts/${this.layoutId}/blocks/${block.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: newContent })
+                });
+                block.content = newContent;
+                await this.refreshRender();
+            } catch (err) {
+                // Reopen the editor so the user can retry
+                console.error('Failed to save block content:', err);
+                this.editingBlock = block;
+                this.editText = newContent;
             }
         },
 
