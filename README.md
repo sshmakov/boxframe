@@ -10,7 +10,7 @@
 
 - **Блочное редактирование** — перетаскивайте компоненты из палитры (блоки, кнопки, поля ввода, заголовки и т.д.)
 - **Живое превью псевдографики** — рендеринг ASCII-арта в реальном времени с Unicode box-drawing символами
-- **Редактирование raw-текста** — прямое редактирование псевдографического вывода
+- (пока нет) **Редактирование raw-текста** — прямое редактирование псевдографического вывода
 - **Экспорт в нескольких форматах** — JSON, Markdown, обычный ASCII
 - **Формат, читаемый ИИ** — макеты в виде обычного текста, легко парсятся и анализируются LLM
 
@@ -130,7 +130,7 @@ Draw UI layouts using ASCII/Unicode box-drawing characters — machine-readable,
 
 - **Block-based editing** — drag components from a palette (boxes, buttons, inputs, headers, etc.)
 - **Live pseudo-graphic preview** — real-time ASCII art rendering with Unicode box-drawing characters
-- **Raw text editing** — directly edit the pseudo-graphic output
+- (no yet) **Raw text editing** — directly edit the pseudo-graphic output
 - **Multi-format export** — JSON, Markdown, plain ASCII
 - **AI-readable format** — layouts are plain text, easy for LLMs to parse and reason about
 
