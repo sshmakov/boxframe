@@ -110,8 +110,11 @@ function editorApp() {
             this.dragGridX = gx;
             this.dragGridY = gy;
             if (this.previewEl) {
-                this.previewEl.style.left = (gx * this.charWidth) + 'px';
-                this.previewEl.style.top = (gy * this.charHeight) + 'px';
+                // padding_offset matches .render-wrapper padding (16px) so the
+                // drag preview aligns with server-rendered block overlays.
+                const pad = 16;
+                this.previewEl.style.left = (pad + gx * this.charWidth) + 'px';
+                this.previewEl.style.top = (pad + gy * this.charHeight) + 'px';
             }
         },
 
