@@ -67,11 +67,15 @@
 - Список блоков: показ `#N`, кнопки ↑↓, span `.block-actions`
 - CSS: стили для `.block-order`, `.block-actions`, `.order-btn`
 
-**`static/js/editor.js`** (4 изменения):
+**`static/js/editor.js`** (6 изменений):
+- `_reorderBlocks()` — сортировка списка по `order` (descending: highest order first)
 - `moveBlockOrder(blockId, delta)` — swap order с rollback при ошибке
 - `maxOrder` getter — максимум из всех order
 - `addBlock()` — новый блок получает `maxOrder + 1`
 - `onCanvasDrop()` — новый блок из drag-drop получает `maxOrder + 1`
+- `fetchBlocks()` / `deleteBlock()` — вызывают `_reorderBlocks()` после загрузки/удаления
+- `_reorderBlocks()` вызывается после всех операций: `fetchBlocks`, `addBlock`, `deleteBlock`,
+  `onCanvasDrop`, `moveBlockOrder` — список всегда отсортирован
 
 **`tests/test_renderer.py`** (5 новых тестов):
 - `test_render_sorts_by_order` — overlap: higher order перекрывает lower
@@ -99,3 +103,13 @@
 
 4. **Экспорт JSON** — `export_json()` не включает `order` в вывод.
    Это можно добавить в будущем для полноты сериализации.
+
+## Последующие изменения
+
+**Commit `8c446dd`** — `_reorderBlocks()` вызывается после всех операций:
+`fetchBlocks`, `addBlock`, `deleteBlock`, `onCanvasDrop`, `moveBlockOrder`.
+Список всегда отсортирован, не нужно вызывать вручную в каждом месте.
+
+**Commit `2086592`** — инвертирована сортировка списка: теперь `order` descending
+(highest order first). Первый в списке = верхний слой, последний = нижний.
+Кнопки ↑↓ двигают блок вверх/вниз в списке синхронно с z-index.
