@@ -152,6 +152,98 @@ def test_double_border():
     assert all(c == "═" for c in lines[0][1:5])
 
 
+# ── Word wrap tests ───────────────────────────────────────
+
+
+def test_wrap_text_unit():
+    """_wrap_text wraps by words, preserves newlines, hard-splits long words."""
+    r = PseudoGraphicRenderer(10, 5)
+    assert r._wrap_text("hello world", 5) == ["hello", "world"]
+    assert r._wrap_text("hello", 10) == ["hello"]
+    assert r._wrap_text("a b c", 1) == ["a", "b", "c"]
+    assert r._wrap_text("ab\ncd", 3) == ["ab", "cd"]
+    assert r._wrap_text("abcdefgh", 3) == ["abc", "def", "gh"]
+    assert r._wrap_text("", 5) == [""]
+
+
+def test_word_wrap_in_border():
+    """Long content wraps by words inside the frame instead of truncating."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 12, "height": 4,
+        "content": "Hello world foo",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Content width = 10: "Hello" + " world" = 11 > 10 → wrap
+    assert "Hello" in lines[1]
+    assert "world foo" in lines[2]
+    # Border intact on all content rows
+    assert lines[1][0] == "│" and lines[1][11] == "│"
+    assert lines[2][0] == "│" and lines[2][11] == "│"
+
+
+def test_word_wrap_hard_split_long_word():
+    """Words longer than the content width are split character by character."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 8, "height": 4,
+        "content": "abcdefgh",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Content width = 6: "abcdef" / "gh"
+    assert "abcdef" in lines[1]
+    assert "gh" in lines[2]
+
+
+def test_word_wrap_preserves_explicit_newlines():
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 12, "height": 5,
+        "content": "one two\nthree four",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Each explicit line fits (7 and 10 ≤ 10) — no extra wrapping
+    assert "one two" in lines[1]
+    assert "three four" in lines[2]
+
+
+def test_word_wrap_clipped_by_height():
+    """Wrapped lines beyond the content height are not drawn."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 8, "height": 3,
+        "content": "aa bb cc dd",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Content height = 1: only the first wrapped line fits
+    assert "aa bb" in lines[1]
+    assert "cc" not in lines[1]
+    # Bottom border intact
+    assert lines[2][0] == "└" and lines[2][7] == "┘"
+
+
+def test_word_wrap_no_border():
+    """Borderless blocks wrap by their own width."""
+    result = _render([{
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "width": 8, "height": 3,
+        "content": "hello world",
+        "border_style": "none",
+    }])
+    lines = result.split("\n")
+    assert "hello" in lines[0]
+    assert "world" in lines[1]
+
+
 # ── HTML preview tests ────────────────────────────────────
 
 

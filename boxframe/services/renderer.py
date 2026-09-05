@@ -215,20 +215,50 @@ class PseudoGraphicRenderer:
         if content_w <= 0 or content_h <= 0:
             return
 
-        # Split content into lines
-        lines = block.content.split("\n")
+        # Wrap content by words to fit the content area
+        lines = self._wrap_text(block.content, content_w)
         for line_idx, line in enumerate(lines):
             if line_idx >= content_h:
                 break
             row = content_y + line_idx
             if row >= self.grid_height:
                 break
-            # Truncate line to content width
-            line = line[:content_w]
             for col_idx, ch in enumerate(line):
                 col = content_x + col_idx
                 if col < self.grid_width:
                     self.grid[row][col] = ch
+
+    def _wrap_text(self, text: str, width: int) -> list[str]:
+        """Wrap text by words to fit within `width` columns.
+
+        Explicit newlines are preserved. Words longer than `width`
+        are hard-split character by character.
+        """
+        wrapped: list[str] = []
+        for raw_line in text.split("\n"):
+            words = raw_line.split()
+            current = ""
+            for word in words:
+                while len(word) > width:
+                    if current:
+                        wrapped.append(current)
+                        current = ""
+                    wrapped.append(word[:width])
+                    word = word[width:]
+                if not word:
+                    continue
+                if not current:
+                    current = word
+                elif len(current) + 1 + len(word) <= width:
+                    current = f"{current} {word}"
+                else:
+                    wrapped.append(current)
+                    current = word
+            if current:
+                wrapped.append(current)
+            elif not words:
+                wrapped.append("")
+        return wrapped
 
     def _render_children_in_container(self, parent: RenderBlock, style: dict[str, str]) -> None:
         """Render child blocks inside a parent container with padding."""
