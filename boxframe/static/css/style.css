@@ -58,6 +58,12 @@ a:hover { color: var(--accent-hover); }
     padding: 24px;
 }
 
+/* Full-bleed container for app-like pages (editor) */
+.container--full {
+    max-width: none;
+    padding: 0;
+}
+
 /* ── Typography ────────────────────────────────────────── */
 h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
 h3 { font-size: 16px; font-weight: 600; }

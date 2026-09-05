@@ -8,14 +8,16 @@
     {% block head %}{% endblock %}
 </head>
 <body>
+    {% block header %}
     <header class="header">
         <a href="/" class="logo">boxframe</a>
         <nav>
             <a href="/">Projects</a>
         </nav>
     </header>
+    {% endblock %}
 
-    <main class="container">
+    <main class="{% block main_class %}container{% endblock %}">
         {% block content %}{% endblock %}
     </main>
 

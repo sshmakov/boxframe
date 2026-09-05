@@ -610,7 +610,7 @@ function editorApp() {
 
         async copyRaw() {
             await navigator.clipboard.writeText(this.rawText);
-            const btn = document.querySelector('.raw-actions .btn:last-child');
+            const btn = document.querySelector('.copy-btn');
             if (btn) {
                 const orig = btn.textContent;
                 btn.textContent = 'Copied!';
