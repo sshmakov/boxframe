@@ -502,8 +502,8 @@ function editorApp() {
         },
 
         _reorderBlocks() {
-            // Sort blocks by order so list position matches z-order
-            this.blocks.sort((a, b) => a.order - b.order);
+            // Sort blocks by order descending — highest order (top layer) first
+            this.blocks.sort((a, b) => b.order - a.order);
         },
 
         get maxOrder() {
