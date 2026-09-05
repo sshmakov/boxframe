@@ -2,7 +2,12 @@
 API tests for layouts endpoints.
 """
 
+import asyncio
+
 from fastapi.testclient import TestClient
+
+import boxframe.database as db_module
+from boxframe.models.block import Block
 
 
 def _create_project_with_layout(client: TestClient) -> tuple[str, str]:
@@ -17,6 +22,12 @@ def _create_project_with_layout(client: TestClient) -> tuple[str, str]:
     })
     layout_id = r.json()["id"]
     return project_id, layout_id
+
+
+async def _get_block(block_id: str) -> Block | None:
+    """Helper: fetch a block directly from the test database."""
+    async with db_module.async_session() as session:
+        return await session.get(Block, block_id)
 
 
 def test_create_layout(client: TestClient):
@@ -205,12 +216,23 @@ def test_delete_layout(client: TestClient):
     """Test deleting a layout."""
     project_id, layout_id = _create_project_with_layout(client)
 
+    # Add a block so we can verify cascade deletion
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 10, "height": 3,
+    })
+    block_id = r.json()["id"]
+
     r = client.delete(f"/api/layouts/{layout_id}")
     assert r.status_code == 200
     assert r.json() == {"ok": True}
 
     r = client.get(f"/api/layouts/{layout_id}")
     assert r.status_code == 404
+
+    # Block must be cascade-deleted along with the layout
+    block = asyncio.get_event_loop().run_until_complete(_get_block(block_id))
+    assert block is None
 
 
 def test_delete_project_cascades(client: TestClient):

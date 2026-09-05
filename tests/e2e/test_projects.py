@@ -7,6 +7,7 @@ Run with: pytest tests/e2e/ -v --asyncio-mode=auto
 
 import re
 
+import requests
 from playwright.sync_api import Page, expect
 
 
@@ -104,3 +105,41 @@ def test_new_layout_submit_creates_layout(page: Page):
 
     # Should redirect to the layout editor page
     expect(page).to_have_url(re.compile(f"{BASE_URL}/layout/[0-9a-f-]+"))
+
+
+def test_delete_layout_button_removes_card(page: Page):
+    """Test that the Delete button on a layout card removes the layout."""
+    # Create a project via the UI
+    page.goto(BASE_URL)
+    page.get_by_role("button", name="+ New Project").click()
+    page.get_by_placeholder("Project name...").fill("E2E: Layout Delete Test")
+    page.get_by_role("button", name="Create").click()
+    expect(page).to_have_title("E2E: Layout Delete Test — boxframe")
+
+    # Create a layout via the UI (redirects to the editor)
+    page.get_by_role("button", name="+ New Layout").click()
+    page.get_by_placeholder("Layout name...").fill("Layout to Delete")
+    page.get_by_role("button", name="Create").click()
+    expect(page).to_have_url(re.compile(f"{BASE_URL}/layout/[0-9a-f-]+"))
+    layout_id = re.search(r"/layout/([0-9a-f-]+)", page.url).group(1)
+
+    # Go back to the project page via the breadcrumb
+    project_href = page.locator(".editor-header__breadcrumb a[href^='/project/']").first.get_attribute("href")
+    page.goto(BASE_URL + project_href)
+
+    # The layout card with its Delete button is visible
+    card = page.locator(".card", has_text="Layout to Delete")
+    expect(card).to_be_visible()
+    delete_btn = card.get_by_role("button", name="Delete")
+    expect(delete_btn).to_be_visible()
+
+    # Click Delete and accept the confirm dialog
+    page.on("dialog", lambda dialog: dialog.accept())
+    delete_btn.click()
+
+    # The card is removed from the DOM
+    expect(page.locator(".card", has_text="Layout to Delete")).not_to_be_visible()
+
+    # The layout is actually deleted from the database
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    assert r.status_code == 404
