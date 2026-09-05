@@ -53,22 +53,31 @@ API-вызове без order.
    ```
    Явный `order > 0` игнорируется — пользователь может задать любое значение.
 
-2. `_normalize_block_orders(blocks)` — проверяет, все ли блоки имеют одинаковый order.
-   Если да (скорее всего 0, старые блоки) — присваивает `0, 1, 2...` по `created_at`.
-   Если order разные — не трогает (пользователь явно расставил).
+2. `_normalize_block_orders(blocks)` — проверяет наличие **дубликатов** order.
+   Если все order уникальны — не трогает (пользователь явно расставил).
+   Если есть дубликаты — присваивает `min+0, min+1, min+2...` по `created_at`,
+   сохраняя минимальное значение order.
 
 3. `get_layout()` — вызывает `_normalize_block_orders()` после загрузки.
    Изменения не сохраняются в БД (mutable objects в ORM session), но
    фронтенд получает нормализованные order.
 
-**`tests/api/test_layouts.py`** (4 новых теста):
+**`tests/api/test_layouts.py`** (5 новых тестов):
 
 - `test_create_block_auto_order` — 3 блока без order → сервер назначает 1, 2, 3
 - `test_create_block_explicit_order` — order=10 → следующий блок получает 11
 - `test_normalize_block_orders_on_load` — все order=0 → нормализуются в 0, 1, 2
-- `test_normalize_does_not_touch_mixed_orders` — order 0 и 5 → не меняются
+- `test_normalize_does_not_touch_unique_orders` — order 0 и 5 (уникальные) → не меняются
+- `test_normalize_with_duplicates` — order [0, 0, 3] → нормализуются в 0, 1, 2
 
-Все 61 тест прошли.
+Все 62 теста прошли.
+
+## Последующее изменение
+
+**Commit `f38db86`** — нормализация теперь срабатывает при наличии **любых дубликатов**
+order, а не только когда все order одинаковые. Это исправляет макеты типа "win", где
+6 блоков имели order=1 и 1 блок order=0. Раньше нормализация не срабатывала (смешанные
+order), теперь — срабатывает, так как есть дубликат order=1.
 
 # Замечания
 
