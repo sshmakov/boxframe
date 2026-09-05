@@ -86,6 +86,7 @@ class LayoutService:
         border_style: str = "solid",
         parent_id: str | None = None,
         meta: dict[str, Any] | None = None,
+        order: int = 0,
     ) -> Block:
         block = Block(
             layout_id=layout_id,
@@ -98,6 +99,7 @@ class LayoutService:
             border_style=border_style,
             parent_id=parent_id,
             meta=meta or {},
+            order=order,
         )
         self.db.add(block)
         await self.db.commit()
@@ -153,6 +155,7 @@ class LayoutService:
                 block_type=block.block_type,
                 content=block.content,
                 border_style=block.border_style,
+                order=block.order,
                 is_root=True,
             )
 

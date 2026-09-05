@@ -244,3 +244,103 @@ def test_render_html_preview_double_border():
         "border_style": "double",
     }])
     assert 'class="block-border block-border--double"' in html
+
+
+# ── Order / z-index tests ──────────────────────────────────
+
+
+def test_render_sorts_by_order():
+    """Blocks with higher order render on top."""
+    result = _render([
+        {
+            "block_type": "box",
+            "x": 0, "y": 0,
+            "width": 10, "height": 5,
+            "content": "LOW",
+            "border_style": "solid",
+            "order": 0,
+        },
+        {
+            "block_type": "box",
+            "x": 2, "y": 1,
+            "width": 10, "height": 5,
+            "content": "HIGH",
+            "border_style": "solid",
+            "order": 10,
+        },
+    ])
+    lines = result.split("\n")
+    # HIGH (order=10) should overwrite LOW at overlapping positions
+    assert "HIGH" in lines[2]
+    assert "LOW" not in lines[2]
+
+
+def test_render_default_order_zero():
+    """Blocks without explicit order default to 0."""
+    result = _render([
+        {
+            "block_type": "box",
+            "x": 0, "y": 0,
+            "width": 10, "height": 5,
+            "content": "A",
+            "border_style": "solid",
+        },
+        {
+            "block_type": "box",
+            "x": 2, "y": 1,
+            "width": 10, "height": 5,
+            "content": "B",
+            "border_style": "solid",
+        },
+    ])
+    lines = result.split("\n")
+    # Both have order=0, so insertion order decides (B is second → on top)
+    assert "B" in lines[2]
+
+
+def test_render_block_html_preview_z_index():
+    """to_html_preview emits z-index based on order."""
+    rb = RenderBlock(
+        x=0, y=0, width=10, height=3,
+        block_type="box", content="", border_style="solid",
+        order=5,
+    )
+    html = rb.to_html_preview("block-xyz")
+    assert "z-index:15" in html  # 10 + 5
+    assert 'data-order="5"' in html
+
+
+def test_render_block_html_preview_default_z_index():
+    """Default order=0 → z-index:10."""
+    rb = RenderBlock(
+        x=0, y=0, width=10, height=3,
+        block_type="box", content="", border_style="solid",
+    )
+    html = rb.to_html_preview("block-abc")
+    assert "z-index:10" in html
+    assert 'data-order="0"' in html
+
+
+def test_render_html_preview_with_order():
+    """render_html_preview passes order from data dicts."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "b1",
+        "x": 0, "y": 0,
+        "width": 10, "height": 3,
+        "block_type": "box",
+        "content": "Low",
+        "border_style": "solid",
+        "order": 0,
+    }, {
+        "id": "b2",
+        "x": 3, "y": 0,
+        "width": 10, "height": 3,
+        "block_type": "box",
+        "content": "High",
+        "border_style": "solid",
+        "order": 5,
+    }])
+    assert "z-index:10" in html
+    assert "z-index:15" in html
+    assert 'data-order="0"' in html
+    assert 'data-order="5"' in html

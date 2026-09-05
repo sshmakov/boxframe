@@ -72,6 +72,7 @@ class BlockCreate(BaseModel):
     border_style: str = "solid"
     parent_id: str | None = None
     meta: dict = {}
+    order: int = 0
 
 
 class BlockUpdate(BaseModel):
@@ -84,6 +85,7 @@ class BlockUpdate(BaseModel):
     border_style: str | None = None
     parent_id: str | None = None
     meta: dict | None = None
+    order: int | None = None
 
 
 class RenderOut(BaseModel):
@@ -141,6 +143,7 @@ async def create_block(layout_id: str, data: BlockCreate, db: AsyncSession = Dep
         border_style=data.border_style,
         parent_id=data.parent_id,
         meta=data.meta,
+        order=data.order,
     )
     return block
 
@@ -240,6 +243,7 @@ def _serialize_blocks_for_html(blocks: list) -> list[dict]:
             "block_type": block.block_type,
             "content": block.content,
             "border_style": block.border_style,
+            "order": block.order,
             "children": [
                 {
                     "id": c.id,
@@ -250,6 +254,7 @@ def _serialize_blocks_for_html(blocks: list) -> list[dict]:
                     "block_type": c.block_type,
                     "content": c.content,
                     "border_style": c.border_style,
+                    "order": c.order,
                 }
                 for c in blocks
                 if c.parent_id == block.id

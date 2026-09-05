@@ -286,7 +286,7 @@ function editorApp() {
 
         // ── Canvas drop (palette → new block) ───────────────────
 
-        onCanvasDrop(e) {
+    onCanvasDrop(e) {
             e.preventDefault();
             if (this.dragMode !== 'palette' || !this.dragType) return;
 
@@ -298,6 +298,10 @@ function editorApp() {
             pos.x = Math.max(0, Math.min(pos.x, this.layoutWidth - w));
             pos.y = Math.max(0, Math.min(pos.y, this.layoutHeight - h));
 
+            const maxOrder = this.blocks.length > 0
+                ? Math.max(...this.blocks.map(b => b.order))
+                : 0;
+
             fetch(`/api/layouts/${this.layoutId}/blocks`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -307,7 +311,8 @@ function editorApp() {
                     y: pos.y,
                     width: w,
                     height: h,
-                    content: this.dragType === 'button' ? 'Button' : `[${this.dragType}]`
+                    content: this.dragType === 'button' ? 'Button' : `[${this.dragType}]`,
+                    order: maxOrder + 1
                 })
             }).then(r => r.json()).then(block => {
                 this.blocks.push(block);
@@ -494,6 +499,46 @@ function editorApp() {
             return flat;
         },
 
+        get maxOrder() {
+            if (this.blocks.length === 0) return 0;
+            return Math.max(...this.blocks.map(b => b.order));
+        },
+
+        async moveBlockOrder(blockId, delta) {
+            const block = this.blocks.find(b => b.id === blockId);
+            if (!block) return;
+
+            const newOrder = block.order + delta;
+            if (newOrder < 0) return;
+
+            // Find another block at the target order to swap with
+            const other = this.blocks.find(b => b.id !== blockId && b.order === newOrder);
+            if (other) {
+                // Swap orders
+                const temp = other.order;
+                other.order = block.order;
+                block.order = temp;
+            } else {
+                block.order = newOrder;
+            }
+
+            try {
+                await fetch(`/api/layouts/${this.layoutId}/blocks/${blockId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order: block.order })
+                });
+                await this.refreshRender();
+            } catch (err) {
+                // Rollback on error
+                block.order -= delta;
+                if (other) {
+                    other.order = newOrder;
+                }
+                console.error('Failed to move block order:', err);
+            }
+        },
+
         async refreshRender() {
             // Measure real character size and pass it to the server so overlays
             // use exact pixel dimensions instead of assuming 1em = font-size.
@@ -515,6 +560,9 @@ function editorApp() {
         },
 
         async addBlock(type) {
+            const maxOrder = this.blocks.length > 0
+                ? Math.max(...this.blocks.map(b => b.order))
+                : 0;
             const res = await fetch(`/api/layouts/${this.layoutId}/blocks`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -524,7 +572,8 @@ function editorApp() {
                     y: 1,
                     width: type === 'button' ? 12 : 20,
                     height: type === 'button' ? 1 : 3,
-                    content: type === 'button' ? 'Button' : `[${type}]`
+                    content: type === 'button' ? 'Button' : `[${type}]`,
+                    order: maxOrder + 1
                 })
             });
             const block = await res.json();

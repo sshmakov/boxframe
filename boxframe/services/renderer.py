@@ -31,6 +31,7 @@ class RenderBlock:
     block_type: str
     content: str
     border_style: str
+    order: int = 0
     is_root: bool = False
     children: list["RenderBlock"] = field(default_factory=list)
 
@@ -47,11 +48,14 @@ class RenderBlock:
 
         Uses pixel dimensions so the overlay matches the actual character size
         (which may differ from font-size in some fonts).
+        Uses `order` to compute z-index: higher order = higher z-index.
         """
         left = round(padding_offset + self.x * char_width_px, 1)
         top = round(padding_offset + self.y * char_height_px, 1)
         w = round(self.width * char_width_px, 1)
         h = round(self.height * char_height_px, 1)
+        # z-index: base 10 + order so default order=0 → z-index 10
+        z_index = 10 + self.order
 
         def _fmt(v: float) -> str:
             if v == int(v):
@@ -61,7 +65,8 @@ class RenderBlock:
         return (
             f'<div class="block-preview" data-block-id="{block_id}"'
             f' style="position:absolute;left:{_fmt(left)};top:{_fmt(top)};'
-            f'width:{_fmt(w)};height:{_fmt(h)};">'
+            f'width:{_fmt(w)};height:{_fmt(h)};z-index:{z_index};"'
+            f' data-order="{self.order}">'
             f'<div class="block-inner block-{self.block_type}">'
             f"{self._border_html()}"
             f"</div>"
@@ -124,8 +129,8 @@ class PseudoGraphicRenderer:
         """Render a list of root blocks into a pseudo-graphic string."""
         self.grid = [[" " for _ in range(self.grid_width)] for _ in range(self.grid_height)]
 
-        # Sort blocks by y, then x for consistent layering
-        sorted_blocks = sorted(blocks, key=lambda b: (b.y, b.x))
+        # Sort by order (ascending) — higher order renders on top
+        sorted_blocks = sorted(blocks, key=lambda b: b.order)
 
         for block in sorted_blocks:
             self._render_block(block)
@@ -250,6 +255,7 @@ class PseudoGraphicRenderer:
                 block_type=bd.get("block_type", "box"),
                 content=bd.get("content", ""),
                 border_style=bd.get("border_style", "solid"),
+                order=bd.get("order", 0),
             )
             children = bd.get("children", [])
             if children:
@@ -262,6 +268,7 @@ class PseudoGraphicRenderer:
                         block_type=c.get("block_type", "box"),
                         content=c.get("content", ""),
                         border_style=c.get("border_style", "solid"),
+                        order=c.get("order", 0),
                     )
                     for c in children
                 ]
@@ -291,6 +298,7 @@ class PseudoGraphicRenderer:
                 block_type=bd.get("block_type", "box"),
                 content=bd.get("content", ""),
                 border_style=bd.get("border_style", "solid"),
+                order=bd.get("order", 0),
             )
             # Flatten children for the preview (all blocks on the same layer)
             parts.append(rb.to_html_preview(
@@ -305,6 +313,7 @@ class PseudoGraphicRenderer:
                     block_type=c.get("block_type", "box"),
                     content=c.get("content", ""),
                     border_style=c.get("border_style", "solid"),
+                    order=c.get("order", 0),
                 )
                 parts.append(crb.to_html_preview(
                     c["id"], char_width_px, char_height_px, padding_offset,

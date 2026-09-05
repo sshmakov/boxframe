@@ -269,6 +269,40 @@
     border-bottom: 1px solid #222;
 }
 
+.block-item .block-order {
+    color: #666;
+    margin-left: 6px;
+    font-size: 10px;
+}
+
+.block-item .block-actions {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+}
+
+.block-item .order-btn {
+    color: #888;
+    cursor: pointer;
+    background: none;
+    border: 1px solid #333;
+    border-radius: 2px;
+    font-size: 10px;
+    padding: 1px 4px;
+    line-height: 1;
+    transition: all 0.15s;
+}
+
+.block-item .order-btn:hover:not(:disabled) {
+    color: #e94560;
+    border-color: #e94560;
+}
+
+.block-item .order-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
 .block-item .delete-block {
     color: #e94560;
     cursor: pointer;
@@ -329,8 +363,13 @@
                         <span>
                             <strong x-text="block.block_type"></strong>
                             <span x-text="' @(' + block.x + ',' + block.y + ')'"></span>
+                            <span class="block-order" x-text="'#' + block.order"></span>
                         </span>
-                        <button class="delete-block" @click="deleteBlock(block.id)" title="Delete">×</button>
+                        <span class="block-actions">
+                            <button class="order-btn" @click="moveBlockOrder(block.id, -1)" :disabled="block.order <= 0" title="Move down (lower z-index)">↓</button>
+                            <button class="order-btn" @click="moveBlockOrder(block.id, 1)" :disabled="block.order >= maxOrder" title="Move up (higher z-index)">↑</button>
+                            <button class="delete-block" @click="deleteBlock(block.id)" title="Delete">×</button>
+                        </span>
                     </div>
                 </template>
             </div>
