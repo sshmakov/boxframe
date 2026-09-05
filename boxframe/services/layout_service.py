@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -64,7 +64,22 @@ class LayoutService:
             .options(selectinload(Layout.blocks).selectinload(Block.children))
             .filter(Layout.id == layout_id)
         )
-        return result.scalar_one_or_none()
+        layout = result.scalar_one_or_none()
+        if layout and layout.blocks:
+            self._normalize_block_orders(layout.blocks)
+        return layout
+
+    def _normalize_block_orders(self, blocks: list[Block]) -> None:
+        """Assign sequential order to blocks that all share the same (default) order."""
+        orders = {b.order for b in blocks}
+        if len(orders) > 1:
+            # Some blocks have explicit orders — leave them alone
+            return
+        # All blocks share the same order (likely 0 from default).
+        # Assign sequential order based on created_at to give a meaningful default.
+        sorted_blocks = sorted(blocks, key=lambda b: b.created_at or b.id)
+        for i, block in enumerate(sorted_blocks):
+            block.order = i
 
     async def delete_layout(self, layout_id: str) -> None:
         layout = await self.get_layout(layout_id)
@@ -88,6 +103,16 @@ class LayoutService:
         meta: dict[str, Any] | None = None,
         order: int = 0,
     ) -> Block:
+        # If order is 0 (default/unsent), compute MAX(order) + 1 for this layout
+        if order == 0:
+            result = await self.db.execute(
+                select(func.coalesce(func.max(Block.order), 0)).where(
+                    Block.layout_id == layout_id
+                )
+            )
+            max_order = result.scalar() or 0
+            order = max_order + 1
+
         block = Block(
             layout_id=layout_id,
             block_type=block_type,

@@ -246,3 +246,104 @@ def test_layout_validation(client: TestClient):
         "width": 10,  # min is 20
     })
     assert r.status_code == 422
+
+
+# ── Order tests ─────────────────────────────────────────────
+
+
+def test_create_block_auto_order(client: TestClient):
+    """Blocks without explicit order get sequential order on the server.
+
+    Server assigns MAX(order)+1 when order=0 (default), so first block
+    gets order=1, second gets order=2, etc.
+    """
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create 3 blocks without sending order (server assigns MAX+1)
+    for i in range(3):
+        r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+            "block_type": "box",
+            "x": 0, "y": i, "width": 10, "height": 2,
+        })
+        assert r.status_code == 200
+
+    # Fetch layout and verify unique sequential orders (1, 2, 3)
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.status_code == 200
+    orders = [b["order"] for b in r.json()["blocks"]]
+    assert sorted(orders) == [1, 2, 3]
+
+
+def test_create_block_explicit_order(client: TestClient):
+    """Explicit order is respected."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 10, "height": 2,
+        "order": 10,
+    })
+    assert r.status_code == 200
+    assert r.json()["order"] == 10
+
+    # Next block without explicit order should get max + 1
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 1, "width": 10, "height": 2,
+    })
+    assert r.status_code == 200
+    assert r.json()["order"] == 11
+
+
+def test_normalize_block_orders_on_load(client: TestClient):
+    """When all blocks share the same order, get_layout assigns sequential.
+
+    Simulates old blocks created before order feature — they all have order=0.
+    get_layout detects this and normalizes to 0, 1, 2...
+    """
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create blocks with explicit order=0 (simulating old blocks)
+    # Note: create_block converts order=0 to MAX+1, so we need to
+    # directly set order=0 via update to simulate pre-existing blocks.
+    for i in range(3):
+        r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+            "block_type": "box",
+            "x": 0, "y": i, "width": 10, "height": 2,
+            "order": 0,  # Will be converted to 1, 2, 3 by create_block
+        })
+        assert r.status_code == 200
+        block_id = r.json()["id"]
+        # Force order back to 0 to simulate old blocks
+        client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={"order": 0})
+
+    # Fetch layout — orders should be normalized to 0, 1, 2
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.status_code == 200
+    orders = [b["order"] for b in r.json()["blocks"]]
+    assert sorted(orders) == [0, 1, 2]
+    # All orders should be unique now
+    assert len(orders) == len(set(orders))
+
+
+def test_normalize_does_not_touch_mixed_orders(client: TestClient):
+    """Blocks with mixed orders are not normalized."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create first block (gets order=1 by default)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 2,
+    })
+    block_id = r.json()["id"]
+    # Force order to 0 to simulate old block
+    client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={"order": 0})
+
+    # Create second block with explicit order=5
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 1, "width": 10, "height": 2, "order": 5,
+    })
+
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.status_code == 200
+    orders = [b["order"] for b in r.json()["blocks"]]
+    assert sorted(orders) == [0, 5]  # Unchanged — mixed orders not normalized
