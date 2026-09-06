@@ -430,6 +430,82 @@
 
 .sel-resize:hover { background-color: #ff6b81; }
 
+/* ── Block properties panel (floats next to selected block) ─ */
+.block-props {
+    position: absolute;
+    z-index: 200;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    font-size: 12px;
+}
+
+.block-props__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.block-props__type {
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: capitalize;
+}
+
+.block-props__close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.block-props__close:hover { color: var(--accent); }
+
+.block-props__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 10px;
+}
+
+.prop {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.prop > span {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.prop input,
+.prop select {
+    background: #0f0f23;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 12px;
+    padding: 4px 6px;
+    width: 100%;
+}
+
+.prop input:focus,
+.prop select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.prop--wide { grid-column: 1 / -1; }
+
 /* ── Inline content editor (double-click a block) ───────── */
 .block-edit-overlay {
     position: absolute;
@@ -571,6 +647,56 @@
                             title="Delete block">✕</button>
                     <div class="sel-resize" @mousedown="onSelectionResizeMouseDown($event)"
                          title="Drag to resize"></div>
+                </div>
+                <!-- Block properties panel (floats next to the selected block) -->
+                <div class="block-props" x-show="selectedBlock && !editingBlock" x-cloak
+                     :style="propsPanelStyle">
+                    <div class="block-props__head">
+                        <span class="block-props__type" x-text="selectedBlock.block_type"></span>
+                        <button class="block-props__close" @click="selectedBlockId = null"
+                                title="Deselect">×</button>
+                    </div>
+                    <div class="block-props__grid">
+                        <label class="prop prop--wide">
+                            <span>Style</span>
+                            <select :value="selectedBlock.border_style"
+                                    @change="updateSelectedBlock({ border_style: $event.target.value })">
+                                <template x-for="s in borderStyles" :key="s">
+                                    <option :value="s" x-text="s"></option>
+                                </template>
+                            </select>
+                        </label>
+                        <label class="prop">
+                            <span>X</span>
+                            <input type="number" min="0" :value="selectedBlock.x"
+                                   @change="updateSelectedXY($event)">
+                        </label>
+                        <label class="prop">
+                            <span>Y</span>
+                            <input type="number" min="0" :value="selectedBlock.y"
+                                   @change="updateSelectedXY($event)">
+                        </label>
+                        <label class="prop">
+                            <span>W</span>
+                            <input type="number" min="1" :value="selectedBlock.width"
+                                   @change="updateSelectedWH($event)">
+                        </label>
+                        <label class="prop">
+                            <span>H</span>
+                            <input type="number" min="1" :value="selectedBlock.height"
+                                   @change="updateSelectedWH($event)">
+                        </label>
+                        <label class="prop">
+                            <span>Order</span>
+                            <input type="number" min="0" :value="selectedBlock.order"
+                                   @change="updateSelectedOrder($event)">
+                        </label>
+                        <label class="prop prop--wide">
+                            <span>Content</span>
+                            <input type="text" :value="selectedBlock.content"
+                                   @change="updateSelectedContent($event)">
+                        </label>
+                    </div>
                 </div>
                 <!-- Inline content editor (opened by double-click on a block) -->
                 <div class="block-edit-overlay" x-show="editingBlock" x-cloak

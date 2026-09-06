@@ -373,6 +373,9 @@ function editorApp() {
             // outside the block and would clear the selection on mouseup.
             if (e.target.closest('.block-selection')) return;
 
+            // Ignore clicks inside the floating properties panel
+            if (e.target.closest('.block-props')) return;
+
             // Find the block whose area contains the cursor
             const pos = this._pixelToGrid(e.clientX, e.clientY);
             const block = this.blocks.find(b =>
@@ -486,6 +489,7 @@ function editorApp() {
             if (e.target.closest('.resize-handle')) return;
             if (e.target.closest('.sel-resize')) return;
             if (e.target.closest('.block-edit-overlay')) return;
+            if (e.target.closest('.block-props')) return;
 
             // Commit the in-progress edit before switching blocks
             if (this.editingBlock) {
@@ -727,6 +731,45 @@ function editorApp() {
             );
         },
 
+        // Position of the floating properties panel: next to the selected
+        // block (right side preferred, left as fallback, below as last resort)
+        get propsPanelStyle() {
+            const b = this.selectedBlock;
+            if (!b) return 'display:none';
+            const pad = 16; // matches .render-wrapper padding
+            const container = document.querySelector('.canvas-container');
+            const panelW = 208;
+            const panelH = 300; // approximate height, for vertical clamping
+
+            const bx = pad + b.x * this.charWidth;
+            const by = pad + b.y * this.charHeight;
+            const bw = b.width * this.charWidth;
+            const bh = b.height * this.charHeight;
+
+            let left, top;
+            const rightSpace = container
+                ? container.clientWidth + container.scrollLeft - (bx + bw)
+                : Infinity;
+            if (rightSpace >= panelW + 16) {
+                left = bx + bw + 12;
+                top = by;
+            } else if (bx - panelW - 12 >= 8) {
+                left = bx - panelW - 12;
+                top = by;
+            } else {
+                left = Math.max(8, bx);
+                top = by + bh + 12;
+            }
+
+            // Keep the panel inside the visible canvas area
+            if (container) {
+                const maxTop = container.clientHeight + container.scrollTop - panelH - 8;
+                if (top > maxTop) top = Math.max(8, maxTop);
+            }
+
+            return `left:${left}px; top:${top}px; width:${panelW}px;`;
+        },
+
         async duplicateBlock() {
             const b = this.selectedBlock;
             if (!b) return;
@@ -773,6 +816,81 @@ function editorApp() {
                 block.border_style = oldStyle;
                 console.error('Failed to update border style:', err);
             }
+        },
+
+        // ── Properties panel (floating, next to selected block) ──
+
+        async updateSelectedBlock(props) {
+            const b = this.selectedBlock;
+            if (!b) return;
+
+            const old = {};
+            for (const key of Object.keys(props)) old[key] = b[key];
+
+            try {
+                await fetch(`/api/layouts/${this.layoutId}/blocks/${b.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(props)
+                });
+                Object.assign(b, props);
+                await this.refreshRender();
+            } catch (err) {
+                Object.assign(b, old);
+                console.error('Failed to update block:', err);
+            }
+        },
+
+        updateSelectedXY(e) {
+            const b = this.selectedBlock;
+            if (!b) return;
+            const inputs = e.currentTarget.querySelectorAll('input');
+            const x = parseInt(inputs[0].value, 10);
+            const y = parseInt(inputs[1].value, 10);
+            if (Number.isNaN(x) || Number.isNaN(y)) {
+                inputs[0].value = b.x;
+                inputs[1].value = b.y;
+                return;
+            }
+            this.updateSelectedBlock({
+                x: Math.max(0, Math.min(x, this.layoutWidth - b.width)),
+                y: Math.max(0, Math.min(y, this.layoutHeight - b.height))
+            });
+        },
+
+        updateSelectedWH(e) {
+            const b = this.selectedBlock;
+            if (!b) return;
+            const inputs = e.currentTarget.querySelectorAll('input');
+            const w = parseInt(inputs[0].value, 10);
+            const h = parseInt(inputs[1].value, 10);
+            if (Number.isNaN(w) || Number.isNaN(h)) {
+                inputs[0].value = b.width;
+                inputs[1].value = b.height;
+                return;
+            }
+            let newW = Math.max(1, Math.min(w, this.layoutWidth - b.x));
+            let newH = Math.max(1, Math.min(h, this.layoutHeight - b.y));
+            if (b.block_type === 'hline') newH = 1;
+            if (b.block_type === 'vline') newW = 1;
+            this.updateSelectedBlock({ width: newW, height: newH });
+        },
+
+        updateSelectedOrder(e) {
+            const b = this.selectedBlock;
+            if (!b) return;
+            const order = parseInt(e.target.value, 10);
+            if (Number.isNaN(order) || order < 0) {
+                e.target.value = b.order;
+                return;
+            }
+            this.updateSelectedBlock({ order });
+        },
+
+        updateSelectedContent(e) {
+            const b = this.selectedBlock;
+            if (!b) return;
+            this.updateSelectedBlock({ content: e.target.value });
         },
 
         async refreshRender() {

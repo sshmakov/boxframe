@@ -232,3 +232,37 @@ def test_selection_resize_handle_resizes_block(page: Page):
             break
         page.wait_for_timeout(100)
     assert (block["width"], block["height"]) == (22, 5)
+
+
+def test_properties_panel_shows_next_to_selected_block(page: Page):
+    """Selecting a block shows a floating properties panel next to it."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+    expect(panel.locator(".block-props__type")).to_have_text("box")
+    # The style select reflects the current border style
+    expect(panel.locator("select")).to_have_value("solid")
+
+
+def test_properties_panel_updates_border_style(page: Page):
+    """Changing the style in the properties panel persists to the database."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    panel.locator("select").select_option("dashed")
+
+    # Poll: the browser's PUT may still be in flight
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if block["border_style"] == "dashed":
+            break
+        page.wait_for_timeout(100)
+    assert block["border_style"] == "dashed"
