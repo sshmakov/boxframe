@@ -462,7 +462,19 @@ def test_render_html_preview_line_none():
         "content": "",
         "border_style": "none",
     }])
-    assert "block-line" not in html
+    assert 'class="block-line block-line--h block-line--none"' in html
+
+
+def test_render_html_preview_border_none():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "b1",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "block_type": "box",
+        "content": "",
+        "border_style": "none",
+    }])
+    assert 'class="block-border block-border--none"' in html
 
 
 # ── Order / z-index tests ──────────────────────────────────

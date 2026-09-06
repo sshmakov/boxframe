@@ -76,14 +76,12 @@ class RenderBlock:
 
     def _border_html(self) -> str:
         """Generate border HTML for a block."""
-        if self.border_style == "none":
-            return ""
-
         border_map = {
             "solid": "solid",
             "dashed": "dashed",
             "dotted": "dotted",
             "double": "double",
+            "none": "none",
         }
         style = border_map.get(self.border_style, "solid")
 
