@@ -402,7 +402,11 @@ function editorApp() {
                 newW = Math.round(newW * 2) / 2;
                 newH = Math.round(newH * 2) / 2;
 
-                // Clamp to minimum and layout bounds (lines can be 1 cell thin)
+                // Lines are always 1 cell thick — the thin dimension is fixed
+                if (this.dragBlock.block_type === 'hline') newH = 1;
+                if (this.dragBlock.block_type === 'vline') newW = 1;
+
+                // Clamp to minimum and layout bounds
                 const minW = this.dragBlock.block_type === 'vline' ? 1 : 2;
                 const minH = this.dragBlock.block_type === 'hline' ? 1 : 2;
                 newW = Math.max(minW, Math.min(newW, this.layoutWidth - this.dragBlock.x));
@@ -540,11 +544,13 @@ function editorApp() {
             const newW = Math.round(this.resizePreviewW);
             const newH = Math.round(this.resizePreviewH);
 
-            // Minimum size: 2x2 (lines can be 1 cell thin)
+            // Minimum size: 2x2; lines are always 1 cell thick
             const minW = block.block_type === 'vline' ? 1 : 2;
             const minH = block.block_type === 'hline' ? 1 : 2;
-            const clampedW = Math.max(minW, newW);
-            const clampedH = Math.max(minH, newH);
+            let clampedW = Math.max(minW, newW);
+            let clampedH = Math.max(minH, newH);
+            if (block.block_type === 'hline') clampedH = 1;
+            if (block.block_type === 'vline') clampedW = 1;
 
             if (clampedW === oldW && clampedH === oldH) {
                 return; // No change

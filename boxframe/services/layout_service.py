@@ -122,6 +122,12 @@ class LayoutService:
             max_order = result.scalar() or 0
             order = max_order + 1
 
+        # Lines are always 1 cell thick — the thin dimension is fixed
+        if block_type == "hline":
+            height = 1
+        elif block_type == "vline":
+            width = 1
+
         block = Block(
             layout_id=layout_id,
             block_type=block_type,
@@ -146,6 +152,12 @@ class LayoutService:
             for key, value in kwargs.items():
                 if hasattr(block, key):
                     setattr(block, key, value)
+            # Lines are always 1 cell thick — the thin dimension is fixed
+            # (also applies when block_type is changed to a line type)
+            if block.block_type == "hline":
+                block.height = 1
+            elif block.block_type == "vline":
+                block.width = 1
             await self.db.commit()
             await self.db.refresh(block)
         return block
