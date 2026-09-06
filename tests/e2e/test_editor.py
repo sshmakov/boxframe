@@ -111,3 +111,158 @@ def test_double_click_esc_cancels_edit(page: Page):
     r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
     block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
     assert block["content"] == "Old"
+
+
+def test_single_click_selects_block(page: Page):
+    """Single-clicking a block selects it: frame on canvas + highlight in list."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+
+    # Semi-transparent selection frame with action icons appears on the canvas
+    selection = page.locator(".block-selection")
+    expect(selection).to_be_visible()
+    expect(selection.locator(".sel-icon--dup")).to_be_visible()
+    expect(selection.locator(".sel-icon--del")).to_be_visible()
+    expect(selection.locator(".sel-resize")).to_be_visible()
+
+    # The block is highlighted in the sidebar list
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    expect(page.locator(".block-item--selected .block-item__info strong")).to_have_text("box")
+
+
+def test_click_list_item_selects_block(page: Page):
+    """Clicking an element in the sidebar list selects it on the canvas."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(".block-item__info").first.click()
+
+    expect(page.locator(".block-selection")).to_be_visible()
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+
+def test_click_empty_canvas_deselects(page: Page):
+    """Clicking an empty canvas area clears the selection."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    expect(page.locator(".block-selection")).to_be_visible()
+
+    # Click near the bottom-right corner of the render area (no block there)
+    box = page.locator(".render-wrapper").bounding_box()
+    page.mouse.click(box["x"] + box["width"] - 10, box["y"] + box["height"] - 10)
+
+    expect(page.locator(".block-selection")).not_to_be_visible()
+    expect(page.locator(".block-item--selected")).to_have_count(0)
+
+
+def test_duplicate_icon_creates_block_copy(page: Page):
+    """The duplicate icon on the selection frame creates a copy of the block."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    page.locator(".block-selection .sel-icon--dup").click()
+
+    # Poll: the browser's POST may still be in flight
+    blocks = []
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if len(blocks) == 2:
+            break
+        page.wait_for_timeout(100)
+    assert len(blocks) == 2
+    # The copy is offset by one cell and keeps the same content
+    copy = next(b for b in blocks if b["id"] != block_id)
+    assert copy["content"] == "Old"
+    assert (copy["x"], copy["y"]) == (3, 3)
+    # The copy becomes the selected element
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+
+def test_delete_icon_removes_block(page: Page):
+    """The delete icon on the selection frame deletes the selected block."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.on("dialog", lambda dialog: dialog.accept())
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    page.locator(".block-selection .sel-icon--del").click()
+
+    # Poll: the browser's DELETE may still be in flight
+    blocks = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if blocks == []:
+            break
+        page.wait_for_timeout(100)
+    assert blocks == []
+    expect(page.locator(".block-selection")).not_to_be_visible()
+
+
+def test_selection_resize_handle_resizes_block(page: Page):
+    """Dragging the resize handle on the selection frame resizes the block."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+
+    # Estimate the character cell size from the block's rendered size (20x4)
+    block_box = page.locator(f'.block-preview[data-block-id="{block_id}"]').bounding_box()
+    cw = block_box["width"] / 20
+    ch = block_box["height"] / 4
+
+    handle = page.locator(".block-selection .sel-resize")
+    h = handle.bounding_box()
+    start_x = h["x"] + h["width"] / 2
+    start_y = h["y"] + h["height"] / 2
+
+    # Drag +2 cells right, +1 cell down
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x + 2 * cw, start_y + 1 * ch, steps=5)
+    page.mouse.up()
+
+    # Poll: the browser's PUT may still be in flight
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if (block["width"], block["height"]) == (22, 5):
+            break
+        page.wait_for_timeout(100)
+    assert (block["width"], block["height"]) == (22, 5)
+
+
+def test_properties_panel_shows_next_to_selected_block(page: Page):
+    """Selecting a block shows a floating properties panel next to it."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+    expect(panel.locator(".block-props__type")).to_have_text("box")
+    # The style select reflects the current border style
+    expect(panel.locator("select")).to_have_value("solid")
+
+
+def test_properties_panel_updates_border_style(page: Page):
+    """Changing the style in the properties panel persists to the database."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    panel.locator("select").select_option("dashed")
+
+    # Poll: the browser's PUT may still be in flight
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if block["border_style"] == "dashed":
+            break
+        page.wait_for_timeout(100)
+    assert block["border_style"] == "dashed"

@@ -171,6 +171,12 @@
     border-color: var(--border);
 }
 
+.block-item--selected {
+    background: rgba(233, 69, 96, 0.12);
+    border-color: rgba(233, 69, 96, 0.6);
+    color: var(--text);
+}
+
 .block-item__info {
     display: flex;
     align-items: center;
@@ -208,6 +214,22 @@
 .order-btn:disabled {
     opacity: 0.3;
     cursor: default;
+}
+
+.style-select {
+    background: #1a1a2e;
+    color: #aaa;
+    border: 1px solid #333;
+    border-radius: 3px;
+    font-size: 10px;
+    padding: 1px 2px;
+    cursor: pointer;
+    max-width: 72px;
+}
+
+.style-select:hover {
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
 .delete-block {
@@ -301,6 +323,27 @@
 .block-border--dashed { outline: 1px dashed rgba(136, 136, 170, 0.5); }
 .block-border--dotted { outline: 1px dotted rgba(136, 136, 170, 0.5); }
 .block-border--double { outline: 2px double rgba(136, 136, 170, 0.5); }
+.block-border--none { outline: 1px dashed rgba(136, 136, 170, 0.3); }
+
+/* Line blocks (hline / vline) */
+.block-line {
+    position: absolute;
+    pointer-events: none;
+}
+
+.block-line--h { left: 0; right: 0; top: 50%; }
+.block-line--v { top: 0; bottom: 0; left: 50%; }
+
+.block-line--h.block-line--solid { border-top: 1px solid rgba(136, 136, 170, 0.5); }
+.block-line--h.block-line--dashed { border-top: 1px dashed rgba(136, 136, 170, 0.5); }
+.block-line--h.block-line--dotted { border-top: 1px dotted rgba(136, 136, 170, 0.5); }
+.block-line--h.block-line--double { border-top: 3px double rgba(136, 136, 170, 0.5); }
+.block-line--h.block-line--none { border-top: 1px dashed rgba(136, 136, 170, 0.3); }
+.block-line--v.block-line--solid { border-left: 1px solid rgba(136, 136, 170, 0.5); }
+.block-line--v.block-line--dashed { border-left: 1px dashed rgba(136, 136, 170, 0.5); }
+.block-line--v.block-line--dotted { border-left: 1px dotted rgba(136, 136, 170, 0.5); }
+.block-line--v.block-line--double { border-left: 3px double rgba(136, 136, 170, 0.5); }
+.block-line--v.block-line--none { border-left: 1px dashed rgba(136, 136, 170, 0.3); }
 
 /* Resize handle — bottom-right corner */
 .resize-handle {
@@ -324,6 +367,144 @@
 .resize-handle:hover {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath d='M8 1L4 5M8 3L3 8M6 1L8 1L8 3' stroke='%23e94560' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
 }
+
+/* ── Selection frame (single-click selection) ───────────── */
+.block-selection {
+    position: absolute;
+    z-index: 100;
+    pointer-events: none;
+}
+
+.block-selection__frame {
+    position: absolute;
+    inset: 0;
+    background: rgba(233, 69, 96, 0.10);
+    border: 1px solid rgba(233, 69, 96, 0.85);
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+.sel-icon {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+    line-height: 1;
+    color: #fff;
+    background: rgba(233, 69, 96, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 3px;
+    pointer-events: auto;
+    transition: background 0.15s;
+}
+
+.sel-icon--dup,
+.sel-icon--del { cursor: pointer; }
+.sel-icon--dup:hover,
+.sel-icon--del:hover { background: #ff6b81; }
+
+.sel-icon--dup { top: -9px; left: -9px; }
+.sel-icon--del { top: -9px; right: -9px; }
+
+/* Resize handle on the selection frame (bottom-right corner) */
+.sel-resize {
+    position: absolute;
+    right: -9px;
+    bottom: -9px;
+    width: 18px;
+    height: 18px;
+    cursor: nwse-resize;
+    background-color: rgba(233, 69, 96, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 3px;
+    pointer-events: auto;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath d='M8 1L4 5M8 3L3 8M6 1L8 1L8 3' stroke='%23fff' stroke-width='1.2' fill='none'/%3E%3C/svg%3E");
+    background-size: 10px 10px;
+    background-repeat: no-repeat;
+    background-position: center;
+    transition: background-color 0.15s;
+}
+
+.sel-resize:hover { background-color: #ff6b81; }
+
+/* ── Block properties panel (floats next to selected block) ─ */
+.block-props {
+    position: absolute;
+    z-index: 200;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    font-size: 12px;
+}
+
+.block-props__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.block-props__type {
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: capitalize;
+}
+
+.block-props__close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.block-props__close:hover { color: var(--accent); }
+
+.block-props__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 10px;
+}
+
+.prop {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.prop > span {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.prop input,
+.prop select {
+    background: #0f0f23;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 12px;
+    padding: 4px 6px;
+    width: 100%;
+}
+
+.prop input:focus,
+.prop select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.prop--wide { grid-column: 1 / -1; }
 
 /* ── Inline content editor (double-click a block) ───────── */
 .block-edit-overlay {
@@ -418,13 +599,22 @@
                 <div class="section-title" x-text="'Elements (' + blocks.length + ')'"></div>
                 <div class="element-list">
                     <template x-for="(block, idx) in blocks" :key="block.id">
-                        <div class="block-item">
+                        <div class="block-item"
+                             :class="{ 'block-item--selected': block.id === selectedBlockId }"
+                             @click="selectBlock(block.id)">
                             <span class="block-item__info">
                                 <strong x-text="block.block_type"></strong>
                                 <span class="block-item__pos" x-text="' @(' + block.x + ',' + block.y + ')'"></span>
                                 <span class="block-order" x-text="'#' + block.order"></span>
                             </span>
                             <span class="block-actions">
+                                <select class="style-select" :value="block.border_style"
+                                        @change="updateBlockStyle(block.id, $event.target.value)"
+                                        title="Border / line style">
+                                    <template x-for="s in borderStyles" :key="s">
+                                        <option :value="s" x-text="s"></option>
+                                    </template>
+                                </select>
                                 <button class="order-btn" @click="moveBlockOrder(block.id, -1)" :disabled="block.order <= 0" title="Move down (lower z-index)">↓</button>
                                 <button class="order-btn" @click="moveBlockOrder(block.id, 1)" :disabled="block.order >= maxOrder" title="Move up (higher z-index)">↑</button>
                                 <button class="delete-block" @click="deleteBlock(block.id)" title="Delete">×</button>
@@ -438,7 +628,7 @@
         <!-- Content: canvas preview -->
         <section class="editor-content">
             <div class="canvas-container"
-                 title="Double-click a block to edit its text"
+                 title="Click a block to select it, double-click to edit its text"
                  @dragover.prevent="onCanvasDragOver($event)"
                  @dragleave="onCanvasDragLeave($event)"
                  @drop="onCanvasDrop($event)"
@@ -447,6 +637,67 @@
                  @dblclick="onCanvasDblClick($event)">
                 <div class="canvas-drag-overlay"></div>
                 <div x-html="htmlPreview"></div>
+                <!-- Selection frame (single-click selection) with action icons -->
+                <div class="block-selection" x-show="selectedBlock && !editingBlock" x-cloak
+                     :style="selectionStyle">
+                    <div class="block-selection__frame"></div>
+                    <button class="sel-icon sel-icon--dup" @click="duplicateBlock()"
+                            title="Duplicate block">⧉</button>
+                    <button class="sel-icon sel-icon--del" @click="deleteBlock(selectedBlock.id)"
+                            title="Delete block">✕</button>
+                    <div class="sel-resize" @mousedown="onSelectionResizeMouseDown($event)"
+                         title="Drag to resize"></div>
+                </div>
+                <!-- Block properties panel (floats next to the selected block) -->
+                <div class="block-props" x-show="selectedBlock && !editingBlock" x-cloak
+                     :style="propsPanelStyle">
+                    <div class="block-props__head">
+                        <span class="block-props__type" x-text="selectedBlock.block_type"></span>
+                        <button class="block-props__close" @click="selectedBlockId = null"
+                                title="Deselect">×</button>
+                    </div>
+                    <div class="block-props__grid">
+                        <label class="prop prop--wide">
+                            <span>Style</span>
+                            <select :value="selectedBlock.border_style"
+                                    @change="updateSelectedBlock({ border_style: $event.target.value })">
+                                <template x-for="s in borderStyles" :key="s">
+                                    <option :value="s" x-text="s"></option>
+                                </template>
+                            </select>
+                        </label>
+                        <label class="prop">
+                            <span>X</span>
+                            <input type="number" min="0" :value="selectedBlock.x"
+                                   @change="updateSelectedXY($event)">
+                        </label>
+                        <label class="prop">
+                            <span>Y</span>
+                            <input type="number" min="0" :value="selectedBlock.y"
+                                   @change="updateSelectedXY($event)">
+                        </label>
+                        <label class="prop">
+                            <span>W</span>
+                            <input type="number" min="1" :value="selectedBlock.width"
+                                   @change="updateSelectedWH($event)">
+                        </label>
+                        <label class="prop">
+                            <span>H</span>
+                            <input type="number" min="1" :value="selectedBlock.height"
+                                   @change="updateSelectedWH($event)">
+                        </label>
+                        <label class="prop">
+                            <span>Order</span>
+                            <input type="number" min="0" :value="selectedBlock.order"
+                                   @change="updateSelectedOrder($event)">
+                        </label>
+                        <label class="prop prop--wide">
+                            <span>Content</span>
+                            <input type="text" :value="selectedBlock.content"
+                                   @change="updateSelectedContent($event)">
+                        </label>
+                    </div>
+                </div>
                 <!-- Inline content editor (opened by double-click on a block) -->
                 <div class="block-edit-overlay" x-show="editingBlock" x-cloak
                      :style="editOverlayStyle">

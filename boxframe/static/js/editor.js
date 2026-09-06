@@ -7,6 +7,7 @@ function editorApp() {
         layoutId: null,
         blocks: [],
         blockTypes: [],
+        borderStyles: [],
         rawText: '',
         htmlPreview: '',
         loading: true,
@@ -15,8 +16,12 @@ function editorApp() {
         editingBlock: null,    // block being edited (null = editor closed)
         editText: '',          // textarea content while editing
 
+        // ── Selection state (single click) ─────────────────────
+        selectedBlockId: null, // id of the block selected by a single click
+        pendingBlock: null,    // block under cursor on mousedown (click vs drag)
+
         // ── Drag state ──────────────────────────────────────────
-        dragMode: null,          // 'palette' | 'move' | 'resize' | null
+        dragMode: null,          // 'palette' | 'pending' | 'move' | 'resize' | null
         dragType: null,          // block type string (palette drag)
         dragBlock: null,         // block object (move / resize drag)
         dragStartX: 0,
@@ -170,6 +175,14 @@ function editorApp() {
         _onGlobalMouseUp() {
             if (!this.dragMode) return;
 
+            if (this.dragMode === 'pending') {
+                // Mouse didn't move past the threshold: it's a click, not a drag.
+                // Click on a block → select it, click on empty canvas → deselect.
+                this.selectedBlockId = this.pendingBlock ? this.pendingBlock.id : null;
+                this._clearDragState();
+                return;
+            }
+
             if (this.dragMode === 'move' && this.dragBlock && this.dragGridX >= 0) {
                 this._commitBlockMove();
             }
@@ -185,6 +198,7 @@ function editorApp() {
             this.dragMode = null;
             this.dragType = null;
             this.dragBlock = null;
+            this.pendingBlock = null;
             this._hidePreview();
             this.previewEl = null;
         },
@@ -205,8 +219,11 @@ function editorApp() {
                 handle.parentNode.replaceChild(newHandle, handle);
                 newHandle.addEventListener('mousedown', (e) => this.onResizeHandleMouseDown(e));
 
-                // JS-based hover: toggle .visible class on resize handle
+                // JS-based hover: toggle .visible class on resize handle.
+                // A selected block shows the selection frame's own handle,
+                // so suppress the hover handle to avoid a double icon.
                 preview.addEventListener('mouseenter', () => {
+                    if (preview.dataset.blockId === this.selectedBlockId) return;
                     newHandle.classList.add('visible');
                 });
                 preview.addEventListener('mouseleave', () => {
@@ -221,10 +238,24 @@ function editorApp() {
             const blockPreview = e.target.closest('.block-preview');
             if (!blockPreview) return;
 
-            const blockId = blockPreview.dataset.blockId;
-            const block = this.blocks.find(b => b.id === blockId);
+            const block = this.blocks.find(b => b.id === blockPreview.dataset.blockId);
             if (!block) return;
 
+            this._startResizeDrag(block, e);
+        },
+
+        // Resize handle on the selection frame (visible while a block is
+        // selected, no hover needed)
+        onSelectionResizeMouseDown(e) {
+            if (e.button !== 0) return;
+
+            const block = this.selectedBlock;
+            if (!block) return;
+
+            this._startResizeDrag(block, e);
+        },
+
+        _startResizeDrag(block, e) {
             this.dragMode = 'resize';
             this.dragBlock = block;
             this.resizeStartW = block.width;
@@ -295,8 +326,9 @@ function editorApp() {
             if (this.dragMode !== 'palette' || !this.dragType) return;
 
             const pos = this._pixelToGrid(e.clientX, e.clientY);
-            const w = this.dragType === 'button' ? 12 : 20;
-            const h = this.dragType === 'button' ? 1 : 3;
+            const defaults = this._blockDefaults(this.dragType);
+            const w = defaults.width;
+            const h = defaults.height;
 
             // Clamp to layout bounds
             pos.x = Math.max(0, Math.min(pos.x, this.layoutWidth - w));
@@ -315,7 +347,7 @@ function editorApp() {
                     y: pos.y,
                     width: w,
                     height: h,
-                    content: this.dragType === 'button' ? 'Button' : `[${this.dragType}]`,
+                    content: defaults.content,
                     order: maxOrder + 1
                 })
             }).then(r => r.json()).then(block => {
@@ -336,42 +368,57 @@ function editorApp() {
             // Ignore clicks inside the inline content editor
             if (e.target.closest('.block-edit-overlay')) return;
 
-            // Find block under cursor by checking block-list order
-            // and using the canvas overlay position
-            const pos = this._pixelToGrid(e.clientX, e.clientY);
+            // Ignore clicks on the selection frame icons — the icon sits at the
+            // block corner (half outside it), so the cursor maps to a grid cell
+            // outside the block and would clear the selection on mouseup.
+            if (e.target.closest('.block-selection')) return;
+
+            // Ignore clicks inside the floating properties panel
+            if (e.target.closest('.block-props')) return;
 
             // Find the block whose area contains the cursor
+            const pos = this._pixelToGrid(e.clientX, e.clientY);
             const block = this.blocks.find(b =>
                 pos.x >= b.x && pos.y >= b.y &&
                 pos.x < b.x + b.width && pos.y < b.y + b.height
             );
-            if (!block) return;
 
-            // Don't drag if clicking delete button
-            if (e.target.closest('.delete-block')) return;
-
-            this.dragMode = 'move';
-            this.dragBlock = block;
+            // Pending: becomes a move-drag if the mouse moves past a
+            // threshold, or a select/deselect click if it doesn't.
+            this.dragMode = 'pending';
+            this.pendingBlock = block;
             this.dragStartX = e.clientX;
             this.dragStartY = e.clientY;
-            this.dragOffsetX = pos.x - block.x;
-            this.dragOffsetY = pos.y - block.y;
-            this.dragGridX = block.x;
-            this.dragGridY = block.y;
+            this.dragOffsetX = pos.x - (block ? block.x : 0);
+            this.dragOffsetY = pos.y - (block ? block.y : 0);
+            this.dragGridX = block ? block.x : -1;
+            this.dragGridY = block ? block.y : -1;
 
-            // Show preview
-            const preview = this._ensurePreviewEl();
-            if (preview) {
-                preview.style.width = (block.width * this.charWidth) + 'px';
-                preview.style.height = (block.height * this.charHeight) + 'px';
-                preview.style.display = 'block';
-                this._showPreview(block.x, block.y);
+            if (block) {
+                e.preventDefault();
             }
-
-            e.preventDefault();
         },
 
         onCanvasMouseMove(e) {
+            if (this.dragMode === 'pending') {
+                const dx = e.clientX - this.dragStartX;
+                const dy = e.clientY - this.dragStartY;
+                if (this.pendingBlock && Math.hypot(dx, dy) > 3) {
+                    // Mouse moved past the click threshold: start the move-drag
+                    this.dragMode = 'move';
+                    this.dragBlock = this.pendingBlock;
+
+                    const preview = this._ensurePreviewEl();
+                    if (preview) {
+                        preview.style.width = (this.dragBlock.width * this.charWidth) + 'px';
+                        preview.style.height = (this.dragBlock.height * this.charHeight) + 'px';
+                        preview.style.display = 'block';
+                        this._showPreview(this.dragBlock.x, this.dragBlock.y);
+                    }
+                }
+                return;
+            }
+
             if (this.dragMode === 'move' && this.dragBlock) {
                 const pos = this._pixelToGrid(e.clientX, e.clientY);
                 const gx = Math.max(0, pos.x - this.dragOffsetX);
@@ -400,9 +447,15 @@ function editorApp() {
                 newW = Math.round(newW * 2) / 2;
                 newH = Math.round(newH * 2) / 2;
 
+                // Lines are always 1 cell thick — the thin dimension is fixed
+                if (this.dragBlock.block_type === 'hline') newH = 1;
+                if (this.dragBlock.block_type === 'vline') newW = 1;
+
                 // Clamp to minimum and layout bounds
-                newW = Math.max(2, Math.min(newW, this.layoutWidth - this.dragBlock.x));
-                newH = Math.max(2, Math.min(newH, this.layoutHeight - this.dragBlock.y));
+                const minW = this.dragBlock.block_type === 'vline' ? 1 : 2;
+                const minH = this.dragBlock.block_type === 'hline' ? 1 : 2;
+                newW = Math.max(minW, Math.min(newW, this.layoutWidth - this.dragBlock.x));
+                newH = Math.max(minH, Math.min(newH, this.layoutHeight - this.dragBlock.y));
 
                 this.resizePreviewW = newW;
                 this.resizePreviewH = newH;
@@ -434,7 +487,9 @@ function editorApp() {
 
         onCanvasDblClick(e) {
             if (e.target.closest('.resize-handle')) return;
+            if (e.target.closest('.sel-resize')) return;
             if (e.target.closest('.block-edit-overlay')) return;
+            if (e.target.closest('.block-props')) return;
 
             // Commit the in-progress edit before switching blocks
             if (this.editingBlock) {
@@ -536,9 +591,13 @@ function editorApp() {
             const newW = Math.round(this.resizePreviewW);
             const newH = Math.round(this.resizePreviewH);
 
-            // Minimum size: 2x2
-            const clampedW = Math.max(2, newW);
-            const clampedH = Math.max(2, newH);
+            // Minimum size: 2x2; lines are always 1 cell thick
+            const minW = block.block_type === 'vline' ? 1 : 2;
+            const minH = block.block_type === 'hline' ? 1 : 2;
+            let clampedW = Math.max(minW, newW);
+            let clampedH = Math.max(minH, newH);
+            if (block.block_type === 'hline') clampedH = 1;
+            if (block.block_type === 'vline') clampedW = 1;
 
             if (clampedW === oldW && clampedH === oldH) {
                 return; // No change
@@ -568,6 +627,14 @@ function editorApp() {
             const res = await fetch(`/api/projects/${projectId}/info`);
             const data = await res.json();
             this.blockTypes = data.block_types || [];
+            this.borderStyles = data.border_styles || [];
+        },
+
+        _blockDefaults(type) {
+            if (type === 'button') return { width: 12, height: 1, content: 'Button' };
+            if (type === 'hline') return { width: 20, height: 1, content: '' };
+            if (type === 'vline') return { width: 1, height: 5, content: '' };
+            return { width: 20, height: 3, content: `[${type}]` };
         },
 
         async fetchBlocks() {
@@ -641,6 +708,191 @@ function editorApp() {
             }
         },
 
+        // ── Selection (single click) ───────────────────────────
+
+        selectBlock(blockId) {
+            this.selectedBlockId = blockId;
+        },
+
+        get selectedBlock() {
+            if (!this.selectedBlockId) return null;
+            return this.blocks.find(b => b.id === this.selectedBlockId) || null;
+        },
+
+        get selectionStyle() {
+            const b = this.selectedBlock;
+            if (!b) return 'display:none';
+            const pad = 16; // matches .render-wrapper padding
+            return (
+                `left:${pad + b.x * this.charWidth}px;` +
+                `top:${pad + b.y * this.charHeight}px;` +
+                `width:${b.width * this.charWidth}px;` +
+                `height:${b.height * this.charHeight}px;`
+            );
+        },
+
+        // Position of the floating properties panel: next to the selected
+        // block (right side preferred, left as fallback, below as last resort)
+        get propsPanelStyle() {
+            const b = this.selectedBlock;
+            if (!b) return 'display:none';
+            const pad = 16; // matches .render-wrapper padding
+            const container = document.querySelector('.canvas-container');
+            const panelW = 208;
+            const panelH = 300; // approximate height, for vertical clamping
+
+            const bx = pad + b.x * this.charWidth;
+            const by = pad + b.y * this.charHeight;
+            const bw = b.width * this.charWidth;
+            const bh = b.height * this.charHeight;
+
+            let left, top;
+            const rightSpace = container
+                ? container.clientWidth + container.scrollLeft - (bx + bw)
+                : Infinity;
+            if (rightSpace >= panelW + 16) {
+                left = bx + bw + 12;
+                top = by;
+            } else if (bx - panelW - 12 >= 8) {
+                left = bx - panelW - 12;
+                top = by;
+            } else {
+                left = Math.max(8, bx);
+                top = by + bh + 12;
+            }
+
+            // Keep the panel inside the visible canvas area
+            if (container) {
+                const maxTop = container.clientHeight + container.scrollTop - panelH - 8;
+                if (top > maxTop) top = Math.max(8, maxTop);
+            }
+
+            return `left:${left}px; top:${top}px; width:${panelW}px;`;
+        },
+
+        async duplicateBlock() {
+            const b = this.selectedBlock;
+            if (!b) return;
+
+            // Offset the copy by one cell, clamped to layout bounds
+            const x = Math.max(0, Math.min(b.x + 1, this.layoutWidth - b.width));
+            const y = Math.max(0, Math.min(b.y + 1, this.layoutHeight - b.height));
+
+            const res = await fetch(`/api/layouts/${this.layoutId}/blocks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    block_type: b.block_type,
+                    x,
+                    y,
+                    width: b.width,
+                    height: b.height,
+                    content: b.content,
+                    border_style: b.border_style,
+                    order: this.maxOrder + 1
+                })
+            });
+            const block = await res.json();
+            this.blocks.push(block);
+            this._reorderBlocks();
+            this.selectedBlockId = block.id;
+            await this.refreshRender();
+        },
+
+        async updateBlockStyle(blockId, style) {
+            const block = this.blocks.find(b => b.id === blockId);
+            if (!block) return;
+
+            const oldStyle = block.border_style;
+            try {
+                await fetch(`/api/layouts/${this.layoutId}/blocks/${blockId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ border_style: style })
+                });
+                block.border_style = style;
+                await this.refreshRender();
+            } catch (err) {
+                block.border_style = oldStyle;
+                console.error('Failed to update border style:', err);
+            }
+        },
+
+        // ── Properties panel (floating, next to selected block) ──
+
+        async updateSelectedBlock(props) {
+            const b = this.selectedBlock;
+            if (!b) return;
+
+            const old = {};
+            for (const key of Object.keys(props)) old[key] = b[key];
+
+            try {
+                await fetch(`/api/layouts/${this.layoutId}/blocks/${b.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(props)
+                });
+                Object.assign(b, props);
+                await this.refreshRender();
+            } catch (err) {
+                Object.assign(b, old);
+                console.error('Failed to update block:', err);
+            }
+        },
+
+        updateSelectedXY(e) {
+            const b = this.selectedBlock;
+            if (!b) return;
+            const inputs = e.currentTarget.querySelectorAll('input');
+            const x = parseInt(inputs[0].value, 10);
+            const y = parseInt(inputs[1].value, 10);
+            if (Number.isNaN(x) || Number.isNaN(y)) {
+                inputs[0].value = b.x;
+                inputs[1].value = b.y;
+                return;
+            }
+            this.updateSelectedBlock({
+                x: Math.max(0, Math.min(x, this.layoutWidth - b.width)),
+                y: Math.max(0, Math.min(y, this.layoutHeight - b.height))
+            });
+        },
+
+        updateSelectedWH(e) {
+            const b = this.selectedBlock;
+            if (!b) return;
+            const inputs = e.currentTarget.querySelectorAll('input');
+            const w = parseInt(inputs[0].value, 10);
+            const h = parseInt(inputs[1].value, 10);
+            if (Number.isNaN(w) || Number.isNaN(h)) {
+                inputs[0].value = b.width;
+                inputs[1].value = b.height;
+                return;
+            }
+            let newW = Math.max(1, Math.min(w, this.layoutWidth - b.x));
+            let newH = Math.max(1, Math.min(h, this.layoutHeight - b.y));
+            if (b.block_type === 'hline') newH = 1;
+            if (b.block_type === 'vline') newW = 1;
+            this.updateSelectedBlock({ width: newW, height: newH });
+        },
+
+        updateSelectedOrder(e) {
+            const b = this.selectedBlock;
+            if (!b) return;
+            const order = parseInt(e.target.value, 10);
+            if (Number.isNaN(order) || order < 0) {
+                e.target.value = b.order;
+                return;
+            }
+            this.updateSelectedBlock({ order });
+        },
+
+        updateSelectedContent(e) {
+            const b = this.selectedBlock;
+            if (!b) return;
+            this.updateSelectedBlock({ content: e.target.value });
+        },
+
         async refreshRender() {
             // Measure real character size and pass it to the server so overlays
             // use exact pixel dimensions instead of assuming 1em = font-size.
@@ -665,6 +917,7 @@ function editorApp() {
             const maxOrder = this.blocks.length > 0
                 ? Math.max(...this.blocks.map(b => b.order))
                 : 0;
+            const defaults = this._blockDefaults(type);
             const res = await fetch(`/api/layouts/${this.layoutId}/blocks`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -672,9 +925,9 @@ function editorApp() {
                     block_type: type,
                     x: 1,
                     y: 1,
-                    width: type === 'button' ? 12 : 20,
-                    height: type === 'button' ? 1 : 3,
-                    content: type === 'button' ? 'Button' : `[${type}]`,
+                    width: defaults.width,
+                    height: defaults.height,
+                    content: defaults.content,
                     order: maxOrder + 1
                 })
             });
@@ -690,6 +943,9 @@ function editorApp() {
                 method: 'DELETE'
             });
             this.blocks = this.blocks.filter(b => b.id !== blockId);
+            if (this.selectedBlockId === blockId) {
+                this.selectedBlockId = null;
+            }
             this._reorderBlocks();
             await this.refreshRender();
         },

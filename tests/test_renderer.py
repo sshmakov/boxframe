@@ -152,6 +152,188 @@ def test_double_border():
     assert all(c == "═" for c in lines[0][1:5])
 
 
+# ── Line block tests (hline / vline) ──────────────────────
+
+
+def test_hline_solid():
+    result = _render([{
+        "block_type": "hline",
+        "x": 2, "y": 3,
+        "width": 8, "height": 1,
+        "content": "",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    assert lines[3][2:10] == "────────"
+
+
+def test_hline_all_styles():
+    chars = {"solid": "─", "dashed": "┄", "dotted": "┈", "double": "═"}
+    for style, ch in chars.items():
+        result = _render([{
+            "block_type": "hline",
+            "x": 0, "y": 0,
+            "width": 5, "height": 1,
+            "content": "",
+            "border_style": style,
+        }])
+        assert result.split("\n")[0][:5] == ch * 5
+
+
+def test_vline_solid():
+    result = _render([{
+        "block_type": "vline",
+        "x": 4, "y": 1,
+        "width": 1, "height": 4,
+        "content": "",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    for i in range(1, 5):
+        assert lines[i][4] == "│"
+
+
+def test_vline_all_styles():
+    chars = {"solid": "│", "dashed": "┆", "dotted": "┊", "double": "║"}
+    for style, ch in chars.items():
+        result = _render([{
+            "block_type": "vline",
+            "x": 0, "y": 0,
+            "width": 1, "height": 4,
+            "content": "",
+            "border_style": style,
+        }])
+        lines = result.split("\n")
+        for i in range(4):
+            assert lines[i][0] == ch
+
+
+def test_line_none_is_invisible():
+    result = _render([{
+        "block_type": "hline",
+        "x": 0, "y": 0,
+        "width": 5, "height": 1,
+        "content": "",
+        "border_style": "none",
+    }])
+    assert result.strip() == ""
+
+
+def test_line_ignores_content():
+    result = _render([{
+        "block_type": "hline",
+        "x": 0, "y": 0,
+        "width": 8, "height": 1,
+        "content": "text",
+        "border_style": "solid",
+    }])
+    assert result.split("\n")[0] == "────────"
+
+
+def test_hline_clamped_to_grid():
+    result = _render([{
+        "block_type": "hline",
+        "x": 35, "y": 0,
+        "width": 20, "height": 1,
+        "content": "",
+        "border_style": "solid",
+    }], width=40, height=12)
+    lines = result.split("\n")
+    assert lines[0][35:] == "─" * 5  # clamped to grid edge
+
+
+# ── Word wrap tests ───────────────────────────────────────
+
+
+def test_wrap_text_unit():
+    """_wrap_text wraps by words, preserves newlines, hard-splits long words."""
+    r = PseudoGraphicRenderer(10, 5)
+    assert r._wrap_text("hello world", 5) == ["hello", "world"]
+    assert r._wrap_text("hello", 10) == ["hello"]
+    assert r._wrap_text("a b c", 1) == ["a", "b", "c"]
+    assert r._wrap_text("ab\ncd", 3) == ["ab", "cd"]
+    assert r._wrap_text("abcdefgh", 3) == ["abc", "def", "gh"]
+    assert r._wrap_text("", 5) == [""]
+
+
+def test_word_wrap_in_border():
+    """Long content wraps by words inside the frame instead of truncating."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 12, "height": 4,
+        "content": "Hello world foo",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Content width = 10: "Hello" + " world" = 11 > 10 → wrap
+    assert "Hello" in lines[1]
+    assert "world foo" in lines[2]
+    # Border intact on all content rows
+    assert lines[1][0] == "│" and lines[1][11] == "│"
+    assert lines[2][0] == "│" and lines[2][11] == "│"
+
+
+def test_word_wrap_hard_split_long_word():
+    """Words longer than the content width are split character by character."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 8, "height": 4,
+        "content": "abcdefgh",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Content width = 6: "abcdef" / "gh"
+    assert "abcdef" in lines[1]
+    assert "gh" in lines[2]
+
+
+def test_word_wrap_preserves_explicit_newlines():
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 12, "height": 5,
+        "content": "one two\nthree four",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Each explicit line fits (7 and 10 ≤ 10) — no extra wrapping
+    assert "one two" in lines[1]
+    assert "three four" in lines[2]
+
+
+def test_word_wrap_clipped_by_height():
+    """Wrapped lines beyond the content height are not drawn."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 8, "height": 3,
+        "content": "aa bb cc dd",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Content height = 1: only the first wrapped line fits
+    assert "aa bb" in lines[1]
+    assert "cc" not in lines[1]
+    # Bottom border intact
+    assert lines[2][0] == "└" and lines[2][7] == "┘"
+
+
+def test_word_wrap_no_border():
+    """Borderless blocks wrap by their own width."""
+    result = _render([{
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "width": 8, "height": 3,
+        "content": "hello world",
+        "border_style": "none",
+    }])
+    lines = result.split("\n")
+    assert "hello" in lines[0]
+    assert "world" in lines[1]
+
+
 # ── HTML preview tests ────────────────────────────────────
 
 
@@ -244,6 +426,55 @@ def test_render_html_preview_double_border():
         "border_style": "double",
     }])
     assert 'class="block-border block-border--double"' in html
+
+
+def test_render_html_preview_hline():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "l1",
+        "x": 0, "y": 0,
+        "width": 10, "height": 1,
+        "block_type": "hline",
+        "content": "",
+        "border_style": "dashed",
+    }])
+    assert 'data-block-id="l1"' in html
+    assert 'class="block-line block-line--h block-line--dashed"' in html
+
+
+def test_render_html_preview_vline():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "l2",
+        "x": 0, "y": 0,
+        "width": 1, "height": 4,
+        "block_type": "vline",
+        "content": "",
+        "border_style": "double",
+    }])
+    assert 'class="block-line block-line--v block-line--double"' in html
+
+
+def test_render_html_preview_line_none():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "l3",
+        "x": 0, "y": 0,
+        "width": 10, "height": 1,
+        "block_type": "hline",
+        "content": "",
+        "border_style": "none",
+    }])
+    assert 'class="block-line block-line--h block-line--none"' in html
+
+
+def test_render_html_preview_border_none():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "b1",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "block_type": "box",
+        "content": "",
+        "border_style": "none",
+    }])
+    assert 'class="block-border block-border--none"' in html
 
 
 # ── Order / z-index tests ──────────────────────────────────

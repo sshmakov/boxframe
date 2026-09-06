@@ -396,3 +396,84 @@ def test_normalize_with_duplicates(client: TestClient):
     orders = [b["order"] for b in r.json()["blocks"]]
     assert sorted(orders) == [0, 1, 2]  # Normalized to sequential
     assert len(orders) == len(set(orders))  # All unique
+
+
+# ── Line thickness tests ────────────────────────────────────
+
+
+def test_create_hline_height_forced_to_one(client: TestClient):
+    """hline is always 1 cell tall, regardless of the requested height."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "hline",
+        "x": 0, "y": 0, "width": 15, "height": 4,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["height"] == 1
+    assert data["width"] == 15  # long dimension is not affected
+
+
+def test_update_hline_height_stays_one(client: TestClient):
+    """hline height cannot be changed via update; width can."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "hline",
+        "x": 0, "y": 0, "width": 10, "height": 1,
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "height": 5,
+    })
+    assert r.status_code == 200
+    assert r.json()["height"] == 1
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "width": 30,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 30
+    assert data["height"] == 1
+
+
+def test_create_vline_width_forced_to_one(client: TestClient):
+    """vline is always 1 cell wide, regardless of the requested width."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "vline",
+        "x": 0, "y": 0, "width": 4, "height": 10,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 1
+    assert data["height"] == 10  # long dimension is not affected
+
+
+def test_update_vline_width_stays_one(client: TestClient):
+    """vline width cannot be changed via update; height can."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "vline",
+        "x": 0, "y": 0, "width": 1, "height": 5,
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "width": 5,
+    })
+    assert r.status_code == 200
+    assert r.json()["width"] == 1
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "height": 10,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["height"] == 10
+    assert data["width"] == 1

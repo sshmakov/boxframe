@@ -18,6 +18,8 @@ BLOCK_TYPES = [
     "textarea",   # Multi-line text area
     "image",      # Image placeholder
     "divider",    # Horizontal rule
+    "hline",      # Horizontal line (1-row)
+    "vline",      # Vertical line (1-col)
     "text",       # Plain text
     "grid",       # Grid container
 ]

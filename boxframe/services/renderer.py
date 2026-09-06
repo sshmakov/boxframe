@@ -81,10 +81,17 @@ class RenderBlock:
             "dashed": "dashed",
             "dotted": "dotted",
             "double": "double",
+            "none": "none",
         }
         style = border_map.get(self.border_style, "solid")
-        if self.border_style == "none":
-            return ""
+
+        if self.block_type in ("hline", "vline"):
+            direction = "h" if self.block_type == "hline" else "v"
+            return (
+                f'<div class="block-line block-line--{direction} block-line--{style}">'
+                f"</div>"
+            )
+
         return (
             f'<div class="block-border block-border--{style}"'
             f' style="width:100%;height:100%;">'
@@ -140,6 +147,12 @@ class PseudoGraphicRenderer:
     def _render_block(self, block: RenderBlock) -> None:
         """Render a single block (including children) onto the grid."""
         style_map = BORDERS.get(block.border_style, BORDERS["solid"])
+
+        if block.block_type in ("hline", "vline"):
+            if block.border_style != "none":
+                self._draw_line(block, style_map)
+            return
+
         has_border = block.border_style != "none" and block.width >= 2 and block.height >= 2
 
         if has_border:
@@ -181,6 +194,20 @@ class PseudoGraphicRenderer:
             self.grid[y + j][x] = style["v"]
             self.grid[y + j][x + w - 1] = style["v"]
 
+    def _draw_line(self, block: RenderBlock, style: dict[str, str]) -> None:
+        """Draw an hline (top row) or vline (left column) with style characters."""
+        x = max(0, min(block.x, self.grid_width - 1))
+        y = max(0, min(block.y, self.grid_height - 1))
+
+        if block.block_type == "hline":
+            w = min(block.width, self.grid_width - x)
+            for i in range(max(1, w)):
+                self.grid[y][x + i] = style["h"]
+        else:  # vline
+            h = min(block.height, self.grid_height - y)
+            for j in range(max(1, h)):
+                self.grid[y + j][x] = style["v"]
+
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""
         # Clamp block position and size to grid (same logic as _draw_border)
@@ -215,20 +242,50 @@ class PseudoGraphicRenderer:
         if content_w <= 0 or content_h <= 0:
             return
 
-        # Split content into lines
-        lines = block.content.split("\n")
+        # Wrap content by words to fit the content area
+        lines = self._wrap_text(block.content, content_w)
         for line_idx, line in enumerate(lines):
             if line_idx >= content_h:
                 break
             row = content_y + line_idx
             if row >= self.grid_height:
                 break
-            # Truncate line to content width
-            line = line[:content_w]
             for col_idx, ch in enumerate(line):
                 col = content_x + col_idx
                 if col < self.grid_width:
                     self.grid[row][col] = ch
+
+    def _wrap_text(self, text: str, width: int) -> list[str]:
+        """Wrap text by words to fit within `width` columns.
+
+        Explicit newlines are preserved. Words longer than `width`
+        are hard-split character by character.
+        """
+        wrapped: list[str] = []
+        for raw_line in text.split("\n"):
+            words = raw_line.split()
+            current = ""
+            for word in words:
+                while len(word) > width:
+                    if current:
+                        wrapped.append(current)
+                        current = ""
+                    wrapped.append(word[:width])
+                    word = word[width:]
+                if not word:
+                    continue
+                if not current:
+                    current = word
+                elif len(current) + 1 + len(word) <= width:
+                    current = f"{current} {word}"
+                else:
+                    wrapped.append(current)
+                    current = word
+            if current:
+                wrapped.append(current)
+            elif not words:
+                wrapped.append("")
+        return wrapped
 
     def _render_children_in_container(self, parent: RenderBlock, style: dict[str, str]) -> None:
         """Render child blocks inside a parent container with padding."""
