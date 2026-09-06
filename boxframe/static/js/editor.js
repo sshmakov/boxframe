@@ -219,8 +219,11 @@ function editorApp() {
                 handle.parentNode.replaceChild(newHandle, handle);
                 newHandle.addEventListener('mousedown', (e) => this.onResizeHandleMouseDown(e));
 
-                // JS-based hover: toggle .visible class on resize handle
+                // JS-based hover: toggle .visible class on resize handle.
+                // A selected block shows the selection frame's own handle,
+                // so suppress the hover handle to avoid a double icon.
                 preview.addEventListener('mouseenter', () => {
+                    if (preview.dataset.blockId === this.selectedBlockId) return;
                     newHandle.classList.add('visible');
                 });
                 preview.addEventListener('mouseleave', () => {
@@ -235,10 +238,24 @@ function editorApp() {
             const blockPreview = e.target.closest('.block-preview');
             if (!blockPreview) return;
 
-            const blockId = blockPreview.dataset.blockId;
-            const block = this.blocks.find(b => b.id === blockId);
+            const block = this.blocks.find(b => b.id === blockPreview.dataset.blockId);
             if (!block) return;
 
+            this._startResizeDrag(block, e);
+        },
+
+        // Resize handle on the selection frame (visible while a block is
+        // selected, no hover needed)
+        onSelectionResizeMouseDown(e) {
+            if (e.button !== 0) return;
+
+            const block = this.selectedBlock;
+            if (!block) return;
+
+            this._startResizeDrag(block, e);
+        },
+
+        _startResizeDrag(block, e) {
             this.dragMode = 'resize';
             this.dragBlock = block;
             this.resizeStartW = block.width;
@@ -467,6 +484,7 @@ function editorApp() {
 
         onCanvasDblClick(e) {
             if (e.target.closest('.resize-handle')) return;
+            if (e.target.closest('.sel-resize')) return;
             if (e.target.closest('.block-edit-overlay')) return;
 
             // Commit the in-progress edit before switching blocks

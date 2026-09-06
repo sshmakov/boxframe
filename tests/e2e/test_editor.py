@@ -123,8 +123,8 @@ def test_single_click_selects_block(page: Page):
     selection = page.locator(".block-selection")
     expect(selection).to_be_visible()
     expect(selection.locator(".sel-icon--dup")).to_be_visible()
-    expect(selection.locator(".sel-icon--move")).to_be_visible()
     expect(selection.locator(".sel-icon--del")).to_be_visible()
+    expect(selection.locator(".sel-resize")).to_be_visible()
 
     # The block is highlighted in the sidebar list
     expect(page.locator(".block-item--selected")).to_have_count(1)
@@ -163,8 +163,14 @@ def test_duplicate_icon_creates_block_copy(page: Page):
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
     page.locator(".block-selection .sel-icon--dup").click()
 
-    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
-    blocks = r.json()["blocks"]
+    # Poll: the browser's POST may still be in flight
+    blocks = []
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if len(blocks) == 2:
+            break
+        page.wait_for_timeout(100)
     assert len(blocks) == 2
     # The copy is offset by one cell and keeps the same content
     copy = next(b for b in blocks if b["id"] != block_id)
@@ -183,6 +189,46 @@ def test_delete_icon_removes_block(page: Page):
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
     page.locator(".block-selection .sel-icon--del").click()
 
-    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
-    assert r.json()["blocks"] == []
+    # Poll: the browser's DELETE may still be in flight
+    blocks = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if blocks == []:
+            break
+        page.wait_for_timeout(100)
+    assert blocks == []
     expect(page.locator(".block-selection")).not_to_be_visible()
+
+
+def test_selection_resize_handle_resizes_block(page: Page):
+    """Dragging the resize handle on the selection frame resizes the block."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+
+    # Estimate the character cell size from the block's rendered size (20x4)
+    block_box = page.locator(f'.block-preview[data-block-id="{block_id}"]').bounding_box()
+    cw = block_box["width"] / 20
+    ch = block_box["height"] / 4
+
+    handle = page.locator(".block-selection .sel-resize")
+    h = handle.bounding_box()
+    start_x = h["x"] + h["width"] / 2
+    start_y = h["y"] + h["height"] / 2
+
+    # Drag +2 cells right, +1 cell down
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x + 2 * cw, start_y + 1 * ch, steps=5)
+    page.mouse.up()
+
+    # Poll: the browser's PUT may still be in flight
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if (block["width"], block["height"]) == (22, 5):
+            break
+        page.wait_for_timeout(100)
+    assert (block["width"], block["height"]) == (22, 5)
