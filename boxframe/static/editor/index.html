@@ -1,24 +1,19 @@
-{% extends "pages/base.html" %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>boxframe — static editor</title>
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="../css/editor.css">
+</head>
+<body>
+<div x-data="editorApp()" x-init="init()" class="editor-root">
 
-{% block title %}{{ layout.name }} — boxframe{% endblock %}
-
-{% block header %}{% endblock %}
-
-{% block main_class %}container container--full{% endblock %}
-
-{% block head %}
-<link rel="stylesheet" href="/static/css/editor.css">
-{% endblock %}
-
-{% block content %}
-<div x-data="editorApp()" x-init="init()"
-     data-layout-id="{{ layout.id }}" data-project-id="{{ layout.project_id }}"
-     class="editor-root">
-
-    <!-- Header: logo + actions, then breadcrumb -->
+    <!-- Header: logo + actions (no backend — no project breadcrumbs) -->
     <header class="editor-header">
         <div class="editor-header__top">
-            <a href="/" class="logo">boxframe</a>
+            <span class="logo">boxframe</span>
             <div class="editor-header__actions">
                 <div class="dropdown" x-data="{ open: false }" @click.outside="open = false">
                     <button class="btn btn-sm" @click="open = !open">Export...</button>
@@ -32,11 +27,9 @@
             </div>
         </div>
         <nav class="editor-header__breadcrumb">
-            <a href="/">projects</a>
-            <span class="sep">←</span>
-            <a href="/project/{{ layout.project_id }}">{{ project_name }}</a>
-            <span class="sep">←</span>
-            <span class="current">{{ layout.name }}</span>
+            <span class="current">static editor</span>
+            <span class="sep">—</span>
+            <span>no backend, data lives in memory and is lost on reload</span>
         </nav>
     </header>
 
@@ -175,10 +168,10 @@
         </section>
     </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
-<script src="/static/js/core/renderer.js"></script>
-<script src="/static/js/core/store.js"></script>
-<script src="/static/js/editor.js"></script>
-{% endblock %}
+<script src="../js/alpine.min.js" defer></script>
+<script src="../js/core/renderer.js"></script>
+<script src="../js/core/store.js"></script>
+<script src="../js/editor.js"></script>
+</body>
+</html>

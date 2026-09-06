@@ -266,3 +266,48 @@ def test_properties_panel_updates_border_style(page: Page):
             break
         page.wait_for_timeout(100)
     assert block["border_style"] == "dashed"
+
+
+# ── Static editor (no backend, in-memory store) ───────────
+
+
+def test_static_editor_loads_and_renders(page: Page):
+    """The static editor page loads and renders an empty canvas client-side."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    expect(page).to_have_title("boxframe — static editor")
+
+    # Palette is populated from the built-in constants (no API call)
+    expect(page.locator(".palette-btn")).to_have_count(14)
+
+    # The canvas is rendered by the local JS renderer: an empty 80x24 grid
+    expect(page.locator(".render-wrapper")).to_be_visible()
+    expect(page.locator(".canvas-container pre")).to_be_visible()
+
+
+def test_static_editor_adds_block_in_memory(page: Page):
+    """Clicking a palette button adds a block via the in-memory store."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    expect(page.locator(".palette-btn")).to_have_count(14)
+
+    page.locator(".palette-btn", has_text="box").click()
+
+    # The block appears on the canvas (JS-rendered overlay) and in the list
+    expect(page.locator(".block-preview")).to_have_count(1)
+    expect(page.locator(".block-item")).to_have_count(1)
+    expect(page.locator(".block-item__info strong")).to_have_text("box")
+
+    # The ASCII preview contains the box border drawn by the JS renderer
+    expect(page.locator(".canvas-container pre")).to_contain_text("┌")
+
+
+def test_static_editor_delete_block_in_memory(page: Page):
+    """Deleting a block in the static editor removes it from the canvas."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="box").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+
+    page.on("dialog", lambda dialog: dialog.accept())
+    page.locator(".delete-block").click()
+
+    expect(page.locator(".block-preview")).to_have_count(0)
+    expect(page.locator(".block-item")).to_have_count(0)

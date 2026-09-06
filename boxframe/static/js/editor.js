@@ -46,12 +46,13 @@ function editorApp() {
         layoutHeight: 24,
 
         async init() {
-            // Extract layout ID from page (set by server)
-            this.layoutId = document.querySelector('[data-layout-id]')?.dataset.layoutId;
-            if (!this.layoutId) {
-                console.error('No layout ID found');
-                return;
-            }
+            // Web mode: the server-rendered page sets data-layout-id → talk
+            // to the API. Static mode (no layout id) → in-memory store.
+            const root = document.querySelector('[data-layout-id]');
+            this.layoutId = root?.dataset.layoutId || null;
+            this.store = this.layoutId
+                ? createFetchStore(this.layoutId, root.dataset.projectId)
+                : createMemoryStore();
 
             await Promise.all([
                 this.fetchInfo(),
@@ -338,19 +339,15 @@ function editorApp() {
                 ? Math.max(...this.blocks.map(b => b.order))
                 : 0;
 
-            fetch(`/api/layouts/${this.layoutId}/blocks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    block_type: this.dragType,
-                    x: pos.x,
-                    y: pos.y,
-                    width: w,
-                    height: h,
-                    content: defaults.content,
-                    order: maxOrder + 1
-                })
-            }).then(r => r.json()).then(block => {
+            this.store.createBlock({
+                block_type: this.dragType,
+                x: pos.x,
+                y: pos.y,
+                width: w,
+                height: h,
+                content: defaults.content,
+                order: maxOrder + 1
+            }).then(block => {
                 this.blocks.push(block);
                 this._reorderBlocks();
                 this.refreshRender();
@@ -543,11 +540,7 @@ function editorApp() {
             if (newContent === block.content) return;
 
             try {
-                await fetch(`/api/layouts/${this.layoutId}/blocks/${block.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: newContent })
-                });
+                await this.store.updateBlock(block.id, { content: newContent });
                 block.content = newContent;
                 await this.refreshRender();
             } catch (err) {
@@ -565,10 +558,8 @@ function editorApp() {
             const oldY = block.y;
 
             try {
-                await fetch(`/api/layouts/${this.layoutId}/blocks/${block.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ x: this.dragGridX, y: this.dragGridY })
+                await this.store.updateBlock(block.id, {
+                    x: this.dragGridX, y: this.dragGridY
                 });
                 block.x = this.dragGridX;
                 block.y = this.dragGridY;
@@ -604,10 +595,8 @@ function editorApp() {
             }
 
             try {
-                await fetch(`/api/layouts/${this.layoutId}/blocks/${block.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ width: clampedW, height: clampedH })
+                await this.store.updateBlock(block.id, {
+                    width: clampedW, height: clampedH
                 });
                 block.width = clampedW;
                 block.height = clampedH;
@@ -620,12 +609,7 @@ function editorApp() {
         },
 
         async fetchInfo() {
-            const root = document.querySelector('[data-layout-id]');
-            const projectId = root?.dataset.projectId;
-            if (!projectId) return;
-
-            const res = await fetch(`/api/projects/${projectId}/info`);
-            const data = await res.json();
+            const data = await this.store.info();
             this.blockTypes = data.block_types || [];
             this.borderStyles = data.border_styles || [];
         },
@@ -638,9 +622,8 @@ function editorApp() {
         },
 
         async fetchBlocks() {
-            // Fetch all blocks for this layout
-            const res = await fetch(`/api/layouts/${this.layoutId}`);
-            const data = await res.json();
+            // Load all blocks for this layout
+            const data = await this.store.load();
             // Capture layout dimensions for drag calculations
             this.layoutWidth = data.width || 80;
             this.layoutHeight = data.height || 24;
@@ -690,11 +673,7 @@ function editorApp() {
             }
 
             try {
-                await fetch(`/api/layouts/${this.layoutId}/blocks/${blockId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ order: block.order })
-                });
+                await this.store.updateBlock(blockId, { order: block.order });
                 // Re-sort list so position reflects z-order
                 this._reorderBlocks();
                 await this.refreshRender();
@@ -778,21 +757,16 @@ function editorApp() {
             const x = Math.max(0, Math.min(b.x + 1, this.layoutWidth - b.width));
             const y = Math.max(0, Math.min(b.y + 1, this.layoutHeight - b.height));
 
-            const res = await fetch(`/api/layouts/${this.layoutId}/blocks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    block_type: b.block_type,
-                    x,
-                    y,
-                    width: b.width,
-                    height: b.height,
-                    content: b.content,
-                    border_style: b.border_style,
-                    order: this.maxOrder + 1
-                })
+            const block = await this.store.createBlock({
+                block_type: b.block_type,
+                x,
+                y,
+                width: b.width,
+                height: b.height,
+                content: b.content,
+                border_style: b.border_style,
+                order: this.maxOrder + 1
             });
-            const block = await res.json();
             this.blocks.push(block);
             this._reorderBlocks();
             this.selectedBlockId = block.id;
@@ -805,11 +779,7 @@ function editorApp() {
 
             const oldStyle = block.border_style;
             try {
-                await fetch(`/api/layouts/${this.layoutId}/blocks/${blockId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ border_style: style })
-                });
+                await this.store.updateBlock(blockId, { border_style: style });
                 block.border_style = style;
                 await this.refreshRender();
             } catch (err) {
@@ -828,11 +798,7 @@ function editorApp() {
             for (const key of Object.keys(props)) old[key] = b[key];
 
             try {
-                await fetch(`/api/layouts/${this.layoutId}/blocks/${b.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(props)
-                });
+                await this.store.updateBlock(b.id, props);
                 Object.assign(b, props);
                 await this.refreshRender();
             } catch (err) {
@@ -894,19 +860,14 @@ function editorApp() {
         },
 
         async refreshRender() {
-            // Measure real character size and pass it to the server so overlays
+            // Measure real character size and pass it to the store so overlays
             // use exact pixel dimensions instead of assuming 1em = font-size.
             if (!this.charWidth) {
                 this._measureCharSize();
             }
             const cw = this.charWidth || 12;
             const ch = this.charHeight || 14.4;
-            const res = await fetch(
-                `/api/layouts/${this.layoutId}/render`
-                + `?char_width_px=${cw.toFixed(2)}`
-                + `&char_height_px=${ch.toFixed(2)}`
-            );
-            const data = await res.json();
+            const data = await this.store.render(cw, ch);
             this.rawText = data.ascii;
             this.htmlPreview = data.html;
             // Re-bind resize handle listeners after Alpine.js updates the DOM
@@ -918,20 +879,15 @@ function editorApp() {
                 ? Math.max(...this.blocks.map(b => b.order))
                 : 0;
             const defaults = this._blockDefaults(type);
-            const res = await fetch(`/api/layouts/${this.layoutId}/blocks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    block_type: type,
-                    x: 1,
-                    y: 1,
-                    width: defaults.width,
-                    height: defaults.height,
-                    content: defaults.content,
-                    order: maxOrder + 1
-                })
+            const block = await this.store.createBlock({
+                block_type: type,
+                x: 1,
+                y: 1,
+                width: defaults.width,
+                height: defaults.height,
+                content: defaults.content,
+                order: maxOrder + 1
             });
-            const block = await res.json();
             this.blocks.push(block);
             this._reorderBlocks();
             await this.refreshRender();
@@ -939,9 +895,7 @@ function editorApp() {
 
         async deleteBlock(blockId) {
             if (!confirm('Delete this block?')) return;
-            await fetch(`/api/layouts/${this.layoutId}/blocks/${blockId}`, {
-                method: 'DELETE'
-            });
+            await this.store.deleteBlock(blockId);
             this.blocks = this.blocks.filter(b => b.id !== blockId);
             if (this.selectedBlockId === blockId) {
                 this.selectedBlockId = null;
@@ -967,25 +921,25 @@ function editorApp() {
         },
 
         async exportAs(format) {
-            const res = await fetch(`/api/layouts/${this.layoutId}/export`);
-            const data = await res.json();
+            const data = await this.store.export();
 
+            const name = this.layoutId || 'layout';
             let content, filename, mime;
 
             switch (format) {
                 case 'json':
                     content = JSON.stringify(data.json, null, 2);
-                    filename = `${this.layoutId}.json`;
+                    filename = `${name}.json`;
                     mime = 'application/json';
                     break;
                 case 'markdown':
                     content = data.markdown || '';
-                    filename = `${this.layoutId}.md`;
+                    filename = `${name}.md`;
                     mime = 'text/markdown';
                     break;
                 case 'ascii':
                     content = data.ascii || '';
-                    filename = `${this.layoutId}.txt`;
+                    filename = `${name}.txt`;
                     mime = 'text/plain';
                     break;
             }

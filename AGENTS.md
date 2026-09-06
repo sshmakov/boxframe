@@ -23,7 +23,13 @@ boxframe/
 │   │   └── renderer.py         # Псевдографика (Unicode box-drawing)
 │   ├── static/                 # Статика
 │   │   ├── css/style.css       # Dark theme
-│   │   └── js/editor.js        # Alpine.js editor app
+│   │   ├── css/editor.css      # Стили редактора (общие для web и static)
+│   │   ├── editor/index.html   # Статический редактор (без бэкенда)
+│   │   └── js/
+│   │       ├── alpine.min.js   # Alpine.js (вендор, без CDN)
+│   │       ├── core/renderer.js# JS-порт рендерера (static-режим)
+│   │       ├── core/store.js   # FetchStore / MemoryStore
+│   │       └── editor.js       # Alpine.js editor app (общий)
 │   ├── templates/pages/        # Jinja2 шаблоны
 │   │   ├── base.html
 │   │   ├── projects.html
@@ -38,10 +44,12 @@ boxframe/
 │   │   └── test_layouts.py     # CRUD layout/blocks + render + export
 │   ├── e2e/                    # End-to-end тесты (Playwright)
 │   │   ├── conftest.py         # fixture reset_page_state
-│   │   ├── test_editor.py      # Загрузка страниц editor/project/index
+│   │   ├── test_editor.py      # Загрузка страниц editor/project/index + static
 │   │   └── test_projects.py    # New Project / New Layout кнопки + форма
+│   ├── js/test_renderer.js     # Тесты JS-рендерера (node:test)
 │   ├── conftest.py             # API-файстуры (async engine + TestClient)
-│   └── test_renderer.py        # 10 тестов рендерера
+│   ├── test_js_renderer_parity.py # Parity Python↔JS рендереры
+│   └── test_renderer.py        # Тесты рендерера (ASCII + HTML-оверлей)
 ├── Dockerfile
 ├── pyproject.toml
 ├── requirements.txt
@@ -65,6 +73,21 @@ boxframe/
 - `render_simple()` — convenience-метод из raw dicts
 - `render()` — рисует на 2D-сетке, обрабатывает вложенность
 
+### Статический режим
+
+Редактор работает без бэкенда: `static/editor/index.html` открывается
+напрямую в браузере (даже через `file://`), данные живут в памяти.
+
+- `core/store.js` — единый интерфейс хранилища: `FetchStore` (API, web-режим)
+  и `MemoryStore` (in-memory, static-режим); `editor.js` не знает о fetch
+- `core/renderer.js` — JS-порт `services/renderer.py`: ASCII + HTML-оверлей;
+  вывод должен совпадать с Python побайтово (parity-тесты)
+- Режим определяется по `data-layout-id` в DOM: есть → `FetchStore`,
+  нет → `MemoryStore`
+- Блоки в JS — плоский список с `parent_id` (x/y детей — относительные,
+  как в БД); константы `BLOCK_TYPES`/`BORDER_STYLES` дублируются в
+  `core/renderer.js` (держать в синхроне с `models/block.py`)
+
 ### API
 
 | Method | Path | Description |
@@ -84,8 +107,8 @@ boxframe/
 ### Фронтенд
 
 - **HTMX** — серверные рендеры страниц, без SPA
-- **Alpine.js** — реактивность редактора (`x-data="editorApp()"`)
-- **Редактор** — 3 колонки: палитра компонентов → canvas-превью → raw-текст
+- **Alpine.js** — реактивность редактора (`x-data="editorApp()"`), подключается локально (`static/js/alpine.min.js`)
+- **Редактор** — сайдбар (палитра + список элементов) + canvas-превью; общий для web- и static-режимов
 - Экспорт: скачивание файла (JSON/MD/ASCII)
 
 ## Соглашения
@@ -100,10 +123,10 @@ boxframe/
 
 ### Добавить новый тип блока
 
-1. Добавить в `BLOCK_TYPES` в `models/block.py`
-2. Добавить обработку в `renderer.py` (если нужна особая отрисовка)
+1. Добавить в `BLOCK_TYPES` в `models/block.py` **и** в `static/js/core/renderer.js`
+2. Добавить обработку в `renderer.py` и `core/renderer.js` (если нужна особая отрисовка)
 3. Добавить кнопку в палитру `editor.html`
-4. Добавить тест в `tests/test_renderer.py`
+4. Добавить тесты в `tests/test_renderer.py` **и** `tests/js/test_renderer.js`
 
 ### Изменить API
 
@@ -114,10 +137,12 @@ boxframe/
 
 ### Изменить рендерер
 
-1. Править `services/renderer.py`
+1. Править `services/renderer.py` **и** `static/js/core/renderer.js`
+   (порт должен давать идентичный вывод)
 2. Убедиться, что `render_simple()` и `render()` согласованы
-3. Добавить/обновить тесты в `tests/test_renderer.py`
-4. Проверить, что `LayoutService.render_layout()` использует новый рендер
+3. Добавить/обновить тесты в `tests/test_renderer.py` **и** `tests/js/test_renderer.js`
+4. Прогнать parity-тесты: `pytest tests/test_js_renderer_parity.py`
+5. Проверить, что `LayoutService.render_layout()` использует новый рендер
 
 ### Добавить страницу
 
@@ -135,8 +160,13 @@ uvicorn boxframe.main:app --reload
 
 Тесты:
 ```bash
-pytest tests/ -v
+pytest tests/ -v                      # unit + API
+node --test "tests/js/*.js"           # JS-рендерер (нужен Node.js)
+pytest tests/e2e/ -v                  # e2e: нужен запущенный сервер на :8000
 ```
+
+Внимание: e2e и API-тесты запускать **раздельными командами** (playwright
+sync API конфликтует с pytest-asyncio в одном процессе).
 
 Docker:
 ```bash
@@ -147,6 +177,9 @@ docker run -p 8000:8000 boxframe
 ## Чего НЕ делать
 
 - Не менять формат псевдографики — это ядро продукта (AI-readable format)
+- Не расхожить Python- и JS-рендереры — формат один; править оба + оба
+  набора тестов + parity
 - Не добавлять авторизацию в MVP
-- Не использовать сборщики (Webpack/Vite) — HTMX рендерит на сервере
+- Не использовать сборщики (Webpack/Vite) — HTMX рендерит на сервере,
+  JS-файлы — обычные скрипты (должны работать из `file://`)
 - Не менять SQLite на другую БЗ без веской причины (MVP-файловая БД — фича)
