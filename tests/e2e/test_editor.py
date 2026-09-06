@@ -111,3 +111,78 @@ def test_double_click_esc_cancels_edit(page: Page):
     r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
     block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
     assert block["content"] == "Old"
+
+
+def test_single_click_selects_block(page: Page):
+    """Single-clicking a block selects it: frame on canvas + highlight in list."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+
+    # Semi-transparent selection frame with action icons appears on the canvas
+    selection = page.locator(".block-selection")
+    expect(selection).to_be_visible()
+    expect(selection.locator(".sel-icon--dup")).to_be_visible()
+    expect(selection.locator(".sel-icon--move")).to_be_visible()
+    expect(selection.locator(".sel-icon--del")).to_be_visible()
+
+    # The block is highlighted in the sidebar list
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    expect(page.locator(".block-item--selected .block-item__info strong")).to_have_text("box")
+
+
+def test_click_list_item_selects_block(page: Page):
+    """Clicking an element in the sidebar list selects it on the canvas."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(".block-item__info").first.click()
+
+    expect(page.locator(".block-selection")).to_be_visible()
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+
+def test_click_empty_canvas_deselects(page: Page):
+    """Clicking an empty canvas area clears the selection."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    expect(page.locator(".block-selection")).to_be_visible()
+
+    # Click near the bottom-right corner of the render area (no block there)
+    box = page.locator(".render-wrapper").bounding_box()
+    page.mouse.click(box["x"] + box["width"] - 10, box["y"] + box["height"] - 10)
+
+    expect(page.locator(".block-selection")).not_to_be_visible()
+    expect(page.locator(".block-item--selected")).to_have_count(0)
+
+
+def test_duplicate_icon_creates_block_copy(page: Page):
+    """The duplicate icon on the selection frame creates a copy of the block."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    page.locator(".block-selection .sel-icon--dup").click()
+
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = r.json()["blocks"]
+    assert len(blocks) == 2
+    # The copy is offset by one cell and keeps the same content
+    copy = next(b for b in blocks if b["id"] != block_id)
+    assert copy["content"] == "Old"
+    assert (copy["x"], copy["y"]) == (3, 3)
+    # The copy becomes the selected element
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+
+def test_delete_icon_removes_block(page: Page):
+    """The delete icon on the selection frame deletes the selected block."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.on("dialog", lambda dialog: dialog.accept())
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    page.locator(".block-selection .sel-icon--del").click()
+
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    assert r.json()["blocks"] == []
+    expect(page.locator(".block-selection")).not_to_be_visible()

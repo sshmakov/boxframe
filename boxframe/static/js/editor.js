@@ -16,8 +16,12 @@ function editorApp() {
         editingBlock: null,    // block being edited (null = editor closed)
         editText: '',          // textarea content while editing
 
+        // ── Selection state (single click) ─────────────────────
+        selectedBlockId: null, // id of the block selected by a single click
+        pendingBlock: null,    // block under cursor on mousedown (click vs drag)
+
         // ── Drag state ──────────────────────────────────────────
-        dragMode: null,          // 'palette' | 'move' | 'resize' | null
+        dragMode: null,          // 'palette' | 'pending' | 'move' | 'resize' | null
         dragType: null,          // block type string (palette drag)
         dragBlock: null,         // block object (move / resize drag)
         dragStartX: 0,
@@ -171,6 +175,14 @@ function editorApp() {
         _onGlobalMouseUp() {
             if (!this.dragMode) return;
 
+            if (this.dragMode === 'pending') {
+                // Mouse didn't move past the threshold: it's a click, not a drag.
+                // Click on a block → select it, click on empty canvas → deselect.
+                this.selectedBlockId = this.pendingBlock ? this.pendingBlock.id : null;
+                this._clearDragState();
+                return;
+            }
+
             if (this.dragMode === 'move' && this.dragBlock && this.dragGridX >= 0) {
                 this._commitBlockMove();
             }
@@ -186,6 +198,7 @@ function editorApp() {
             this.dragMode = null;
             this.dragType = null;
             this.dragBlock = null;
+            this.pendingBlock = null;
             this._hidePreview();
             this.previewEl = null;
         },
@@ -338,42 +351,54 @@ function editorApp() {
             // Ignore clicks inside the inline content editor
             if (e.target.closest('.block-edit-overlay')) return;
 
-            // Find block under cursor by checking block-list order
-            // and using the canvas overlay position
-            const pos = this._pixelToGrid(e.clientX, e.clientY);
+            // Ignore clicks on the selection frame icons — the icon sits at the
+            // block corner (half outside it), so the cursor maps to a grid cell
+            // outside the block and would clear the selection on mouseup.
+            if (e.target.closest('.block-selection')) return;
 
             // Find the block whose area contains the cursor
+            const pos = this._pixelToGrid(e.clientX, e.clientY);
             const block = this.blocks.find(b =>
                 pos.x >= b.x && pos.y >= b.y &&
                 pos.x < b.x + b.width && pos.y < b.y + b.height
             );
-            if (!block) return;
 
-            // Don't drag if clicking delete button
-            if (e.target.closest('.delete-block')) return;
-
-            this.dragMode = 'move';
-            this.dragBlock = block;
+            // Pending: becomes a move-drag if the mouse moves past a
+            // threshold, or a select/deselect click if it doesn't.
+            this.dragMode = 'pending';
+            this.pendingBlock = block;
             this.dragStartX = e.clientX;
             this.dragStartY = e.clientY;
-            this.dragOffsetX = pos.x - block.x;
-            this.dragOffsetY = pos.y - block.y;
-            this.dragGridX = block.x;
-            this.dragGridY = block.y;
+            this.dragOffsetX = pos.x - (block ? block.x : 0);
+            this.dragOffsetY = pos.y - (block ? block.y : 0);
+            this.dragGridX = block ? block.x : -1;
+            this.dragGridY = block ? block.y : -1;
 
-            // Show preview
-            const preview = this._ensurePreviewEl();
-            if (preview) {
-                preview.style.width = (block.width * this.charWidth) + 'px';
-                preview.style.height = (block.height * this.charHeight) + 'px';
-                preview.style.display = 'block';
-                this._showPreview(block.x, block.y);
+            if (block) {
+                e.preventDefault();
             }
-
-            e.preventDefault();
         },
 
         onCanvasMouseMove(e) {
+            if (this.dragMode === 'pending') {
+                const dx = e.clientX - this.dragStartX;
+                const dy = e.clientY - this.dragStartY;
+                if (this.pendingBlock && Math.hypot(dx, dy) > 3) {
+                    // Mouse moved past the click threshold: start the move-drag
+                    this.dragMode = 'move';
+                    this.dragBlock = this.pendingBlock;
+
+                    const preview = this._ensurePreviewEl();
+                    if (preview) {
+                        preview.style.width = (this.dragBlock.width * this.charWidth) + 'px';
+                        preview.style.height = (this.dragBlock.height * this.charHeight) + 'px';
+                        preview.style.display = 'block';
+                        this._showPreview(this.dragBlock.x, this.dragBlock.y);
+                    }
+                }
+                return;
+            }
+
             if (this.dragMode === 'move' && this.dragBlock) {
                 const pos = this._pixelToGrid(e.clientX, e.clientY);
                 const gx = Math.max(0, pos.x - this.dragOffsetX);
@@ -661,6 +686,58 @@ function editorApp() {
             }
         },
 
+        // ── Selection (single click) ───────────────────────────
+
+        selectBlock(blockId) {
+            this.selectedBlockId = blockId;
+        },
+
+        get selectedBlock() {
+            if (!this.selectedBlockId) return null;
+            return this.blocks.find(b => b.id === this.selectedBlockId) || null;
+        },
+
+        get selectionStyle() {
+            const b = this.selectedBlock;
+            if (!b) return 'display:none';
+            const pad = 16; // matches .render-wrapper padding
+            return (
+                `left:${pad + b.x * this.charWidth}px;` +
+                `top:${pad + b.y * this.charHeight}px;` +
+                `width:${b.width * this.charWidth}px;` +
+                `height:${b.height * this.charHeight}px;`
+            );
+        },
+
+        async duplicateBlock() {
+            const b = this.selectedBlock;
+            if (!b) return;
+
+            // Offset the copy by one cell, clamped to layout bounds
+            const x = Math.max(0, Math.min(b.x + 1, this.layoutWidth - b.width));
+            const y = Math.max(0, Math.min(b.y + 1, this.layoutHeight - b.height));
+
+            const res = await fetch(`/api/layouts/${this.layoutId}/blocks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    block_type: b.block_type,
+                    x,
+                    y,
+                    width: b.width,
+                    height: b.height,
+                    content: b.content,
+                    border_style: b.border_style,
+                    order: this.maxOrder + 1
+                })
+            });
+            const block = await res.json();
+            this.blocks.push(block);
+            this._reorderBlocks();
+            this.selectedBlockId = block.id;
+            await this.refreshRender();
+        },
+
         async updateBlockStyle(blockId, style) {
             const block = this.blocks.find(b => b.id === blockId);
             if (!block) return;
@@ -730,6 +807,9 @@ function editorApp() {
                 method: 'DELETE'
             });
             this.blocks = this.blocks.filter(b => b.id !== blockId);
+            if (this.selectedBlockId === blockId) {
+                this.selectedBlockId = null;
+            }
             this._reorderBlocks();
             await this.refreshRender();
         },

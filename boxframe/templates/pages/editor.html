@@ -171,6 +171,12 @@
     border-color: var(--border);
 }
 
+.block-item--selected {
+    background: rgba(233, 69, 96, 0.12);
+    border-color: rgba(233, 69, 96, 0.6);
+    color: var(--text);
+}
+
 .block-item__info {
     display: flex;
     align-items: center;
@@ -362,6 +368,53 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath d='M8 1L4 5M8 3L3 8M6 1L8 1L8 3' stroke='%23e94560' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
 }
 
+/* ── Selection frame (single-click selection) ───────────── */
+.block-selection {
+    position: absolute;
+    z-index: 100;
+    pointer-events: none;
+}
+
+.block-selection__frame {
+    position: absolute;
+    inset: 0;
+    background: rgba(233, 69, 96, 0.10);
+    border: 1px solid rgba(233, 69, 96, 0.85);
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+.sel-icon {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+    line-height: 1;
+    color: #fff;
+    background: rgba(233, 69, 96, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 3px;
+    pointer-events: auto;
+    transition: background 0.15s;
+}
+
+.sel-icon--dup,
+.sel-icon--del { cursor: pointer; }
+.sel-icon--dup:hover,
+.sel-icon--del:hover { background: #ff6b81; }
+
+.sel-icon--dup { top: -9px; left: -9px; }
+.sel-icon--del { top: -9px; right: -9px; }
+.sel-icon--move {
+    top: -9px;
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+
 /* ── Inline content editor (double-click a block) ───────── */
 .block-edit-overlay {
     position: absolute;
@@ -455,7 +508,9 @@
                 <div class="section-title" x-text="'Elements (' + blocks.length + ')'"></div>
                 <div class="element-list">
                     <template x-for="(block, idx) in blocks" :key="block.id">
-                        <div class="block-item">
+                        <div class="block-item"
+                             :class="{ 'block-item--selected': block.id === selectedBlockId }"
+                             @click="selectBlock(block.id)">
                             <span class="block-item__info">
                                 <strong x-text="block.block_type"></strong>
                                 <span class="block-item__pos" x-text="' @(' + block.x + ',' + block.y + ')'"></span>
@@ -482,7 +537,7 @@
         <!-- Content: canvas preview -->
         <section class="editor-content">
             <div class="canvas-container"
-                 title="Double-click a block to edit its text"
+                 title="Click a block to select it, double-click to edit its text"
                  @dragover.prevent="onCanvasDragOver($event)"
                  @dragleave="onCanvasDragLeave($event)"
                  @drop="onCanvasDrop($event)"
@@ -491,6 +546,16 @@
                  @dblclick="onCanvasDblClick($event)">
                 <div class="canvas-drag-overlay"></div>
                 <div x-html="htmlPreview"></div>
+                <!-- Selection frame (single-click selection) with action icons -->
+                <div class="block-selection" x-show="selectedBlock && !editingBlock" x-cloak
+                     :style="selectionStyle">
+                    <div class="block-selection__frame"></div>
+                    <button class="sel-icon sel-icon--dup" @click="duplicateBlock()"
+                            title="Duplicate block">⧉</button>
+                    <div class="sel-icon sel-icon--move" title="Drag the block to move it">✥</div>
+                    <button class="sel-icon sel-icon--del" @click="deleteBlock(selectedBlock.id)"
+                            title="Delete block">✕</button>
+                </div>
                 <!-- Inline content editor (opened by double-click on a block) -->
                 <div class="block-edit-overlay" x-show="editingBlock" x-cloak
                      :style="editOverlayStyle">
