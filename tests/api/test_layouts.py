@@ -192,6 +192,29 @@ def test_render_empty_layout(client: TestClient):
     assert "ascii" in data
 
 
+def test_render_layout_with_block_outside_bounds(client: TestClient):
+    """Blocks outside the layout bounds are fully rendered; the HTML
+    preview includes the layout bounds frame."""
+    _, layout_id = _create_project_with_layout(client)  # 40×12
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 35, "y": 9, "width": 10, "height": 4,
+        "content": "Outside",
+    })
+    assert r.status_code == 200
+
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert r.status_code == 200
+    data = r.json()
+    # ASCII canvas expanded to 45×13 — the full box with content is visible
+    assert "Outside" in data["ascii"]
+    assert "┘" in data["ascii"]
+    # HTML preview shows the layout bounds frame (40×12 → 480×172.8px)
+    assert 'class="layout-bounds"' in data["html"]
+    assert "width:480.0px" in data["html"]
+
+
 def test_export_layout(client: TestClient):
     """Test exporting a layout."""
     _, layout_id = _create_project_with_layout(client)
@@ -262,12 +285,22 @@ def test_layout_validation(client: TestClient):
     r = client.post("/api/projects/", json={"name": "Validation Test"})
     project_id = r.json()["id"]
 
-    # Width too small
+    # Zero size is rejected
     r = client.post(f"/api/layouts/{project_id}/layouts", json={
         "name": "Bad",
-        "width": 10,  # min is 20
+        "width": 0,
     })
     assert r.status_code == 422
+
+    # No upper limit — large layouts are allowed
+    r = client.post(f"/api/layouts/{project_id}/layouts", json={
+        "name": "Big",
+        "width": 500,
+        "height": 200,
+    })
+    assert r.status_code == 200
+    assert r.json()["width"] == 500
+    assert r.json()["height"] == 200
 
 
 # ── Order tests ─────────────────────────────────────────────

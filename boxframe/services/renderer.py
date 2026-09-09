@@ -132,8 +132,36 @@ class PseudoGraphicRenderer:
         self.grid_height = grid_height
         self.grid: list[list[str]] = [[" " for _ in range(grid_width)] for _ in range(grid_height)]
 
+    @classmethod
+    def canvas_size(cls, blocks: list[RenderBlock], width: int, height: int) -> tuple[int, int]:
+        """Canvas dimensions: at least width×height, expanded to fit all blocks.
+
+        Blocks are not restricted to the layout bounds — the canvas grows to
+        the right/bottom so out-of-bounds blocks are fully visible. Children
+        are counted with their 1-cell container padding (same as
+        _render_children_in_container).
+        """
+        max_x, max_y = width, height
+
+        def walk(bs: list[RenderBlock], ox: int, oy: int) -> None:
+            nonlocal max_x, max_y
+            for b in bs:
+                ax, ay = ox + b.x, oy + b.y
+                max_x = max(max_x, ax + b.width)
+                max_y = max(max_y, ay + b.height)
+                if b.children:
+                    walk(b.children, ax + 1, ay + 1)
+
+        walk(blocks, 0, 0)
+        return max_x, max_y
+
     def render(self, blocks: list[RenderBlock]) -> str:
-        """Render a list of root blocks into a pseudo-graphic string."""
+        """Render a list of root blocks into a pseudo-graphic string.
+
+        The canvas is at least grid_width × grid_height but expands to fit
+        blocks placed outside the layout bounds.
+        """
+        self.grid_width, self.grid_height = self.canvas_size(blocks, self.grid_width, self.grid_height)
         self.grid = [[" " for _ in range(self.grid_width)] for _ in range(self.grid_height)]
 
         # Sort by order (ascending) — higher order renders on top

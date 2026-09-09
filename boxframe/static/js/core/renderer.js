@@ -228,14 +228,45 @@
     }
 
     /**
+     * Canvas dimensions: at least width×height, expanded to fit all blocks.
+     * Blocks are not restricted to the layout bounds — the canvas grows to
+     * the right/bottom so out-of-bounds blocks are fully visible. Children
+     * are counted with their 1-cell container padding (same as Python's
+     * PseudoGraphicRenderer.canvas_size).
+     */
+    function canvasSize(blocks, width, height) {
+        var maxX = width, maxY = height;
+        var byId = new Map(blocks.map(function (b) { return [b.id, b]; }));
+        var roots = blocks.filter(function (b) {
+            return !b.parent_id || !byId.has(b.parent_id);
+        });
+
+        function walk(list, ox, oy) {
+            for (var i = 0; i < list.length; i++) {
+                var b = list[i];
+                var ax = ox + (b.x || 0), ay = oy + (b.y || 0);
+                if (ax + (b.width || 0) > maxX) maxX = ax + (b.width || 0);
+                if (ay + (b.height || 0) > maxY) maxY = ay + (b.height || 0);
+                var children = blocks.filter(function (c) { return c.parent_id === b.id; });
+                if (children.length) walk(children, ax + 1, ay + 1);
+            }
+        }
+        walk(roots, 0, 0);
+        return [maxX, maxY];
+    }
+
+    /**
      * Render a flat list of blocks into a pseudo-graphic string.
      * Root blocks are drawn in ascending `order` (higher order on top);
      * children are drawn inside their parent with 1-cell padding.
+     * The canvas is at least width×height but expands to fit blocks placed
+     * outside the layout bounds.
      */
     function render(blocks, width, height) {
+        var canvas = canvasSize(blocks, width, height);
         var grid = [];
-        for (var y = 0; y < height; y++) {
-            grid.push(new Array(width).fill(" "));
+        for (var y = 0; y < canvas[1]; y++) {
+            grid.push(new Array(canvas[0]).fill(" "));
         }
 
         var byId = new Map(blocks.map(function (b) { return [b.id, b]; }));
@@ -248,7 +279,7 @@
         });
 
         for (var i = 0; i < sorted.length; i++) {
-            renderBlock(sorted[i], grid, width, height, blocks);
+            renderBlock(sorted[i], grid, canvas[0], canvas[1], blocks);
         }
 
         return grid
@@ -338,9 +369,9 @@
     }
 
     /**
-     * Build the full canvas HTML (render-wrapper + <pre> + block previews)
-     * — mirrors the markup of GET /api/layouts/{id}/render so both modes
-     * share the same CSS and overlay behavior.
+     * Build the full canvas HTML (render-wrapper + <pre> + layout bounds +
+     * block previews) — mirrors the markup of GET /api/layouts/{id}/render
+     * so both modes share the same CSS and overlay behavior.
      *
      * opts: { width, height, charWidthPx, charHeightPx, paddingOffset }
      */
@@ -350,8 +381,10 @@
         var charHeightPx = opts.charHeightPx != null ? opts.charHeightPx : 14.4;
         var paddingOffset = opts.paddingOffset != null ? opts.paddingOffset : 16.0;
 
-        var preWidth = opts.width * charWidthPx;
-        var preHeight = round1(opts.height * charHeightPx);
+        // Canvas = layout size expanded to fit blocks outside the bounds
+        var canvas = canvasSize(blocks, opts.width, opts.height);
+        var preWidth = canvas[0] * charWidthPx;
+        var preHeight = round1(canvas[1] * charHeightPx);
 
         var asciiHtml =
             '<pre style="font-family: monospace; font-size: 12px; ' +
@@ -359,6 +392,13 @@
             "width:" + preWidth + "px; height:" + preHeight + "px; " +
             'background: #1a1a2e; color: #e0e0e0;">' +
             escapeHtml(ascii) + "</pre>";
+
+        // Dashed frame marking the layout's logical size — blocks may be
+        // placed outside it, the frame shows where the layout ends.
+        var boundsHtml =
+            '<div class="layout-bounds" style="left:' + paddingOffset + "px;top:" + paddingOffset + 'px;' +
+            "width:" + (opts.width * charWidthPx) + "px;height:" + round1(opts.height * charHeightPx) + 'px;"' +
+            ' title="Layout bounds: ' + opts.width + '×' + opts.height + ' cells"></div>';
 
         var previews = renderHtmlPreview(blocks, {
             charWidthPx: charWidthPx,
@@ -369,7 +409,7 @@
         return (
             '<div class="render-wrapper" ' +
             'style="width:' + preWidth + "px; height:" + preHeight + 'px;">' +
-            asciiHtml + previews +
+            asciiHtml + boundsHtml + previews +
             "</div>"
         );
     }
@@ -381,6 +421,7 @@
         BLOCK_TYPES: BLOCK_TYPES,
         BORDER_STYLES: BORDER_STYLES,
         render: render,
+        canvasSize: canvasSize,
         wrapText: wrapText,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,

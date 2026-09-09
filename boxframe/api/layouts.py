@@ -38,8 +38,10 @@ class BlockOut(BaseModel):
 
 class LayoutCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    width: int = Field(default=80, ge=20, le=200)
-    height: int = Field(default=24, ge=10, le=100)
+    # No upper limit: blocks may be placed outside the layout bounds,
+    # so the layout size is just a logical frame, not a hard constraint.
+    width: int = Field(default=80, ge=1)
+    height: int = Field(default=24, ge=1)
 
 
 class LayoutUpdate(BaseModel):
@@ -197,9 +199,13 @@ async def render_layout(
     layout = await service.get_layout(layout_id)
     html = ""
     if layout:
+        # Canvas = layout size expanded to fit blocks outside the bounds
+        # (the ASCII grid is rendered the same way).
+        canvas_w, canvas_h = service.canvas_size(layout)
         # Compute exact pixel dimensions so <pre> and overlays share the same size.
-        pre_width = layout.width * char_width_px
-        pre_height = round(layout.height * char_height_px, 1)
+        pre_width = canvas_w * char_width_px
+        pre_height = round(canvas_h * char_height_px, 1)
+        pad = 16.0
         # Padding lives on .render-wrapper; <pre> has no margin so overlay
         # coordinates (padding_offset + grid * char_size) align exactly.
         ascii_html = (
@@ -209,17 +215,26 @@ async def render_layout(
             f'background: #1a1a2e; color: #e0e0e0;">'
             f"{ascii_art.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</pre>"
         )
+        # Dashed frame marking the layout's logical size — blocks may be
+        # placed outside it, the frame shows where the layout ends.
+        bounds_html = (
+            f'<div class="layout-bounds" style="left:{pad}px;top:{pad}px;'
+            f'width:{layout.width * char_width_px}px;'
+            f'height:{round(layout.height * char_height_px, 1)}px;"'
+            f' title="Layout bounds: {layout.width}×{layout.height} cells"></div>'
+        )
         blocks_data = _serialize_blocks_for_html(layout.blocks)
         block_previews_html = PseudoGraphicRenderer.render_html_preview(
             blocks_data,
             char_width_px=char_width_px,
             char_height_px=char_height_px,
-            padding_offset=16.0,
+            padding_offset=pad,
         )
         html = (
             f'<div class="render-wrapper" '
             f'style="width:{pre_width}px; height:{pre_height}px;">'
             f"{ascii_html}"
+            f"{bounds_html}"
             f"{block_previews_html}"
             f"</div>"
         )

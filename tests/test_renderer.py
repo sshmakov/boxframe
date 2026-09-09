@@ -124,8 +124,8 @@ def test_multiple_blocks():
     assert "Main content area" in lines[4]
 
 
-def test_grid_clamping():
-    """Blocks extending beyond grid should be clamped."""
+def test_grid_expansion():
+    """Blocks extending beyond the layout bounds expand the canvas."""
     result = _render([{
         "block_type": "box",
         "x": 35, "y": 10,
@@ -134,8 +134,51 @@ def test_grid_clamping():
         "border_style": "solid",
     }], width=40, height=14)
     lines = result.split("\n")
-    # Should not crash and should have borders
-    assert any("┌" in line for line in lines)
+    # Canvas expanded to 45×14 — the full box is drawn, not clamped
+    assert lines[10][35] == "┌"
+    assert lines[10][44] == "┐"
+    assert lines[13][35] == "└"
+    assert lines[13][44] == "┘"
+
+
+def test_render_keeps_layout_size_when_blocks_fit():
+    """Canvas stays at the layout size when all blocks fit inside."""
+    r = PseudoGraphicRenderer(40, 12)
+    r.render([RenderBlock(
+        x=0, y=0, width=10, height=3,
+        block_type="box", content="", border_style="solid",
+    )])
+    assert len(r.grid) == 12
+    assert len(r.grid[0]) == 40
+
+
+def test_canvas_size_expands_for_blocks_outside_layout():
+    inside = RenderBlock(
+        x=0, y=0, width=10, height=3,
+        block_type="box", content="", border_style="solid",
+    )
+    assert PseudoGraphicRenderer.canvas_size([inside], 40, 12) == (40, 12)
+
+    outside = RenderBlock(
+        x=35, y=10, width=10, height=4,
+        block_type="box", content="", border_style="solid",
+    )
+    assert PseudoGraphicRenderer.canvas_size([outside], 40, 14) == (45, 14)
+
+
+def test_canvas_size_counts_children():
+    """Children are counted with their 1-cell container padding."""
+    child = RenderBlock(
+        x=5, y=0, width=10, height=2,
+        block_type="text", content="hi", border_style="none",
+    )
+    parent = RenderBlock(
+        x=70, y=0, width=10, height=10,
+        block_type="box", content="", border_style="solid",
+        children=[child],
+    )
+    # Child absolute x = 70 + 1 + 5 = 76, extends to 86 > 80
+    assert PseudoGraphicRenderer.canvas_size([parent], 80, 24) == (86, 24)
 
 
 def test_double_border():
@@ -230,7 +273,8 @@ def test_line_ignores_content():
     assert result.split("\n")[0] == "────────"
 
 
-def test_hline_clamped_to_grid():
+def test_hline_beyond_layout():
+    """An hline extending past the layout bounds is drawn in full."""
     result = _render([{
         "block_type": "hline",
         "x": 35, "y": 0,
@@ -239,7 +283,7 @@ def test_hline_clamped_to_grid():
         "border_style": "solid",
     }], width=40, height=12)
     lines = result.split("\n")
-    assert lines[0][35:] == "─" * 5  # clamped to grid edge
+    assert lines[0][35:] == "─" * 20  # canvas expanded to 55
 
 
 # ── Word wrap tests ───────────────────────────────────────

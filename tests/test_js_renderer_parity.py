@@ -118,7 +118,8 @@ def test_parity_nested_blocks():
     assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
 
 
-def test_parity_grid_clamping():
+def test_parity_grid_expansion():
+    """Blocks outside the layout bounds expand the canvas identically."""
     blocks = [
         {"id": "b1", "block_type": "box", "x": 35, "y": 10, "width": 10, "height": 4,
          "content": "edge", "border_style": "solid", "order": 0},

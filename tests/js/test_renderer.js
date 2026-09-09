@@ -121,13 +121,32 @@ test("multiple blocks", () => {
     assert.ok(ls[4].includes("Main content area"));
 });
 
-test("grid clamping", () => {
+test("grid expansion", () => {
     const result = render([{
         id: "b1", block_type: "box",
         x: 35, y: 10, width: 10, height: 4,
         content: "", border_style: "solid",
     }], 40, 14);
-    assert.ok(lines(result).some(line => line.includes("┌")));
+    const ls = lines(result);
+    // Canvas expanded to 45×14 — the full box is drawn, not clamped
+    assert.equal(ls[10][35], "┌");
+    assert.equal(ls[10][44], "┐");
+    assert.equal(ls[13][35], "└");
+    assert.equal(ls[13][44], "┘");
+});
+
+test("canvasSize expands to fit blocks", () => {
+    assert.deepEqual(PG.canvasSize([], 40, 12), [40, 12]);
+    assert.deepEqual(PG.canvasSize([{
+        id: "b1", block_type: "box",
+        x: 35, y: 10, width: 10, height: 4,
+    }], 40, 14), [45, 14]);
+    // Children counted with 1-cell container padding:
+    // child absolute x = 70 + 1 + 5 = 76, extends to 86 > 80
+    assert.deepEqual(PG.canvasSize([
+        { id: "p", block_type: "box", x: 70, y: 0, width: 10, height: 10 },
+        { id: "c", block_type: "text", x: 5, y: 0, width: 10, height: 2, parent_id: "p" },
+    ], 80, 24), [86, 24]);
 });
 
 test("double border", () => {
@@ -210,13 +229,14 @@ test("line ignores content", () => {
     assert.equal(lines(result)[0], "────────");
 });
 
-test("hline clamped to grid", () => {
+test("hline beyond layout", () => {
     const result = render([{
         id: "b1", block_type: "hline",
         x: 35, y: 0, width: 20, height: 1,
         content: "", border_style: "solid",
     }], 40, 12);
-    assert.equal(lines(result)[0].slice(35), "─".repeat(5));
+    // Canvas expanded to 55 — the full line is drawn
+    assert.equal(lines(result)[0].slice(35), "─".repeat(20));
 });
 
 // ── Word wrap tests ───────────────────────────────────────
@@ -462,8 +482,28 @@ test("renderHtml builds the canvas wrapper like the API", () => {
     assert.ok(html.includes("height:72px")); // round(5 * 14.4, 1)
     assert.ok(html.includes("<pre "));
     assert.ok(html.includes('data-block-id="b1"'));
+    // Layout bounds frame at the layout's logical size (20×5)
+    assert.ok(html.includes('class="layout-bounds"'));
+    assert.ok(html.includes("width:240px;height:72px"));
     // ASCII is escaped inside the <pre>
     assert.ok(html.includes("Hi"));
+});
+
+test("renderHtml expands canvas for out-of-bounds blocks", () => {
+    const blocks = [{
+        id: "b1", block_type: "box",
+        x: 18, y: 4, width: 10, height: 3,
+        content: "Out", border_style: "solid",
+    }];
+    const ascii = PG.render(blocks, 20, 5);
+    const html = PG.renderHtml(ascii, blocks, {
+        width: 20, height: 5, charWidthPx: 12, charHeightPx: 14.4, paddingOffset: 16,
+    });
+    // Canvas expanded to 28×7 → pre 336×100.8px
+    assert.ok(html.includes("width:336px"));
+    assert.ok(html.includes("height:100.8px"));
+    // Bounds frame stays at the layout size (20×5)
+    assert.ok(html.includes("width:240px;height:72px"));
 });
 
 test("renderHtml escapes html in ascii", () => {

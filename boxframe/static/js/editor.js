@@ -42,8 +42,6 @@ function editorApp() {
         previewEl: null,
         charWidth: 0,
         charHeight: 0,
-        layoutWidth: 80,
-        layoutHeight: 24,
 
         async init() {
             // Web mode: the server-rendered page sets data-layout-id → talk
@@ -103,14 +101,10 @@ function editorApp() {
             if (!container || !this.charWidth) return { x: 0, y: 0 };
             const rect = container.getBoundingClientRect();
             const pad = 16; // wrapper padding only
-            const gx = Math.max(0, Math.min(
-                (px - rect.left - pad) / this.charWidth,
-                this.layoutWidth - 1
-            ));
-            const gy = Math.max(0, Math.min(
-                (py - rect.top - pad) / this.charHeight,
-                this.layoutHeight - 1
-            ));
+            // Blocks may be placed outside the layout bounds — the canvas
+            // origin (0,0) is the only hard limit.
+            const gx = Math.max(0, (px - rect.left - pad) / this.charWidth);
+            const gy = Math.max(0, (py - rect.top - pad) / this.charHeight);
             return { x: Math.floor(gx), y: Math.floor(gy) };
         },
 
@@ -331,10 +325,6 @@ function editorApp() {
             const w = defaults.width;
             const h = defaults.height;
 
-            // Clamp to layout bounds
-            pos.x = Math.max(0, Math.min(pos.x, this.layoutWidth - w));
-            pos.y = Math.max(0, Math.min(pos.y, this.layoutHeight - h));
-
             const maxOrder = this.blocks.length > 0
                 ? Math.max(...this.blocks.map(b => b.order))
                 : 0;
@@ -418,15 +408,12 @@ function editorApp() {
 
             if (this.dragMode === 'move' && this.dragBlock) {
                 const pos = this._pixelToGrid(e.clientX, e.clientY);
+                // No layout-bounds clamping — blocks may be placed outside
+                // the layout; only the canvas origin (0,0) is a hard limit.
                 const gx = Math.max(0, pos.x - this.dragOffsetX);
                 const gy = Math.max(0, pos.y - this.dragOffsetY);
-                const block = this.dragBlock;
 
-                // Clamp to layout bounds
-                const clampedX = Math.min(gx, this.layoutWidth - block.width);
-                const clampedY = Math.min(gy, this.layoutHeight - block.height);
-
-                this._showPreview(clampedX, clampedY);
+                this._showPreview(gx, gy);
                 e.preventDefault();
                 return;
             }
@@ -448,11 +435,12 @@ function editorApp() {
                 if (this.dragBlock.block_type === 'hline') newH = 1;
                 if (this.dragBlock.block_type === 'vline') newW = 1;
 
-                // Clamp to minimum and layout bounds
+                // Clamp to minimum size only — blocks may extend beyond
+                // the layout bounds
                 const minW = this.dragBlock.block_type === 'vline' ? 1 : 2;
                 const minH = this.dragBlock.block_type === 'hline' ? 1 : 2;
-                newW = Math.max(minW, Math.min(newW, this.layoutWidth - this.dragBlock.x));
-                newH = Math.max(minH, Math.min(newH, this.layoutHeight - this.dragBlock.y));
+                newW = Math.max(minW, newW);
+                newH = Math.max(minH, newH);
 
                 this.resizePreviewW = newW;
                 this.resizePreviewH = newH;
@@ -624,9 +612,6 @@ function editorApp() {
         async fetchBlocks() {
             // Load all blocks for this layout
             const data = await this.store.load();
-            // Capture layout dimensions for drag calculations
-            this.layoutWidth = data.width || 80;
-            this.layoutHeight = data.height || 24;
             // Blocks are nested in the layout response
             this.blocks = this._flattenBlocks(data.blocks || []);
             this._reorderBlocks();
@@ -753,9 +738,9 @@ function editorApp() {
             const b = this.selectedBlock;
             if (!b) return;
 
-            // Offset the copy by one cell, clamped to layout bounds
-            const x = Math.max(0, Math.min(b.x + 1, this.layoutWidth - b.width));
-            const y = Math.max(0, Math.min(b.y + 1, this.layoutHeight - b.height));
+            // Offset the copy by one cell (no layout-bounds clamping)
+            const x = Math.max(0, b.x + 1);
+            const y = Math.max(0, b.y + 1);
 
             const block = await this.store.createBlock({
                 block_type: b.block_type,
@@ -818,9 +803,10 @@ function editorApp() {
                 inputs[1].value = b.y;
                 return;
             }
+            // No layout-bounds clamping — only the canvas origin (0,0)
             this.updateSelectedBlock({
-                x: Math.max(0, Math.min(x, this.layoutWidth - b.width)),
-                y: Math.max(0, Math.min(y, this.layoutHeight - b.height))
+                x: Math.max(0, x),
+                y: Math.max(0, y)
             });
         },
 
@@ -835,8 +821,9 @@ function editorApp() {
                 inputs[1].value = b.height;
                 return;
             }
-            let newW = Math.max(1, Math.min(w, this.layoutWidth - b.x));
-            let newH = Math.max(1, Math.min(h, this.layoutHeight - b.y));
+            // Minimum size only — blocks may extend beyond the layout bounds
+            let newW = Math.max(1, w);
+            let newH = Math.max(1, h);
             if (b.block_type === 'hline') newH = 1;
             if (b.block_type === 'vline') newW = 1;
             this.updateSelectedBlock({ width: newW, height: newH });

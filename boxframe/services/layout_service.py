@@ -184,6 +184,11 @@ class LayoutService:
         renderer = PseudoGraphicRenderer(layout.width, layout.height)
         return renderer.render(blocks)
 
+    def canvas_size(self, layout: Layout) -> tuple[int, int]:
+        """Canvas size for rendering: layout size expanded to fit all blocks."""
+        blocks = self._build_render_blocks(layout.blocks)
+        return PseudoGraphicRenderer.canvas_size(blocks, layout.width, layout.height)
+
     def _build_render_blocks(self, blocks: list[Block]) -> list[RenderBlock]:
         """Convert ORM blocks to RenderBlocks, handling nesting."""
         root_blocks = []

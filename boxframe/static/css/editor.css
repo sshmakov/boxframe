@@ -290,6 +290,15 @@
     white-space: pre;
 }
 
+/* ── Layout bounds (dashed frame at the layout's logical size) ──
+   Blocks may be placed outside the layout; the frame shows where it ends. */
+.layout-bounds {
+    position: absolute;
+    border: 1px dashed rgba(233, 69, 96, 0.6);
+    pointer-events: none;
+    z-index: 5;
+}
+
 /* ── Render overlay (block previews + resize handles) ──── */
 .block-preview {
     position: absolute;
