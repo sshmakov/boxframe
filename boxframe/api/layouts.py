@@ -187,8 +187,8 @@ async def render_layout(
     """Render layout to pseudo-graphic ASCII art.
 
     char_width_px / char_height_px — measured pixel dimensions of a single
-    character.  JS measures the real <pre> character size and passes them
-    back so overlays match exactly.
+    character.  JS measures the real .ascii-art character size and passes
+    them back so overlays match exactly.
     """
     service = LayoutService(db)
     ascii_art = await service.render_layout(layout_id)
@@ -202,18 +202,23 @@ async def render_layout(
         # Canvas = layout size expanded to fit blocks outside the bounds
         # (the ASCII grid is rendered the same way).
         canvas_w, canvas_h = service.canvas_size(layout)
-        # Compute exact pixel dimensions so <pre> and overlays share the same size.
+        # Compute exact pixel dimensions so the art layer and overlays share
+        # the same size.
         pre_width = canvas_w * char_width_px
         pre_height = round(canvas_h * char_height_px, 1)
         pad = 16.0
-        # Padding lives on .render-wrapper; <pre> has no margin so overlay
-        # coordinates (padding_offset + grid * char_size) align exactly.
+        # Padding lives on .render-wrapper; the art layer has no margin so
+        # overlay coordinates (padding_offset + grid * char_size) align
+        # exactly.  It is a <div>, not a <pre>: the HTML parser strips the
+        # first newline right after a <pre> start tag, which would drop the
+        # first row when the art starts with an empty row (topmost block
+        # not at y=0) and shift the art up one row relative to the overlays.
         ascii_html = (
-            f'<pre style="font-family: monospace; font-size: 12px; '
-            f'line-height: 1.2; display: block; '
+            f'<div class="ascii-art" style="font-family: monospace; font-size: 12px; '
+            f'line-height: 1.2; display: block; white-space: pre; '
             f'width:{pre_width}px; height:{pre_height}px; '
             f'background: #1a1a2e; color: #e0e0e0;">'
-            f"{ascii_art.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</pre>"
+            f"{ascii_art.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</div>"
         )
         # Dashed frame marking the layout's logical size — blocks may be
         # placed outside it, the frame shows where the layout ends.

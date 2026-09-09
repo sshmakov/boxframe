@@ -281,7 +281,7 @@ def test_static_editor_loads_and_renders(page: Page):
 
     # The canvas is rendered by the local JS renderer: an empty 80x24 grid
     expect(page.locator(".render-wrapper")).to_be_visible()
-    expect(page.locator(".canvas-container pre")).to_be_visible()
+    expect(page.locator(".canvas-container .ascii-art")).to_be_visible()
 
 
 def test_static_editor_adds_block_in_memory(page: Page):
@@ -297,7 +297,38 @@ def test_static_editor_adds_block_in_memory(page: Page):
     expect(page.locator(".block-item__info strong")).to_have_text("box")
 
     # The ASCII preview contains the box border drawn by the JS renderer
-    expect(page.locator(".canvas-container pre")).to_contain_text("┌")
+    expect(page.locator(".canvas-container .ascii-art")).to_contain_text("┌")
+
+
+def test_static_editor_block_not_shifted_when_not_at_top(page: Page):
+    """Regression: the HTML parser strips the first newline right after a
+    <pre> start tag, so when the art's first row is empty (topmost block
+    not at y=0) the art lost its first row and shifted up one row relative
+    to the block overlays. The canvas text must keep all leading rows."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="box").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+
+    # Move the block (added at (1,1)) to y=5 so rows 0-4 of the art are empty
+    page.locator(".block-preview").click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+    y_input = panel.locator(".prop input").nth(1)
+    y_input.fill("5")
+    y_input.dispatch_event("change")
+    page.wait_for_timeout(300)
+
+    # The number of leading empty rows in the canvas text equals the block's y
+    leading_empty = page.evaluate(
+        "() => {"
+        " const t = document.querySelector('.canvas-container .ascii-art').textContent;"
+        " const rows = t.split('\\n');"
+        " let i = 0;"
+        " while (i < rows.length && rows[i].trim() === '') i++;"
+        " return i;"
+        "}"
+    )
+    assert leading_empty == 5
 
 
 def test_static_editor_delete_block_in_memory(page: Page):

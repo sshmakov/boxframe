@@ -58,8 +58,9 @@ function editorApp() {
                 this.refreshRender()
             ]);
 
-            // Measure char size AFTER Alpine.js has rendered the <pre>,
-            // then re-render with exact pixel dimensions so overlays align.
+            // Measure char size AFTER Alpine.js has rendered the .ascii-art
+            // layer, then re-render with exact pixel dimensions so overlays
+            // align.
             this.$nextTick(() => {
                 this._measureCharSize();
                 this.refreshRender();
@@ -74,21 +75,21 @@ function editorApp() {
         // ── Char-size measurement ───────────────────────────────
 
         _measureCharSize() {
-            const pre = document.querySelector('.canvas-container pre');
-            if (!pre) return;
+            const art = document.querySelector('.canvas-container .ascii-art');
+            if (!art) return;
             // Measure character width from a span (getBoundingClientRect works)
             const sample = document.createElement('span');
-            sample.style.fontFamily = getComputedStyle(pre).fontFamily;
-            sample.style.fontSize = getComputedStyle(pre).fontSize;
-            sample.style.fontWeight = getComputedStyle(pre).fontWeight;
+            sample.style.fontFamily = getComputedStyle(art).fontFamily;
+            sample.style.fontSize = getComputedStyle(art).fontSize;
+            sample.style.fontWeight = getComputedStyle(art).fontWeight;
             sample.textContent = 'W';
-            pre.appendChild(sample);
+            art.appendChild(sample);
             this.charWidth = sample.getBoundingClientRect().width;
-            pre.removeChild(sample);
+            art.removeChild(sample);
             // Use computed line-height — it's the actual pixel value
             // the browser uses for each row, regardless of how
             // line-height: 1.2 is parsed (unitless vs %).
-            const lh = getComputedStyle(pre).lineHeight;
+            const lh = getComputedStyle(art).lineHeight;
             this.charHeight = parseFloat(lh) || 14;
         },
 
@@ -792,10 +793,17 @@ function editorApp() {
             }
         },
 
+        // Inputs of the floating properties panel, in DOM order:
+        // [0]=X [1]=Y [2]=W [3]=H [4]=Order [5]=Content
+        _panelInputs() {
+            const panel = document.querySelector('.block-props');
+            return panel ? Array.from(panel.querySelectorAll('.prop input')) : [];
+        },
+
         updateSelectedXY(e) {
             const b = this.selectedBlock;
             if (!b) return;
-            const inputs = e.currentTarget.querySelectorAll('input');
+            const inputs = this._panelInputs();
             const x = parseInt(inputs[0].value, 10);
             const y = parseInt(inputs[1].value, 10);
             if (Number.isNaN(x) || Number.isNaN(y)) {
@@ -813,12 +821,12 @@ function editorApp() {
         updateSelectedWH(e) {
             const b = this.selectedBlock;
             if (!b) return;
-            const inputs = e.currentTarget.querySelectorAll('input');
-            const w = parseInt(inputs[0].value, 10);
-            const h = parseInt(inputs[1].value, 10);
+            const inputs = this._panelInputs();
+            const w = parseInt(inputs[2].value, 10);
+            const h = parseInt(inputs[3].value, 10);
             if (Number.isNaN(w) || Number.isNaN(h)) {
-                inputs[0].value = b.width;
-                inputs[1].value = b.height;
+                inputs[2].value = b.width;
+                inputs[3].value = b.height;
                 return;
             }
             // Minimum size only — blocks may extend beyond the layout bounds

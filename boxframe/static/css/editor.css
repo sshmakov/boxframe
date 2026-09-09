@@ -251,7 +251,9 @@
     pointer-events: none;
 }
 
-/* ── Render wrapper: shared coordinate system with <pre> ─ */
+/* ── Render wrapper: shared coordinate system with .ascii-art ─
+   The 16px padding is the ONLY offset between the wrapper's border box
+   and the art/overlay origin — overlays use the same 16px padding_offset. */
 .render-wrapper {
     position: relative;
     display: block;
@@ -282,7 +284,10 @@
     border-radius: 8px;
 }
 
-.canvas-container pre {
+/* ASCII art layer. A <div>, not a <pre>: the HTML parser strips the first
+   newline right after a <pre> start tag, which would drop the first row of
+   the art when it starts with an empty row (topmost block not at y=0). */
+.canvas-container .ascii-art {
     font-family: 'Courier New', monospace;
     font-size: 11px;
     line-height: 1.3;

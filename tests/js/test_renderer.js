@@ -480,13 +480,35 @@ test("renderHtml builds the canvas wrapper like the API", () => {
     assert.ok(html.startsWith('<div class="render-wrapper"'));
     assert.ok(html.includes("width:240px")); // 20 * 12
     assert.ok(html.includes("height:72px")); // round(5 * 14.4, 1)
-    assert.ok(html.includes("<pre "));
+    assert.ok(html.includes('<div class="ascii-art"'));
     assert.ok(html.includes('data-block-id="b1"'));
     // Layout bounds frame at the layout's logical size (20×5)
     assert.ok(html.includes('class="layout-bounds"'));
     assert.ok(html.includes("width:240px;height:72px"));
-    // ASCII is escaped inside the <pre>
+    // ASCII is escaped inside the .ascii-art layer
     assert.ok(html.includes("Hi"));
+});
+
+test("renderHtml art layer is a div, not a pre", () => {
+    // Regression: the HTML parser strips the first newline right after a
+    // <pre> start tag, so <pre> would drop the first row of art that starts
+    // with an empty row (topmost block not at y=0) and shift it up one row
+    // relative to the overlays. The art must be a <div> with white-space:pre.
+    const blocks = [{
+        id: "b1", block_type: "box",
+        x: 0, y: 3, width: 10, height: 3,
+        content: "", border_style: "solid",
+    }];
+    const ascii = PG.render(blocks, 20, 5);
+    assert.ok(ascii.startsWith("\n\n\n")); // first rows are empty
+    const html = PG.renderHtml(ascii, blocks, {
+        width: 20, height: 5, charWidthPx: 12, charHeightPx: 14.4,
+    });
+    assert.ok(!html.includes("<pre"));
+    assert.ok(html.includes('<div class="ascii-art"'));
+    assert.ok(html.includes("white-space: pre"));
+    // All three leading newlines survive verbatim in the markup
+    assert.ok(html.includes('color: #e0e0e0;">\n\n\n'));
 });
 
 test("renderHtml expands canvas for out-of-bounds blocks", () => {

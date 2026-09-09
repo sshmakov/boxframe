@@ -180,6 +180,12 @@ def test_render_layout(client: TestClient):
     assert "ascii" in data
     assert "html" in data
     assert "Test" in data["ascii"]
+    # The art layer is a <div class="ascii-art">, not a <pre>: the HTML
+    # parser strips the first newline right after a <pre> start tag, which
+    # would drop the first row when the art starts with an empty row.
+    assert '<div class="ascii-art"' in data["html"]
+    assert "white-space: pre" in data["html"]
+    assert "<pre" not in data["html"]
 
 
 def test_render_empty_layout(client: TestClient):

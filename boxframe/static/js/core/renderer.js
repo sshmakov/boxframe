@@ -4,7 +4,7 @@
  * Converts a flat list of blocks into ASCII art on a character grid using
  * Unicode box-drawing characters, and generates the HTML overlay (positioned
  * block previews with resize handles) that the editor draws on top of the
- * <pre>.
+ * .ascii-art canvas layer.
  *
  * IMPORTANT: this file must stay in sync with the Python renderer — the
  * pseudo-graphic format is the core of the product. The Python test suite
@@ -369,9 +369,15 @@
     }
 
     /**
-     * Build the full canvas HTML (render-wrapper + <pre> + layout bounds +
-     * block previews) — mirrors the markup of GET /api/layouts/{id}/render
-     * so both modes share the same CSS and overlay behavior.
+     * Build the full canvas HTML (render-wrapper + ascii-art div + layout
+     * bounds + block previews) — mirrors the markup of
+     * GET /api/layouts/{id}/render so both modes share the same CSS and
+     * overlay behavior.
+     *
+     * The art is a <div class="ascii-art">, NOT a <pre>: the HTML parser
+     * strips the first newline right after a <pre> start tag, so art that
+     * starts with an empty row (topmost block not at y=0) would lose its
+     * first line and shift up one row relative to the overlays.
      *
      * opts: { width, height, charWidthPx, charHeightPx, paddingOffset }
      */
@@ -387,11 +393,11 @@
         var preHeight = round1(canvas[1] * charHeightPx);
 
         var asciiHtml =
-            '<pre style="font-family: monospace; font-size: 12px; ' +
-            "line-height: 1.2; display: block; " +
+            '<div class="ascii-art" style="font-family: monospace; font-size: 12px; ' +
+            "line-height: 1.2; display: block; white-space: pre; " +
             "width:" + preWidth + "px; height:" + preHeight + "px; " +
             'background: #1a1a2e; color: #e0e0e0;">' +
-            escapeHtml(ascii) + "</pre>";
+            escapeHtml(ascii) + "</div>";
 
         // Dashed frame marking the layout's logical size — blocks may be
         // placed outside it, the frame shows where the layout ends.
