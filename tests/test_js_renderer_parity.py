@@ -127,6 +127,24 @@ def test_parity_nested_blocks():
     assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
 
 
+def test_parity_button_heights():
+    """Buttons of all heights (h=1 [label], h=2 no top border, h>=3 full box)."""
+    blocks = [
+        {"id": "b1", "block_type": "button", "x": 0, "y": 0, "width": 16, "height": 1,
+         "content": "Button", "border_style": "solid", "order": 0},
+        {"id": "b2", "block_type": "button", "x": 0, "y": 2, "width": 16, "height": 2,
+         "content": "Button", "border_style": "dashed", "order": 1},
+        {"id": "b3", "block_type": "button", "x": 0, "y": 5, "width": 16, "height": 3,
+         "content": "Button", "border_style": "double", "order": 2},
+        {"id": "b4", "block_type": "button", "x": 0, "y": 9, "width": 16, "height": 5,
+         "content": "Button", "border_style": "solid", "order": 3},
+        {"id": "b5", "block_type": "button", "x": 20, "y": 0, "width": 10, "height": 4,
+         "content": "A very long label", "border_style": "none", "order": 4},
+    ]
+    py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
+    assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 14)
+
+
 def test_parity_grid_expansion():
     """Blocks outside the layout bounds expand the canvas identically."""
     blocks = [

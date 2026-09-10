@@ -144,6 +144,60 @@
         }
     }
 
+    // Port of PseudoGraphicRenderer._draw_button
+    function drawButton(block, style, grid, gw, gh) {
+        var x = Math.max(0, Math.min(block.x, gw - 2));
+        var y = Math.max(0, Math.min(block.y, gh - 2));
+        var w = Math.min(block.width, gw - x);
+        var h = Math.min(block.height, gh - y);
+
+        if (w < 1 || h < 1) return;
+
+        var framed = block.border_style !== "none" && w >= 2;
+
+        if (framed) {
+            if (h === 1) {
+                grid[y][x] = "[";
+                grid[y][x + w - 1] = "]";
+            } else {
+                // Side borders on all rows
+                for (var j = 0; j < h; j++) {
+                    grid[y + j][x] = style.v;
+                    grid[y + j][x + w - 1] = style.v;
+                }
+                // Bottom border
+                grid[y + h - 1][x] = style.bl;
+                grid[y + h - 1][x + w - 1] = style.br;
+                for (var i = 1; i < w - 1; i++) {
+                    grid[y + h - 1][x + i] = style.h;
+                }
+                if (h >= 3) {
+                    // Top border
+                    grid[y][x] = style.tl;
+                    grid[y][x + w - 1] = style.tr;
+                    for (var k = 1; k < w - 1; k++) {
+                        grid[y][x + k] = style.h;
+                    }
+                }
+            }
+        }
+
+        // Label — single line, vertically centered, truncated to fit
+        if (block.content) {
+            var row = y + Math.floor((h - 1) / 2);
+            var innerX = x + (framed ? 1 : 0);
+            var innerW = w - (framed ? 2 : 0);
+            if (innerW > 0 && row < gh) {
+                var label = String(block.content).split("\n")[0].slice(0, innerW);
+                for (var c = 0; c < label.length; c++) {
+                    if (innerX + c < gw) {
+                        grid[row][innerX + c] = label[c];
+                    }
+                }
+            }
+        }
+    }
+
     function drawContent(block, grid, gw, gh) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
@@ -223,6 +277,11 @@
             if (block.border_style !== "none") {
                 drawLine(block, style, grid, gw, gh);
             }
+            return;
+        }
+
+        if (block.block_type === "button") {
+            drawButton(block, style, grid, gw, gh);
             return;
         }
 

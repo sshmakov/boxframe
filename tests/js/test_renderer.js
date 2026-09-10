@@ -239,6 +239,102 @@ test("hline beyond layout", () => {
     assert.equal(lines(result)[0].slice(35), "─".repeat(20));
 });
 
+// ── Button tests (tasks/0021-0030/0022-button.md) ────────
+
+function button(height, width = 16, content = "Button", border_style = "solid") {
+    return [{
+        id: "b1", block_type: "button",
+        x: 0, y: 0, width, height,
+        content, border_style,
+    }];
+}
+
+test("button height 1", () => {
+    const result = render(button(1));
+    assert.equal(lines(result)[0], "[Button        ]");
+});
+
+test("button height 2", () => {
+    const result = render(button(2));
+    const ls = lines(result);
+    assert.equal(ls[0], "│Button        │");
+    assert.equal(ls[1], "└──────────────┘");
+});
+
+test("button height 3", () => {
+    const result = render(button(3));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌──────────────┐");
+    assert.equal(ls[1], "│Button        │");
+    assert.equal(ls[2], "└──────────────┘");
+});
+
+test("button height 4 label upper middle", () => {
+    const result = render(button(4));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌──────────────┐");
+    assert.equal(ls[1], "│Button        │");
+    assert.equal(ls[2], "│              │");
+    assert.equal(ls[3], "└──────────────┘");
+});
+
+test("button height 5 label centered", () => {
+    const result = render(button(5));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌──────────────┐");
+    assert.equal(ls[1], "│              │");
+    assert.equal(ls[2], "│Button        │");
+    assert.equal(ls[3], "│              │");
+    assert.equal(ls[4], "└──────────────┘");
+});
+
+test("button border styles", () => {
+    // h=2: side + bottom border use the style characters
+    let ls = lines(render(button(2, 16, "Button", "dashed")));
+    assert.equal(ls[0], "┆Button        ┆");
+    assert.equal(ls[1], "└" + "┄".repeat(14) + "┘");
+
+    // h=3: full box in the style
+    ls = lines(render(button(3, 16, "Button", "double")));
+    assert.equal(ls[0], "╔══════════════╗");
+    assert.equal(ls[1], "║Button        ║");
+    assert.equal(ls[2], "╚══════════════╝");
+
+    // h=1: [label] for any style
+    for (const style of ["solid", "dashed", "dotted", "double"]) {
+        assert.equal(lines(render(button(1, 16, "Button", style)))[0],
+            "[Button        ]", style);
+    }
+});
+
+test("button border none", () => {
+    const ls = lines(render(button(3, 16, "Button", "none")));
+    assert.equal(ls[0], "");
+    assert.equal(ls[1], "Button");
+    assert.equal(ls[2], "");
+});
+
+test("button label truncated not wrapped", () => {
+    const ls = lines(render(button(3, 10, "A very long label")));
+    // Inner width = 8: label truncated, no wrapping
+    assert.equal(ls[0], "┌" + "─".repeat(8) + "┐");
+    assert.equal(ls[1], "│A very l│");
+    assert.equal(ls[2], "└" + "─".repeat(8) + "┘");
+});
+
+test("button label ignores newlines", () => {
+    const result = render(button(3, 16, "Line1\nLine2"));
+    assert.equal(lines(result)[1], "│Line1" + " ".repeat(9) + "│");
+    assert.ok(!result.includes("Line2"));
+});
+
+test("button empty content", () => {
+    const ls = lines(render(button(3, 16, "")));
+    assert.equal(ls[0], "┌──────────────┐");
+    assert.equal(ls[1], "│              │");
+    assert.equal(ls[2], "└──────────────┘");
+});
+
 // ── Word wrap tests ───────────────────────────────────────
 
 test("wrap text unit", () => {

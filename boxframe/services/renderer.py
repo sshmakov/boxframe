@@ -182,6 +182,10 @@ class PseudoGraphicRenderer:
                 self._draw_line(block, style_map)
             return
 
+        if block.block_type == "button":
+            self._draw_button(block, style_map)
+            return
+
         has_border = block.border_style != "none" and block.width >= 2 and block.height >= 2
 
         if has_border:
@@ -236,6 +240,60 @@ class PseudoGraphicRenderer:
             h = min(block.height, self.grid_height - y)
             for j in range(max(1, h)):
                 self.grid[y + j][x] = style["v"]
+
+    def _draw_button(self, block: RenderBlock, style: dict[str, str]) -> None:
+        """Draw a button. The shape depends on the height:
+
+        h=1:  [label        ]
+        h=2:  │label        │   (no top border)
+              └──────────────┘
+        h>=3: full box, label on the middle row (upper middle for even h)
+
+        The label is a single line: newlines are ignored and the text is
+        truncated to the inner width.
+        """
+        # Clamp to grid (same logic as _draw_border)
+        x = max(0, min(block.x, self.grid_width - 2))
+        y = max(0, min(block.y, self.grid_height - 2))
+        w = min(block.width, self.grid_width - x)
+        h = min(block.height, self.grid_height - y)
+
+        if w < 1 or h < 1:
+            return
+
+        framed = block.border_style != "none" and w >= 2
+
+        if framed:
+            if h == 1:
+                self.grid[y][x] = "["
+                self.grid[y][x + w - 1] = "]"
+            else:
+                # Side borders on all rows
+                for j in range(h):
+                    self.grid[y + j][x] = style["v"]
+                    self.grid[y + j][x + w - 1] = style["v"]
+                # Bottom border
+                self.grid[y + h - 1][x] = style["bl"]
+                self.grid[y + h - 1][x + w - 1] = style["br"]
+                for i in range(1, w - 1):
+                    self.grid[y + h - 1][x + i] = style["h"]
+                if h >= 3:
+                    # Top border
+                    self.grid[y][x] = style["tl"]
+                    self.grid[y][x + w - 1] = style["tr"]
+                    for i in range(1, w - 1):
+                        self.grid[y][x + i] = style["h"]
+
+        # Label — single line, vertically centered, truncated to fit
+        if block.content:
+            row = y + (h - 1) // 2
+            inner_x = x + (1 if framed else 0)
+            inner_w = w - (2 if framed else 0)
+            if inner_w > 0 and row < self.grid_height:
+                label = block.content.split("\n")[0][:inner_w]
+                for i, ch in enumerate(label):
+                    if inner_x + i < self.grid_width:
+                        self.grid[row][inner_x + i] = ch
 
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""

@@ -437,9 +437,9 @@ function editorApp() {
                 if (this.dragBlock.block_type === 'vline') newW = 1;
 
                 // Clamp to minimum size only — blocks may extend beyond
-                // the layout bounds
+                // the layout bounds. Buttons support height 1 ([label]).
                 const minW = this.dragBlock.block_type === 'vline' ? 1 : 2;
-                const minH = this.dragBlock.block_type === 'hline' ? 1 : 2;
+                const minH = (this.dragBlock.block_type === 'hline' || this.dragBlock.block_type === 'button') ? 1 : 2;
                 newW = Math.max(minW, newW);
                 newH = Math.max(minH, newH);
 
@@ -571,9 +571,10 @@ function editorApp() {
             const newW = Math.round(this.resizePreviewW);
             const newH = Math.round(this.resizePreviewH);
 
-            // Minimum size: 2x2; lines are always 1 cell thick
+            // Minimum size: 2x2; lines are always 1 cell thick;
+            // buttons support height 1 ([label])
             const minW = block.block_type === 'vline' ? 1 : 2;
-            const minH = block.block_type === 'hline' ? 1 : 2;
+            const minH = (block.block_type === 'hline' || block.block_type === 'button') ? 1 : 2;
             let clampedW = Math.max(minW, newW);
             let clampedH = Math.max(minH, newH);
             if (block.block_type === 'hline') clampedH = 1;
@@ -604,7 +605,7 @@ function editorApp() {
         },
 
         _blockDefaults(type) {
-            if (type === 'button') return { width: 12, height: 1, content: 'Button' };
+            if (type === 'button') return { width: 16, height: 1, content: 'Button' };
             if (type === 'hline') return { width: 20, height: 1, content: '' };
             if (type === 'vline') return { width: 1, height: 5, content: '' };
             return { width: 20, height: 3, content: `[${type}]` };
