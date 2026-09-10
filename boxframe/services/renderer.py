@@ -6,6 +6,7 @@ Uses Unicode box-drawing characters for clean, AI-readable layouts.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from boxframe.models.block import BLOCK_TYPES, BORDER_STYLES
@@ -286,32 +287,46 @@ class PseudoGraphicRenderer:
     def _wrap_text(self, text: str, width: int) -> list[str]:
         """Wrap text by words to fit within `width` columns.
 
-        Explicit newlines are preserved. Words longer than `width`
-        are hard-split character by character.
+        Explicit newlines are preserved. Runs of spaces are treated as
+        formatting and kept verbatim: a space run stays on the line when
+        it fits and is dropped when it forces a wrap. Words longer than
+        `width` are hard-split character by character.
         """
         wrapped: list[str] = []
         for raw_line in text.split("\n"):
-            words = raw_line.split()
+            # Words and runs of spaces — spaces are formatting, not separators
+            tokens = re.findall(r"\S+| +", raw_line)
             current = ""
-            for word in words:
-                while len(word) > width:
-                    if current:
+            for token in tokens:
+                if token[0] == " ":
+                    if current and len(current) + len(token) <= width:
+                        current += token
+                    elif current:
+                        # Gap doesn't fit — wrap to the next line, drop the gap
                         wrapped.append(current)
                         current = ""
-                    wrapped.append(word[:width])
-                    word = word[width:]
-                if not word:
-                    continue
-                if not current:
-                    current = word
-                elif len(current) + 1 + len(word) <= width:
-                    current = f"{current} {word}"
+                    else:
+                        current += token  # leading spaces
                 else:
-                    wrapped.append(current)
-                    current = word
+                    word = token
+                    while len(word) > width:
+                        if current:
+                            wrapped.append(current)
+                            current = ""
+                        wrapped.append(word[:width])
+                        word = word[width:]
+                    if not word:
+                        continue
+                    if not current:
+                        current = word
+                    elif len(current) + len(word) <= width:
+                        current += word
+                    else:
+                        wrapped.append(current)
+                        current = word
             if current:
                 wrapped.append(current)
-            elif not words:
+            elif not tokens:
                 wrapped.append("")
         return wrapped
 

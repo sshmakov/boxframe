@@ -84,6 +84,15 @@ def test_parity_word_wrap():
     assert render_js(blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8)
 
 
+def test_parity_word_wrap_spaces():
+    """Runs of spaces (formatting) are kept/dropped identically by both renderers."""
+    blocks = [{"id": "b1", "block_type": "box", "x": 0, "y": 0, "width": 18, "height": 5,
+               "content": "Name        Price\n  indented    text",
+               "border_style": "solid", "order": 0}]
+    py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
+    assert render_js(blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8)
+
+
 def test_parity_order_overlap():
     blocks = [
         {"id": "low", "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 5,

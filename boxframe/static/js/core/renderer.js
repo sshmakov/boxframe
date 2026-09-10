@@ -60,29 +60,42 @@
         var wrapped = [];
         var rawLines = String(text == null ? "" : text).split("\n");
         for (var li = 0; li < rawLines.length; li++) {
-            // Python's str.split() — any whitespace, empty items dropped
-            var words = rawLines[li].split(/\s+/).filter(function (w) { return w.length > 0; });
+            // Words and runs of spaces — spaces are formatting, not separators
+            var tokens = rawLines[li].match(/\S+| +/g) || [];
             var current = "";
-            for (var wi = 0; wi < words.length; wi++) {
-                var word = words[wi];
-                while (word.length > width) {
-                    if (current) { wrapped.push(current); current = ""; }
-                    wrapped.push(word.slice(0, width));
-                    word = word.slice(width);
-                }
-                if (!word) continue;
-                if (!current) {
-                    current = word;
-                } else if (current.length + 1 + word.length <= width) {
-                    current = current + " " + word;
+            for (var ti = 0; ti < tokens.length; ti++) {
+                var token = tokens[ti];
+                if (token[0] === " ") {
+                    if (current && current.length + token.length <= width) {
+                        current += token;
+                    } else if (current) {
+                        // Gap doesn't fit — wrap to the next line, drop the gap
+                        wrapped.push(current);
+                        current = "";
+                    } else {
+                        current += token; // leading spaces
+                    }
                 } else {
-                    wrapped.push(current);
-                    current = word;
+                    var word = token;
+                    while (word.length > width) {
+                        if (current) { wrapped.push(current); current = ""; }
+                        wrapped.push(word.slice(0, width));
+                        word = word.slice(width);
+                    }
+                    if (!word) continue;
+                    if (!current) {
+                        current = word;
+                    } else if (current.length + word.length <= width) {
+                        current += word;
+                    } else {
+                        wrapped.push(current);
+                        current = word;
+                    }
                 }
             }
             if (current) {
                 wrapped.push(current);
-            } else if (words.length === 0) {
+            } else if (tokens.length === 0) {
                 wrapped.push("");
             }
         }

@@ -300,6 +300,19 @@ def test_wrap_text_unit():
     assert r._wrap_text("", 5) == [""]
 
 
+def test_wrap_text_preserves_spaces():
+    """Runs of spaces are formatting — kept verbatim, dropped only on wrap."""
+    r = PseudoGraphicRenderer(10, 5)
+    # Spaces kept when the line fits
+    assert r._wrap_text("hello    world", 20) == ["hello    world"]
+    # Leading spaces kept
+    assert r._wrap_text("  hello", 10) == ["  hello"]
+    # Space run that doesn't fit is dropped when the word wraps
+    assert r._wrap_text("a   b", 2) == ["a", "b"]
+    # Explicit newlines still separate lines with their own spacing
+    assert r._wrap_text("a  b\nc  d", 10) == ["a  b", "c  d"]
+
+
 def test_word_wrap_in_border():
     """Long content wraps by words inside the frame instead of truncating."""
     result = _render([{
@@ -376,6 +389,35 @@ def test_word_wrap_no_border():
     lines = result.split("\n")
     assert "hello" in lines[0]
     assert "world" in lines[1]
+
+
+def test_word_wrap_preserves_spaces_in_render():
+    """Runs of spaces are formatting — kept verbatim when the line fits."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 20, "height": 3,
+        "content": "Name        Price",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Content width = 18: "Name        Price" (17) fits on one line
+    assert "Name        Price" in lines[1]
+
+
+def test_word_wrap_drops_gap_on_wrap():
+    """A space run that doesn't fit is dropped when the word wraps."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "content": "Name        Price",
+        "border_style": "solid",
+    }])
+    lines = result.split("\n")
+    # Content width = 8: "Name" + 8 spaces = 12 > 8 → gap dropped
+    assert "Name" in lines[1]
+    assert "Price" in lines[2]
 
 
 # ── HTML preview tests ────────────────────────────────────

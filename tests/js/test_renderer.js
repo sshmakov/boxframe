@@ -250,6 +250,14 @@ test("wrap text unit", () => {
     assert.deepEqual(PG.wrapText("", 5), [""]);
 });
 
+test("wrap text preserves spaces", () => {
+    // Runs of spaces are formatting — kept verbatim, dropped only on wrap
+    assert.deepEqual(PG.wrapText("hello    world", 20), ["hello    world"]);
+    assert.deepEqual(PG.wrapText("  hello", 10), ["  hello"]);
+    assert.deepEqual(PG.wrapText("a   b", 2), ["a", "b"]);
+    assert.deepEqual(PG.wrapText("a  b\nc  d", 10), ["a  b", "c  d"]);
+});
+
 test("word wrap in border", () => {
     const result = render([{
         id: "b1", block_type: "box",
@@ -314,6 +322,29 @@ test("word wrap no border", () => {
     const ls = lines(result);
     assert.ok(ls[0].includes("hello"));
     assert.ok(ls[1].includes("world"));
+});
+
+test("word wrap preserves spaces in render", () => {
+    const result = render([{
+        id: "b1", block_type: "box",
+        x: 0, y: 0, width: 20, height: 3,
+        content: "Name        Price", border_style: "solid",
+    }]);
+    const ls = lines(result);
+    // Content width = 18: "Name        Price" (17) fits on one line
+    assert.ok(ls[1].includes("Name        Price"));
+});
+
+test("word wrap drops gap on wrap", () => {
+    const result = render([{
+        id: "b1", block_type: "box",
+        x: 0, y: 0, width: 10, height: 4,
+        content: "Name        Price", border_style: "solid",
+    }]);
+    const ls = lines(result);
+    // Content width = 8: "Name" + 8 spaces = 12 > 8 → gap dropped
+    assert.ok(ls[1].includes("Name"));
+    assert.ok(ls[2].includes("Price"));
 });
 
 // ── Order / z-order tests ─────────────────────────────────
