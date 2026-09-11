@@ -4,6 +4,7 @@ Layout service: CRUD operations for projects, layouts, and blocks.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -183,6 +184,58 @@ class LayoutService:
         result = await self.db.execute(delete(Block).where(Block.layout_id == layout_id))
         await self.db.commit()
         return result.rowcount or 0
+
+    async def replace_blocks(self, layout_id: str, blocks: list[dict[str, Any]]) -> Layout:
+        """Replace all blocks of a layout with the given set (single transaction).
+
+        Used by the editor's undo/redo: the client sends a full state
+        snapshot and the layout is restored to it. Block ids from the
+        payload are preserved so restored blocks keep their identity;
+        blocks without an id get a new one.
+        """
+        layout = await self.get_layout(layout_id)
+        if not layout:
+            return None
+
+        # Delete existing blocks through the ORM (not a bulk statement) so
+        # the identity map and relationship state stay consistent. Children
+        # go first — otherwise the parent's cascade would delete them twice.
+        existing = sorted(layout.blocks, key=lambda b: 0 if b.parent_id else 1)
+        for block in existing:
+            await self.db.delete(block)
+        await self.db.flush()
+
+        for data in blocks:
+            block_type = data.get("block_type", "box")
+            width = data.get("width", 20)
+            height = data.get("height", 3)
+            # Lines are always 1 cell thick — the thin dimension is fixed
+            if block_type == "hline":
+                height = 1
+            elif block_type == "vline":
+                width = 1
+            self.db.add(
+                Block(
+                    id=data.get("id") or str(uuid.uuid4()),
+                    layout_id=layout_id,
+                    parent_id=data.get("parent_id"),
+                    block_type=block_type,
+                    x=data.get("x", 0),
+                    y=data.get("y", 0),
+                    width=width,
+                    height=height,
+                    content=data.get("content", ""),
+                    border_style=data.get("border_style", "solid"),
+                    meta=data.get("meta") or {},
+                    order=data.get("order", 0),
+                )
+            )
+        await self.db.commit()
+        # The session keeps loaded objects after commit (expire_on_commit
+        # is off) — expire everything so the returned layout reflects the
+        # new block set instead of the stale relationship collection.
+        self.db.expire_all()
+        return await self.get_layout(layout_id)
 
     async def get_block(self, block_id: str) -> Block | None:
         return await self.db.get(Block, block_id)

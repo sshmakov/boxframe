@@ -28,6 +28,10 @@
                         <button class="dropdown__item" @click="exportAs('ascii'); open = false">📄 ASCII</button>
                     </div>
                 </div>
+                <button class="btn btn-sm undo-btn" @click="undo()" :disabled="undoCount === 0"
+                        title="Undo (Ctrl+Z)">↶</button>
+                <button class="btn btn-sm redo-btn" @click="redo()" :disabled="redoCount === 0"
+                        title="Redo (Ctrl+Shift+Z)">↷</button>
                 <button class="btn btn-sm copy-btn" @click="copyRaw()">Copy</button>
                 <button class="btn btn-sm clear-layout-btn" x-show="blocks.length > 0" x-cloak
                         @click="clearLayout()" title="Remove all blocks (asks for confirmation)">Clear</button>
@@ -181,5 +185,6 @@
 {% block scripts %}
 <script src="/static/js/core/renderer.js"></script>
 <script src="/static/js/core/store.js"></script>
+<script src="/static/js/core/history.js"></script>
 <script src="/static/js/editor.js"></script>
 {% endblock %}

@@ -10,6 +10,7 @@
  *   createBlock(data)    → block
  *   updateBlock(id, p)   → block
  *   deleteBlock(id)      → { ok }
+ *   replaceState(state)  → { ok }   (all stores)
  *   export()             → { json, markdown, ascii }
  *   clear()              → { ok }   (all stores)
  *
@@ -89,6 +90,16 @@
             clear: function () {
                 return api("/api/layouts/" + layoutId + "/blocks", {
                     method: "DELETE",
+                });
+            },
+
+            // Full state restore (undo/redo): the server replaces all blocks
+            // with the given set in one request. Block ids are preserved.
+            replaceBlocks: function (blocks) {
+                return api("/api/layouts/" + layoutId + "/blocks", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ blocks: blocks }),
                 });
             },
 
@@ -256,6 +267,20 @@
                 layout.width = null;
                 layout.height = null;
                 layout.blocks = [];
+                mutate();
+                return Promise.resolve({ ok: true });
+            },
+
+            // Full state restore (undo/redo): swap in a snapshot
+            // { width, height, blocks }. Blocks are deep-copied so the
+            // snapshot stays independent of the live layout.
+            replaceState: function (state) {
+                state = state || {};
+                layout.width = state.width != null ? state.width : null;
+                layout.height = state.height != null ? state.height : null;
+                layout.blocks = (state.blocks || []).map(function (b) {
+                    return Object.assign({}, b);
+                });
                 mutate();
                 return Promise.resolve({ ok: true });
             },

@@ -636,3 +636,113 @@ def test_update_vline_width_stays_one(client: TestClient):
     data = r.json()
     assert data["height"] == 10
     assert data["width"] == 1
+
+
+# ── Batch replace tests (undo/redo support) ─────────────────
+
+
+def test_replace_layout_blocks(client: TestClient):
+    """PUT /api/layouts/{id}/blocks replaces the full block set.
+
+    Given block ids are preserved (undo/redo restores block identity),
+    blocks without an id get a new one.
+    """
+    _, layout_id = _create_project_with_layout(client)
+
+    # Existing blocks: a parent with a nested child
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10,
+    })
+    old_parent_id = r.json()["id"]
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text", "x": 1, "y": 1, "width": 10, "height": 2,
+        "parent_id": old_parent_id,
+    })
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks", json={
+        "blocks": [
+            {"id": old_parent_id, "block_type": "box", "x": 2, "y": 3,
+             "width": 12, "height": 4, "content": "kept", "order": 1},
+            {"block_type": "button", "x": 0, "y": 0, "width": 8, "height": 1,
+             "content": "New", "order": 2},
+        ],
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data["blocks"]) == 2
+    by_id = {b["id"]: b for b in data["blocks"]}
+    # The old id survived the replace
+    assert old_parent_id in by_id
+    assert by_id[old_parent_id]["x"] == 2
+    assert by_id[old_parent_id]["content"] == "kept"
+    # The new block got a generated id
+    new = [b for b in data["blocks"] if b["id"] != old_parent_id][0]
+    assert new["block_type"] == "button"
+    assert new["id"]
+
+
+def test_replace_layout_blocks_with_nested_child(client: TestClient):
+    """A replace payload can contain nested blocks (parent_id)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks", json={
+        "blocks": [
+            {"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 6, "order": 1},
+        ],
+    })
+    parent_id = r.json()["blocks"][0]["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks", json={
+        "blocks": [
+            {"id": parent_id, "block_type": "box", "x": 0, "y": 0,
+             "width": 20, "height": 6, "order": 1},
+            {"block_type": "text", "x": 1, "y": 1, "width": 10, "height": 2,
+             "content": "child", "parent_id": parent_id, "order": 2},
+        ],
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data["blocks"]) == 2
+    child = [b for b in data["blocks"] if b["block_type"] == "text"][0]
+    assert child["parent_id"] == parent_id
+
+
+def test_replace_layout_blocks_empty(client: TestClient):
+    """An empty blocks list clears the layout; the layout itself is kept."""
+    _, layout_id = _create_project_with_layout(client)
+    client.post(f"/api/layouts/{layout_id}/blocks", json={"block_type": "box"})
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks", json={"blocks": []})
+    assert r.status_code == 200
+    assert r.json()["blocks"] == []
+
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.status_code == 200
+    assert r.json()["blocks"] == []
+
+
+def test_replace_layout_blocks_not_found(client: TestClient):
+    """Replacing blocks of a non-existent layout returns 404."""
+    r = client.put(
+        "/api/layouts/00000000-0000-0000-0000-000000000000/blocks",
+        json={"blocks": []},
+    )
+    assert r.status_code == 404
+
+
+def test_replace_layout_blocks_normalizes_lines(client: TestClient):
+    """hline/vline keep their 1-cell thickness in a replace payload."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks", json={
+        "blocks": [
+            {"block_type": "hline", "x": 0, "y": 0, "width": 15, "height": 4},
+            {"block_type": "vline", "x": 0, "y": 0, "width": 4, "height": 10},
+        ],
+    })
+    assert r.status_code == 200
+    by_type = {b["block_type"]: b for b in r.json()["blocks"]}
+    assert by_type["hline"]["height"] == 1
+    assert by_type["hline"]["width"] == 15
+    assert by_type["vline"]["width"] == 1
+    assert by_type["vline"]["height"] == 10

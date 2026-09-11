@@ -29,6 +29,7 @@ boxframe/
 │   │       ├── alpine.min.js   # Alpine.js (вендор, без CDN)
 │   │       ├── core/renderer.js# JS-порт рендерера (static-режим)
 │   │       ├── core/store.js   # FetchStore / LocalStorageStore / MemoryStore
+│   │       ├── core/history.js # withHistory — undo/redo (snapshot-стеки)
 │   │       └── editor.js       # Alpine.js editor app (общий)
 │   ├── templates/pages/        # Jinja2 шаблоны
 │   │   ├── base.html
@@ -48,6 +49,7 @@ boxframe/
 │   │   └── test_projects.py    # New Project / New Layout кнопки + форма
 │   ├── js/test_renderer.js     # Тесты JS-рендерера (node:test)
 │   ├── js/test_store.js        # Тесты JS-хранилищ (node:test)
+│   ├── js/test_history.js      # Тесты undo/redo-истории (node:test)
 │   ├── conftest.py             # API-файстуры (async engine + TestClient)
 │   ├── test_js_renderer_parity.py # Parity Python↔JS рендереры
 │   └── test_renderer.py        # Тесты рендерера (ASCII + HTML-оверлей)
@@ -111,6 +113,8 @@ boxframe/
 | POST | `/api/layouts/{id}/blocks` | Добавить блок |
 | PUT | `/api/layouts/{id}/blocks/{bid}` | Обновить блок |
 | DELETE | `/api/layouts/{id}/blocks/{bid}` | Удалить блок |
+| DELETE | `/api/layouts/{id}/blocks` | Удалить все блоки (layout остаётся) |
+| PUT | `/api/layouts/{id}/blocks` | Полная замена набора блоков (undo/redo; id из payload сохраняются) |
 | GET | `/api/layouts/{id}/render` | ASCII + HTML preview |
 | GET | `/api/layouts/{id}/export` | JSON / Markdown / ASCII |
 
@@ -119,6 +123,13 @@ boxframe/
 - **HTMX** — серверные рендеры страниц, без SPA
 - **Alpine.js** — реактивность редактора (`x-data="editorApp()"`), подключается локально (`static/js/alpine.min.js`)
 - **Редактор** — сайдбар (палитра + список элементов) + canvas-превью; общий для web- и static-режимов
+- **Undo/Redo** — `core/history.js`: `withHistory(store)` оборачивает store,
+  хранит snapshot-стеки (без лимита) и восстанавливает состояние через
+  `replaceState` (local) / batch `PUT /blocks` (web). Снапшот берётся из
+  кэша состояния (seed от `load()`, синк от результатов мутаций) — без
+  доп. запросов. Coalescing: consecutive-обновления одного блока в окне
+  500 мс = одна запись. Хоткеи Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (не
+  перехватываются в текстовых полях)
 - Экспорт: скачивание файла (JSON/MD/ASCII)
 
 ## Соглашения

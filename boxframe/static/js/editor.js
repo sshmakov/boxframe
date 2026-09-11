@@ -12,6 +12,10 @@ function editorApp() {
         htmlPreview: '',
         loading: true,
 
+        // ── Undo/redo (kept in sync by the history store's onChange) ──
+        undoCount: 0,
+        redoCount: 0,
+
         // ── Inline content editing state ────────────────────
         editingBlock: null,    // block being edited (null = editor closed)
         editText: '',          // textarea content while editing
@@ -49,9 +53,14 @@ function editorApp() {
             // (the layout survives page reloads).
             const root = document.querySelector('[data-layout-id]');
             this.layoutId = root?.dataset.layoutId || null;
-            this.store = this.layoutId
+            this.store = withHistory(this.layoutId
                 ? createFetchStore(this.layoutId, root.dataset.projectId)
-                : createLocalStorageStore();
+                : createLocalStorageStore(), {
+                onChange: (counts) => {
+                    this.undoCount = counts.undoCount;
+                    this.redoCount = counts.redoCount;
+                }
+            });
 
             await Promise.all([
                 this.fetchInfo(),
@@ -69,9 +78,60 @@ function editorApp() {
 
             this._bindGlobalMouseUp();
             this._bindGlobalMouseMove();
+            this._bindUndoRedoKeys();
             // Defer binding until Alpine.js has updated the DOM via x-html
             this.$nextTick(() => this._bindResizeHandles());
             this.loading = false;
+        },
+
+        // ── Undo/redo ─────────────────────────────────────────
+
+        // Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) — global shortcuts. Skipped
+        // while a text field has focus so native input undo keeps working
+        // (inline content editor, properties panel inputs).
+        _bindUndoRedoKeys() {
+            document.addEventListener('keydown', (e) => {
+                if (!(e.ctrlKey || e.metaKey)) return;
+                const key = e.key.toLowerCase();
+                if (key !== 'z' && key !== 'y') return;
+                const t = e.target;
+                if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+                          t.tagName === 'SELECT' || t.isContentEditable)) return;
+                e.preventDefault();
+                if (key === 'z' && !e.shiftKey) {
+                    this.undo();
+                } else {
+                    this.redo();
+                }
+            });
+        },
+
+        async undo() {
+            if (!this.store.canUndo) return;
+            await this.store.undo();
+            await this._syncStateFromStore();
+        },
+
+        async redo() {
+            if (!this.store.canRedo) return;
+            await this.store.redo();
+            await this._syncStateFromStore();
+        },
+
+        // After undo/redo the store is the source of truth — reload the
+        // block list and re-render, dropping selection/edit state for
+        // blocks that no longer exist.
+        async _syncStateFromStore() {
+            const data = await this.store.load();
+            this.blocks = this._flattenBlocks(data.blocks || []);
+            this._reorderBlocks();
+            if (this.selectedBlockId && !this.blocks.some(b => b.id === this.selectedBlockId)) {
+                this.selectedBlockId = null;
+            }
+            if (this.editingBlock && !this.blocks.some(b => b.id === this.editingBlock.id)) {
+                this.editingBlock = null;
+            }
+            await this.refreshRender();
         },
 
         // ── Char-size measurement ───────────────────────────────

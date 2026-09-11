@@ -91,6 +91,30 @@ class BlockUpdate(BaseModel):
     order: int | None = None
 
 
+class BlockIn(BaseModel):
+    """A block in a full-state replace payload.
+
+    id is optional: given ids are preserved (undo/redo restores the same
+    block identity), missing ids are generated server-side.
+    """
+
+    id: str | None = None
+    block_type: str = "box"
+    x: int = 0
+    y: int = 0
+    width: int = 20
+    height: int = 3
+    content: str = ""
+    border_style: str = "solid"
+    parent_id: str | None = None
+    meta: dict = {}
+    order: int = 0
+
+
+class BlocksReplace(BaseModel):
+    blocks: list[BlockIn]
+
+
 class RenderOut(BaseModel):
     ascii: str
     html: str | None = None
@@ -185,6 +209,21 @@ async def clear_layout_blocks(layout_id: str, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=404, detail="Layout not found")
     deleted = await service.delete_all_blocks(layout_id)
     return {"ok": True, "deleted": deleted}
+
+
+@router.put("/{layout_id}/blocks", response_model=LayoutOut)
+async def replace_layout_blocks(layout_id: str, data: BlocksReplace, db: AsyncSession = Depends(get_db)):
+    """Replace all blocks of a layout with the given set (full state restore).
+
+    Backs the editor's undo/redo: the client sends a state snapshot and the
+    layout is atomically restored to it. Block ids from the payload are kept.
+    """
+    service = LayoutService(db)
+    layout = await service.get_layout(layout_id)
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout not found")
+    updated = await service.replace_blocks(layout_id, [b.model_dump() for b in data.blocks])
+    return updated
 
 
 # ── Rendering ─────────────────────────────────────────────

@@ -235,6 +235,51 @@ def test_web_editor_clear_layout_with_confirmation(page: Page):
     assert r.status_code == 200
 
 
+def test_web_editor_undo_redo(page: Page):
+    """Undo/Redo restore previous layout states in the database.
+
+    The Undo button reverts the last edit, the Ctrl+Shift+Z hotkey
+    re-applies it; the buttons track the stack state."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    def db_content():
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        return next(b for b in r.json()["blocks"] if b["id"] == block_id)["content"]
+
+    def wait_content(expected):
+        # Poll: the browser's request may still be in flight
+        for _ in range(20):
+            if db_content() == expected:
+                return
+            page.wait_for_timeout(100)
+        assert db_content() == expected
+
+    # Edit the content: "Old" → "New text"
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').dblclick()
+    textarea = page.locator(".block-edit-overlay textarea")
+    expect(textarea).to_be_visible()
+    textarea.fill("New text")
+    textarea.press("Enter")
+    expect(page.locator(".block-edit-overlay")).not_to_be_visible()
+    wait_content("New text")
+
+    undo_btn = page.locator(".undo-btn")
+    redo_btn = page.locator(".redo-btn")
+    expect(undo_btn).to_be_enabled()
+    expect(redo_btn).to_be_disabled()
+
+    # Undo: the content reverts to "Old"
+    undo_btn.click()
+    wait_content("Old")
+    expect(undo_btn).to_be_disabled()
+    expect(redo_btn).to_be_enabled()
+
+    # Redo via the Ctrl+Shift+Z hotkey: "New text" comes back
+    page.keyboard.press("Control+Shift+z")
+    wait_content("New text")
+    expect(redo_btn).to_be_disabled()
+
+
 def test_drag_block_past_canvas_edges(page: Page):
     """A block can be dragged past the right/bottom edge of the rendered
     canvas — the drag keeps tracking while the cursor is outside the art."""
@@ -465,3 +510,34 @@ def test_static_editor_clear_layout_with_confirmation(page: Page):
     # The cleared state survives a reload
     page.reload()
     expect(page.locator(".block-preview")).to_have_count(0)
+
+
+def test_static_editor_undo_redo(page: Page):
+    """Undo/Redo in the static editor: a palette-added block is removed by
+    undo and restored by redo; a new action clears the redo stack."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    undo_btn = page.locator(".undo-btn")
+    redo_btn = page.locator(".redo-btn")
+
+    expect(undo_btn).to_be_disabled()
+    expect(redo_btn).to_be_disabled()
+
+    page.locator(".palette-btn", has_text="box").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+    expect(undo_btn).to_be_enabled()
+
+    # Undo removes the block
+    undo_btn.click()
+    expect(page.locator(".block-preview")).to_have_count(0)
+    expect(undo_btn).to_be_disabled()
+    expect(redo_btn).to_be_enabled()
+
+    # Redo restores it
+    redo_btn.click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+    expect(redo_btn).to_be_disabled()
+
+    # A new action after redo clears the redo stack
+    page.locator(".palette-btn", has_text="header").click()
+    expect(page.locator(".block-preview")).to_have_count(2)
+    expect(redo_btn).to_be_disabled()
