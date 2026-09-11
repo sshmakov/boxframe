@@ -332,7 +332,8 @@
      * Root blocks are drawn in ascending `order` (higher order on top);
      * children are drawn inside their parent with 1-cell padding.
      * The canvas is at least width×height but expands to fit blocks placed
-     * outside the layout bounds.
+     * outside the layout bounds. Trailing empty rows are stripped — the
+     * layout height is metadata, not part of the art.
      */
     function render(blocks, width, height) {
         var canvas = canvasSize(blocks, width, height);
@@ -354,9 +355,10 @@
             renderBlock(sorted[i], grid, canvas[0], canvas[1], blocks);
         }
 
-        return grid
-            .map(function (row) { return row.join("").replace(/\s+$/, ""); })
-            .join("\n");
+        var lines = grid.map(function (row) { return row.join("").replace(/\s+$/, ""); });
+        // Drop trailing empty rows (same as Python's PseudoGraphicRenderer.render)
+        while (lines.length && lines[lines.length - 1] === "") lines.pop();
+        return lines.join("\n");
     }
 
     // ── HTML preview (port of RenderBlock.to_html_preview) ──
@@ -441,8 +443,8 @@
     }
 
     /**
-     * Build the full canvas HTML (render-wrapper + ascii-art div + layout
-     * bounds + block previews) — mirrors the markup of
+     * Build the full canvas HTML (render-wrapper + ascii-art div + block
+     * previews) — mirrors the markup of
      * GET /api/layouts/{id}/render so both modes share the same CSS and
      * overlay behavior.
      *
@@ -471,13 +473,6 @@
             'background: #1a1a2e; color: #e0e0e0;">' +
             escapeHtml(ascii) + "</div>";
 
-        // Dashed frame marking the layout's logical size — blocks may be
-        // placed outside it, the frame shows where the layout ends.
-        var boundsHtml =
-            '<div class="layout-bounds" style="left:' + paddingOffset + "px;top:" + paddingOffset + 'px;' +
-            "width:" + (opts.width * charWidthPx) + "px;height:" + round1(opts.height * charHeightPx) + 'px;"' +
-            ' title="Layout bounds: ' + opts.width + '×' + opts.height + ' cells"></div>';
-
         var previews = renderHtmlPreview(blocks, {
             charWidthPx: charWidthPx,
             charHeightPx: charHeightPx,
@@ -487,7 +482,7 @@
         return (
             '<div class="render-wrapper" ' +
             'style="width:' + preWidth + "px; height:" + preHeight + 'px;">' +
-            asciiHtml + boundsHtml + previews +
+            asciiHtml + previews +
             "</div>"
         );
     }

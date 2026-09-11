@@ -160,7 +160,8 @@ class PseudoGraphicRenderer:
         """Render a list of root blocks into a pseudo-graphic string.
 
         The canvas is at least grid_width × grid_height but expands to fit
-        blocks placed outside the layout bounds.
+        blocks placed outside the layout bounds. Trailing empty rows are
+        stripped — the layout height is metadata, not part of the art.
         """
         self.grid_width, self.grid_height = self.canvas_size(blocks, self.grid_width, self.grid_height)
         self.grid = [[" " for _ in range(self.grid_width)] for _ in range(self.grid_height)]
@@ -171,7 +172,10 @@ class PseudoGraphicRenderer:
         for block in sorted_blocks:
             self._render_block(block)
 
-        return "\n".join("".join(row).rstrip() for row in self.grid)
+        lines = ["".join(row).rstrip() for row in self.grid]
+        while lines and not lines[-1]:
+            lines.pop()
+        return "\n".join(lines)
 
     def _render_block(self, block: RenderBlock) -> None:
         """Render a single block (including children) onto the grid."""

@@ -220,14 +220,6 @@ async def render_layout(
             f'background: #1a1a2e; color: #e0e0e0;">'
             f"{ascii_art.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</div>"
         )
-        # Dashed frame marking the layout's logical size — blocks may be
-        # placed outside it, the frame shows where the layout ends.
-        bounds_html = (
-            f'<div class="layout-bounds" style="left:{pad}px;top:{pad}px;'
-            f'width:{layout.width * char_width_px}px;'
-            f'height:{round(layout.height * char_height_px, 1)}px;"'
-            f' title="Layout bounds: {layout.width}×{layout.height} cells"></div>'
-        )
         blocks_data = _serialize_blocks_for_html(layout.blocks)
         block_previews_html = PseudoGraphicRenderer.render_html_preview(
             blocks_data,
@@ -239,7 +231,6 @@ async def render_layout(
             f'<div class="render-wrapper" '
             f'style="width:{pre_width}px; height:{pre_height}px;">'
             f"{ascii_html}"
-            f"{bounds_html}"
             f"{block_previews_html}"
             f"</div>"
         )

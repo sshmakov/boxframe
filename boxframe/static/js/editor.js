@@ -67,6 +67,7 @@ function editorApp() {
             });
 
             this._bindGlobalMouseUp();
+            this._bindGlobalMouseMove();
             // Defer binding until Alpine.js has updated the DOM via x-html
             this.$nextTick(() => this._bindResizeHandles());
             this.loading = false;
@@ -102,10 +103,13 @@ function editorApp() {
             if (!container || !this.charWidth) return { x: 0, y: 0 };
             const rect = container.getBoundingClientRect();
             const pad = 16; // wrapper padding only
+            // The canvas may be scrolled — account for the scroll offset so
+            // the mapping stays correct when the art is scrolled under the
+            // cursor (or the cursor is outside the visible area).
+            const gx = Math.max(0, (px - rect.left + container.scrollLeft - pad) / this.charWidth);
+            const gy = Math.max(0, (py - rect.top + container.scrollTop - pad) / this.charHeight);
             // Blocks may be placed outside the layout bounds — the canvas
-            // origin (0,0) is the only hard limit.
-            const gx = Math.max(0, (px - rect.left - pad) / this.charWidth);
-            const gy = Math.max(0, (py - rect.top - pad) / this.charHeight);
+            // origin (0,0) is the only hard limit; there is no upper limit.
             return { x: Math.floor(gx), y: Math.floor(gy) };
         },
 
@@ -166,6 +170,49 @@ function editorApp() {
 
         _bindGlobalMouseUp() {
             document.addEventListener('mouseup', () => this._onGlobalMouseUp());
+        },
+
+        // ── Global mouse-move (drag continues outside the canvas) ──
+        // Bound on document so a move/resize drag keeps tracking when the
+        // cursor leaves the canvas — blocks may be placed past the right
+        // and bottom edge of the visible area.
+
+        _bindGlobalMouseMove() {
+            document.addEventListener('mousemove', (e) => this._onGlobalMouseMove(e));
+        },
+
+        _onGlobalMouseMove(e) {
+            if (!this.dragMode) return;
+            this._autoScrollCanvas(e);
+            this.onCanvasMouseMove(e);
+        },
+
+        // Edge auto-scroll: while dragging near the canvas edge, scroll the
+        // canvas so the drag target stays visible.
+        _autoScrollCanvas(e) {
+            const container = document.querySelector('.canvas-container');
+            if (!container) return;
+            const rect = container.getBoundingClientRect();
+            const margin = 40;
+            const maxStep = 16;
+
+            if (e.clientX > rect.right - margin &&
+                container.scrollLeft + container.clientWidth < container.scrollWidth) {
+                const over = (e.clientX - (rect.right - margin)) / margin;
+                container.scrollLeft += Math.min(maxStep, over * maxStep);
+            } else if (e.clientX < rect.left + margin && container.scrollLeft > 0) {
+                const over = ((rect.left + margin) - e.clientX) / margin;
+                container.scrollLeft -= Math.min(maxStep, over * maxStep);
+            }
+
+            if (e.clientY > rect.bottom - margin &&
+                container.scrollTop + container.clientHeight < container.scrollHeight) {
+                const over = (e.clientY - (rect.bottom - margin)) / margin;
+                container.scrollTop += Math.min(maxStep, over * maxStep);
+            } else if (e.clientY < rect.top + margin && container.scrollTop > 0) {
+                const over = ((rect.top + margin) - e.clientY) / margin;
+                container.scrollTop -= Math.min(maxStep, over * maxStep);
+            }
         },
 
         _onGlobalMouseUp() {

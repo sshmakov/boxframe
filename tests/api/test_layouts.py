@@ -199,8 +199,7 @@ def test_render_empty_layout(client: TestClient):
 
 
 def test_render_layout_with_block_outside_bounds(client: TestClient):
-    """Blocks outside the layout bounds are fully rendered; the HTML
-    preview includes the layout bounds frame."""
+    """Blocks outside the layout bounds are fully rendered."""
     _, layout_id = _create_project_with_layout(client)  # 40×12
 
     r = client.post(f"/api/layouts/{layout_id}/blocks", json={
@@ -216,9 +215,8 @@ def test_render_layout_with_block_outside_bounds(client: TestClient):
     # ASCII canvas expanded to 45×13 — the full box with content is visible
     assert "Outside" in data["ascii"]
     assert "┘" in data["ascii"]
-    # HTML preview shows the layout bounds frame (40×12 → 480×172.8px)
-    assert 'class="layout-bounds"' in data["html"]
-    assert "width:480.0px" in data["html"]
+    # No layout-bounds frame in the HTML preview
+    assert 'class="layout-bounds"' not in data["html"]
 
 
 def test_export_layout(client: TestClient):
@@ -239,6 +237,27 @@ def test_export_layout(client: TestClient):
     assert "markdown" in data
     assert "ascii" in data
     assert data["layout_json"]["name"] == "Test Layout"
+
+
+def test_export_has_no_trailing_empty_lines(client: TestClient):
+    """Exported text has no trailing empty lines (layout 40×12, box ends at row 2)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 10, "height": 3,
+        "content": "Export",
+    })
+
+    r = client.get(f"/api/layouts/{layout_id}/export")
+    assert r.status_code == 200
+    data = r.json()
+    # ASCII: exactly 3 rows (the box), no blank tail
+    lines = data["ascii"].split("\n")
+    assert len(lines) == 3
+    assert lines[-1].rstrip() != ""
+    # Markdown: the fenced block ends right after the last art row
+    assert data["markdown"].endswith("┘\n```")
 
 
 def test_delete_layout(client: TestClient):

@@ -265,6 +265,6 @@ class LayoutService:
     async def export_markdown(self, layout_id: str) -> str | None:
         """Export layout as markdown table representation."""
         ascii_art = await self.render_layout(layout_id)
-        if not ascii_art:
+        if ascii_art is None:
             return None
         return f"```text\n{ascii_art}\n```"

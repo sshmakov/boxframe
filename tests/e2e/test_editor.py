@@ -201,6 +201,59 @@ def test_delete_icon_removes_block(page: Page):
     expect(page.locator(".block-selection")).not_to_be_visible()
 
 
+def test_drag_block_past_canvas_edges(page: Page):
+    """A block can be dragged past the right/bottom edge of the rendered
+    canvas — the drag keeps tracking while the cursor is outside the art."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    # The editor re-renders the canvas once more after measuring the real
+    # character size — poll until both boxes are available, captured
+    # atomically (one evaluate) so they come from the same DOM generation.
+    boxes = None
+    for _ in range(20):
+        boxes = page.evaluate("""(blockId) => {
+            const w = document.querySelector('.render-wrapper');
+            const b = document.querySelector('.block-preview[data-block-id="' + blockId + '"]');
+            if (!w || !b) return null;
+            const wr = w.getBoundingClientRect();
+            const br = b.getBoundingClientRect();
+            return {
+                wrapper: {x: wr.x, y: wr.y, width: wr.width, height: wr.height},
+                block: {x: br.x, y: br.y, width: br.width, height: br.height},
+            };
+        }""", block_id)
+        if boxes:
+            break
+        page.wait_for_timeout(100)
+    assert boxes is not None
+    wrapper_box, block_box = boxes["wrapper"], boxes["block"]
+
+    # Start the drag from the middle of the block (20×4 at (2,2))
+    start_x = block_box["x"] + block_box["width"] / 2
+    start_y = block_box["y"] + block_box["height"] / 2
+
+    # Target: past the bottom-right corner of the canvas
+    end_x = wrapper_box["x"] + wrapper_box["width"] + 50
+    end_y = wrapper_box["y"] + wrapper_box["height"] + 50
+
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(end_x, end_y, steps=10)
+    page.mouse.up()
+
+    # Poll: the browser's PUT may still be in flight
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if block["x"] > 2 or block["y"] > 2:
+            break
+        page.wait_for_timeout(100)
+    # The block extends past the original canvas (80×24) on both axes
+    assert block["x"] + block["width"] > 80
+    assert block["y"] + block["height"] > 24
+
+
 def test_selection_resize_handle_resizes_block(page: Page):
     """Dragging the resize handle on the selection frame resizes the block."""
     layout_id, block_id = _create_project_with_block(page)

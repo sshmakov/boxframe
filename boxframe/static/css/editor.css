@@ -232,17 +232,19 @@
 }
 
 /* ── Content (canvas) ──────────────────────────────────── */
+/* The canvas fills all the free space; the container is the only
+   scroller (the art scrolls inside it, the dark background extends
+   over the whole visible area). */
 .editor-content {
-    overflow: auto;
-    padding: 16px;
+    overflow: hidden;
 }
 
 .canvas-container {
     background: #1a1a2e;
-    border-radius: 8px;
     overflow: auto;
     position: relative;
-    min-height: 200px;
+    width: 100%;
+    height: 100%;
 }
 
 .canvas-drag-overlay {
@@ -293,15 +295,6 @@
     line-height: 1.3;
     color: #e0e0e0;
     white-space: pre;
-}
-
-/* ── Layout bounds (dashed frame at the layout's logical size) ──
-   Blocks may be placed outside the layout; the frame shows where it ends. */
-.layout-bounds {
-    position: absolute;
-    border: 1px dashed rgba(233, 69, 96, 0.6);
-    pointer-events: none;
-    z-index: 5;
 }
 
 /* ── Render overlay (block previews + resize handles) ──── */

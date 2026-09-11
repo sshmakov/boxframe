@@ -13,6 +13,24 @@ def test_empty_layout():
     assert len(lines) <= 12
 
 
+def test_render_strips_trailing_empty_rows():
+    """Trailing empty rows are not part of the art (clean exports/copies)."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "content": "",
+        "border_style": "solid",
+    }], width=40, height=12)
+    lines = result.split("\n")
+    assert len(lines) == 4  # canvas is 40×12, the box ends at row 3
+    assert not result.endswith("\n")
+
+
+def test_render_empty_layout_is_empty_string():
+    assert _render([], 40, 12) == ""
+
+
 def test_single_box():
     result = _render([{
         "block_type": "box",
@@ -364,7 +382,7 @@ def test_button_border_none():
     lines = result.split("\n")
     assert lines[0] == ""
     assert lines[1] == "Button"
-    assert lines[2] == ""
+    assert len(lines) == 2  # trailing empty rows are stripped
 
 
 def test_button_label_truncated_not_wrapped():

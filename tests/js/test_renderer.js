@@ -26,6 +26,22 @@ test("empty layout", () => {
     assert.ok(lines(result.trim()).length <= 12);
 });
 
+test("render strips trailing empty rows", () => {
+    // Trailing empty rows are not part of the art (clean exports/copies)
+    const result = render([{
+        id: "b1", block_type: "box",
+        x: 0, y: 0, width: 10, height: 4,
+        content: "", border_style: "solid",
+    }], 40, 12);
+    const ls = lines(result);
+    assert.equal(ls.length, 4); // canvas is 40×12, the box ends at row 3
+    assert.ok(!result.endsWith("\n"));
+});
+
+test("render empty layout is empty string", () => {
+    assert.equal(render([], 40, 12), "");
+});
+
 test("single box", () => {
     const result = render([{
         id: "b1", block_type: "box",
@@ -311,7 +327,7 @@ test("button border none", () => {
     const ls = lines(render(button(3, 16, "Button", "none")));
     assert.equal(ls[0], "");
     assert.equal(ls[1], "Button");
-    assert.equal(ls[2], "");
+    assert.equal(ls.length, 2); // trailing empty rows are stripped
 });
 
 test("button label truncated not wrapped", () => {
@@ -609,9 +625,8 @@ test("renderHtml builds the canvas wrapper like the API", () => {
     assert.ok(html.includes("height:72px")); // round(5 * 14.4, 1)
     assert.ok(html.includes('<div class="ascii-art"'));
     assert.ok(html.includes('data-block-id="b1"'));
-    // Layout bounds frame at the layout's logical size (20×5)
-    assert.ok(html.includes('class="layout-bounds"'));
-    assert.ok(html.includes("width:240px;height:72px"));
+    // No layout-bounds frame
+    assert.ok(!html.includes('class="layout-bounds"'));
     // ASCII is escaped inside the .ascii-art layer
     assert.ok(html.includes("Hi"));
 });
@@ -648,11 +663,11 @@ test("renderHtml expands canvas for out-of-bounds blocks", () => {
     const html = PG.renderHtml(ascii, blocks, {
         width: 20, height: 5, charWidthPx: 12, charHeightPx: 14.4, paddingOffset: 16,
     });
-    // Canvas expanded to 28×7 → pre 336×100.8px
+    // Canvas expanded to 28×7 → wrapper 336×100.8px
     assert.ok(html.includes("width:336px"));
     assert.ok(html.includes("height:100.8px"));
-    // Bounds frame stays at the layout size (20×5)
-    assert.ok(html.includes("width:240px;height:72px"));
+    // No bounds frame at the layout size (20×5)
+    assert.ok(!html.includes("width:240px;height:72px"));
 });
 
 test("renderHtml escapes html in ascii", () => {
