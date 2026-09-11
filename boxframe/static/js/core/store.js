@@ -11,7 +11,7 @@
  *   updateBlock(id, p)   → block
  *   deleteBlock(id)      → { ok }
  *   export()             → { json, markdown, ascii }
- *   clear()              → { ok }   (memory/local stores only)
+ *   clear()              → { ok }   (all stores)
  *
  * createFetchStore(layoutId, projectId) — web mode: talks to the boxframe
  * REST API (server-rendered page with data-layout-id).
@@ -82,6 +82,12 @@
 
             deleteBlock: function (blockId) {
                 return api("/api/layouts/" + layoutId + "/blocks/" + blockId, {
+                    method: "DELETE",
+                });
+            },
+
+            clear: function () {
+                return api("/api/layouts/" + layoutId + "/blocks", {
                     method: "DELETE",
                 });
             },

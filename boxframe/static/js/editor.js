@@ -948,8 +948,9 @@ function editorApp() {
             await this.refreshRender();
         },
 
-        // Clear the entire layout (static mode only — the fetch store has
-        // no clear()). Asks for confirmation before removing all blocks.
+        // Clear the entire layout. Asks for confirmation before removing all
+        // blocks. Works in both web mode (fetch store) and static mode (local
+        // store) — both expose a clear() method.
         async clearLayout() {
             if (typeof this.store.clear !== 'function') return;
             if (!confirm('Clear the entire layout? All blocks will be removed.')) return;

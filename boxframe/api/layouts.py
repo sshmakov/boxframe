@@ -176,6 +176,17 @@ async def delete_block(layout_id: str, block_id: str, db: AsyncSession = Depends
     return {"ok": True}
 
 
+@router.delete("/{layout_id}/blocks")
+async def clear_layout_blocks(layout_id: str, db: AsyncSession = Depends(get_db)):
+    """Remove all blocks from a layout (the layout itself is kept)."""
+    service = LayoutService(db)
+    layout = await service.get_layout(layout_id)
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout not found")
+    deleted = await service.delete_all_blocks(layout_id)
+    return {"ok": True, "deleted": deleted}
+
+
 # ── Rendering ─────────────────────────────────────────────
 
 @router.get("/{layout_id}/render", response_model=RenderOut)

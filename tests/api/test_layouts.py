@@ -200,6 +200,48 @@ def test_delete_block(client: TestClient):
     assert r.status_code == 200
 
 
+def test_clear_layout_blocks(client: TestClient):
+    """DELETE /api/layouts/{id}/blocks removes all blocks, keeps the layout."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # Add blocks including a nested child
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 30, "height": 10,
+    })
+    parent_id = r.json()["id"]
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text",
+        "x": 1, "y": 1, "width": 10, "height": 2,
+        "parent_id": parent_id,
+    })
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 10, "height": 3,
+    })
+
+    r = client.delete(f"/api/layouts/{layout_id}/blocks")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ok"] is True
+    assert data["deleted"] == 3
+
+    # Layout still exists, but its blocks are gone
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.status_code == 200
+    assert r.json()["blocks"] == []
+
+    # Render still works on the now-empty layout
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert r.status_code == 200
+
+
+def test_clear_layout_blocks_not_found(client: TestClient):
+    """Clearing a non-existent layout returns 404."""
+    r = client.delete("/api/layouts/00000000-0000-0000-0000-000000000000/blocks")
+    assert r.status_code == 404
+
+
 def test_render_layout(client: TestClient):
     """Test rendering a layout to ASCII."""
     _, layout_id = _create_project_with_layout(client)

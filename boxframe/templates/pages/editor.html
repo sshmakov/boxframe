@@ -29,6 +29,8 @@
                     </div>
                 </div>
                 <button class="btn btn-sm copy-btn" @click="copyRaw()">Copy</button>
+                <button class="btn btn-sm clear-layout-btn" x-show="blocks.length > 0" x-cloak
+                        @click="clearLayout()" title="Remove all blocks (asks for confirmation)">Clear</button>
             </div>
         </div>
         <nav class="editor-header__breadcrumb">

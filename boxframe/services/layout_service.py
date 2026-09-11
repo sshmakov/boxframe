@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -173,6 +173,16 @@ class LayoutService:
         if block:
             await self.db.delete(block)
             await self.db.commit()
+
+    async def delete_all_blocks(self, layout_id: str) -> int:
+        """Delete every block belonging to a layout. Returns the number deleted.
+
+        The layout itself is kept — only its blocks (including nested ones)
+        are removed.
+        """
+        result = await self.db.execute(delete(Block).where(Block.layout_id == layout_id))
+        await self.db.commit()
+        return result.rowcount or 0
 
     async def get_block(self, block_id: str) -> Block | None:
         return await self.db.get(Block, block_id)

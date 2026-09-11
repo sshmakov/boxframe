@@ -201,6 +201,40 @@ def test_delete_icon_removes_block(page: Page):
     expect(page.locator(".block-selection")).not_to_be_visible()
 
 
+def test_web_editor_clear_layout_with_confirmation(page: Page):
+    """The Clear button in the web editor asks for confirmation and removes
+    all blocks from the database (the layout itself is kept)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    clear_btn = page.locator(".clear-layout-btn")
+    expect(clear_btn).to_be_visible()
+
+    # Dismissing the dialog keeps the layout intact
+    page.once("dialog", lambda dialog: dialog.dismiss())
+    clear_btn.click()
+    expect(page.locator(f'.block-preview[data-block-id="{block_id}"]')).to_be_visible()
+
+    # Accepting the dialog clears the layout (blocks removed from the DB)
+    page.once("dialog", lambda dialog: dialog.accept())
+    clear_btn.click()
+
+    # Poll: the browser's DELETE may still be in flight
+    blocks = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if blocks == []:
+            break
+        page.wait_for_timeout(100)
+    assert blocks == []
+    expect(page.locator(".block-preview")).to_have_count(0)
+    expect(page.locator(".block-item")).to_have_count(0)
+
+    # The layout itself still exists
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    assert r.status_code == 200
+
+
 def test_drag_block_past_canvas_edges(page: Page):
     """A block can be dragged past the right/bottom edge of the rendered
     canvas — the drag keeps tracking while the cursor is outside the art."""
