@@ -54,6 +54,12 @@
     ];
     var BORDER_STYLES = ["solid", "dashed", "dotted", "double", "none"];
 
+    // Default canvas size for layouts without set dimensions — the working
+    // area the editor shows when nothing else determines the canvas size.
+    // Mirrors DEFAULT_CANVAS_WIDTH/HEIGHT in services/renderer.py.
+    var DEFAULT_CANVAS_WIDTH = 80;
+    var DEFAULT_CANVAS_HEIGHT = 24;
+
     // ── Text wrapping (port of PseudoGraphicRenderer._wrap_text) ──
 
     function wrapText(text, width) {
@@ -300,14 +306,20 @@
     }
 
     /**
-     * Canvas dimensions: at least width×height, expanded to fit all blocks.
-     * Blocks are not restricted to the layout bounds — the canvas grows to
-     * the right/bottom so out-of-bounds blocks are fully visible. Children
-     * are counted with their 1-cell container padding (same as Python's
-     * PseudoGraphicRenderer.canvas_size).
+     * Canvas dimensions: the max of the blocks' extent, the set dimensions,
+     * and the default canvas size (80×24). The default size is the editor's
+     * working area: it applies when a dimension is unset (null/undefined)
+     * and when the set dimension is smaller than the default (the bounds
+     * line must stay inside the canvas). Set dimensions only raise the
+     * floor for their axis — they are a visual bounds line, not a
+     * constraint. Blocks are not restricted to the layout bounds — the
+     * canvas grows to the right/bottom so out-of-bounds blocks are fully
+     * visible. Children are counted with their 1-cell container padding
+     * (same as Python's PseudoGraphicRenderer.canvas_size).
      */
     function canvasSize(blocks, width, height) {
-        var maxX = width, maxY = height;
+        var maxX = width != null ? Math.max(width, DEFAULT_CANVAS_WIDTH) : DEFAULT_CANVAS_WIDTH;
+        var maxY = height != null ? Math.max(height, DEFAULT_CANVAS_HEIGHT) : DEFAULT_CANVAS_HEIGHT;
         var byId = new Map(blocks.map(function (b) { return [b.id, b]; }));
         var roots = blocks.filter(function (b) {
             return !b.parent_id || !byId.has(b.parent_id);
@@ -443,6 +455,42 @@
     }
 
     /**
+     * Generate the layout bounds overlay for the editor canvas (port of
+     * PseudoGraphicRenderer.render_bounds_html). A set width draws a
+     * vertical line at x=width; a set height draws a horizontal line at
+     * y=height. The lines are a visual guide only — they do not constrain
+     * block placement or the canvas size, and they are not part of the
+     * pseudo-graphic format (ASCII art).
+     *
+     * opts: { width, height, charWidthPx, charHeightPx, paddingOffset }
+     */
+    function renderBoundsHtml(opts) {
+        opts = opts || {};
+        var charWidthPx = opts.charWidthPx != null ? opts.charWidthPx : 12.0;
+        var charHeightPx = opts.charHeightPx != null ? opts.charHeightPx : 14.4;
+        var paddingOffset = opts.paddingOffset != null ? opts.paddingOffset : 16.0;
+        var parts = [];
+
+        if (opts.width) {
+            var left = round1(paddingOffset + opts.width * charWidthPx);
+            parts.push(
+                '<div class="layout-bounds layout-bounds--v" ' +
+                'style="left:' + fmtPx(left) + ";top:" + fmtPx(paddingOffset) + ";" +
+                "bottom:" + fmtPx(paddingOffset) + ';"></div>'
+            );
+        }
+        if (opts.height) {
+            var top = round1(paddingOffset + opts.height * charHeightPx);
+            parts.push(
+                '<div class="layout-bounds layout-bounds--h" ' +
+                'style="top:' + fmtPx(top) + ";left:" + fmtPx(paddingOffset) + ";" +
+                "right:" + fmtPx(paddingOffset) + ';"></div>'
+            );
+        }
+        return parts.join("\n");
+    }
+
+    /**
      * Build the full canvas HTML (render-wrapper + ascii-art div + block
      * previews) — mirrors the markup of
      * GET /api/layouts/{id}/render so both modes share the same CSS and
@@ -479,10 +527,20 @@
             paddingOffset: paddingOffset,
         });
 
+        // Layout bounds overlay: a set width/height draws a visual line on
+        // the editor canvas (not part of the ASCII art).
+        var bounds = renderBoundsHtml({
+            width: opts.width,
+            height: opts.height,
+            charWidthPx: charWidthPx,
+            charHeightPx: charHeightPx,
+            paddingOffset: paddingOffset,
+        });
+
         return (
             '<div class="render-wrapper" ' +
             'style="width:' + preWidth + "px; height:" + preHeight + 'px;">' +
-            asciiHtml + previews +
+            asciiHtml + bounds + previews +
             "</div>"
         );
     }
@@ -498,6 +556,7 @@
         wrapText: wrapText,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,
+        renderBoundsHtml: renderBoundsHtml,
         renderHtml: renderHtml,
         escapeHtml: escapeHtml,
     };

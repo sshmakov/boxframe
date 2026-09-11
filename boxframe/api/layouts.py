@@ -38,10 +38,11 @@ class BlockOut(BaseModel):
 
 class LayoutCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    # No upper limit: blocks may be placed outside the layout bounds,
-    # so the layout size is just a logical frame, not a hard constraint.
-    width: int = Field(default=80, ge=1)
-    height: int = Field(default=24, ge=1)
+    # Optional: a layout may have a width, a height, both, or neither.
+    # No upper limit: a set dimension is a visual bounds line in the
+    # editor — blocks may be placed outside it, it is not a constraint.
+    width: int | None = Field(default=None, ge=1)
+    height: int | None = Field(default=None, ge=1)
 
 
 class LayoutUpdate(BaseModel):
@@ -54,8 +55,8 @@ class LayoutOut(BaseModel):
     id: str
     project_id: str
     name: str
-    width: int
-    height: int
+    width: int | None = None
+    height: int | None = None
     blocks: list[BlockOut] = []
     created_at: datetime
     updated_at: datetime
@@ -227,10 +228,21 @@ async def render_layout(
             char_height_px=char_height_px,
             padding_offset=pad,
         )
+        # Layout bounds overlay: a set width/height draws a visual line on
+        # the editor canvas. It does not affect block placement or the
+        # canvas size, and it is not part of the ASCII art.
+        bounds_html = PseudoGraphicRenderer.render_bounds_html(
+            layout.width,
+            layout.height,
+            char_width_px=char_width_px,
+            char_height_px=char_height_px,
+            padding_offset=pad,
+        )
         html = (
             f'<div class="render-wrapper" '
             f'style="width:{pre_width}px; height:{pre_height}px;">'
             f"{ascii_html}"
+            f"{bounds_html}"
             f"{block_previews_html}"
             f"</div>"
         )

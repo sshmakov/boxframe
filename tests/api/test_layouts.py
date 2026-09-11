@@ -47,6 +47,43 @@ def test_create_layout(client: TestClient):
     assert data["height"] == 20
 
 
+def test_create_layout_without_dimensions(client: TestClient):
+    """Width and height are optional — a layout can be created without them."""
+    r = client.post("/api/projects/", json={"name": "Optional Dims Test"})
+    project_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{project_id}/layouts", json={"name": "No Dims"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["name"] == "No Dims"
+    assert data["width"] is None
+    assert data["height"] is None
+
+
+def test_create_layout_with_single_dimension(client: TestClient):
+    """Only one of width/height can be set."""
+    r = client.post("/api/projects/", json={"name": "Single Dim Test"})
+    project_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{project_id}/layouts", json={
+        "name": "Width Only",
+        "width": 40,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 40
+    assert data["height"] is None
+
+    r = client.post(f"/api/layouts/{project_id}/layouts", json={
+        "name": "Height Only",
+        "height": 12,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] is None
+    assert data["height"] == 12
+
+
 def test_get_layout(client: TestClient):
     """Test getting a layout."""
     _, layout_id = _create_project_with_layout(client)
@@ -212,10 +249,32 @@ def test_render_layout_with_block_outside_bounds(client: TestClient):
     r = client.get(f"/api/layouts/{layout_id}/render")
     assert r.status_code == 200
     data = r.json()
-    # ASCII canvas expanded to 45×13 — the full box with content is visible
+    # ASCII canvas is the 80×24 default floor — the full box is visible
     assert "Outside" in data["ascii"]
     assert "┘" in data["ascii"]
-    # No layout-bounds frame in the HTML preview
+    # The layout has dimensions (40×12) — the bounds overlay is drawn
+    assert 'class="layout-bounds layout-bounds--v"' in data["html"]
+    assert 'class="layout-bounds layout-bounds--h"' in data["html"]
+
+
+def test_render_without_dimensions_has_no_bounds(client: TestClient):
+    """A layout without dimensions renders without the bounds overlay."""
+    r = client.post("/api/projects/", json={"name": "No Bounds Render"})
+    project_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{project_id}/layouts", json={"name": "No Dims"})
+    layout_id = r.json()["id"]
+
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 10, "height": 3,
+        "content": "Fit",
+    })
+
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert r.status_code == 200
+    data = r.json()
+    assert "Fit" in data["ascii"]
     assert 'class="layout-bounds"' not in data["html"]
 
 

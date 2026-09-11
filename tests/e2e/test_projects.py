@@ -69,10 +69,12 @@ def test_new_layout_button_toggles_form(page: Page):
     # Click "New Layout"
     page.get_by_role("button", name="+ New Layout").click()
 
-    # Form should be visible
+    # Form should be visible; width/height are optional (no prefill)
     expect(page.get_by_placeholder("Layout name...")).to_be_visible()
-    expect(page.get_by_placeholder("Width (80)")).to_be_visible()
-    expect(page.get_by_placeholder("Height (24)")).to_be_visible()
+    expect(page.get_by_placeholder("Width (optional)")).to_be_visible()
+    expect(page.get_by_placeholder("Height (optional)")).to_be_visible()
+    expect(page.get_by_placeholder("Width (optional)")).to_have_value("")
+    expect(page.get_by_placeholder("Height (optional)")).to_have_value("")
 
 
 def test_new_layout_submit_creates_layout(page: Page):
@@ -97,8 +99,8 @@ def test_new_layout_submit_creates_layout(page: Page):
 
     # Fill in the form
     page.get_by_placeholder("Layout name...").fill("My First Layout")
-    page.get_by_placeholder("Width (80)").fill("40")
-    page.get_by_placeholder("Height (24)").fill("12")
+    page.get_by_placeholder("Width (optional)").fill("40")
+    page.get_by_placeholder("Height (optional)").fill("12")
 
     # Submit the form
     page.get_by_role("button", name="Create").click()

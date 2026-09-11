@@ -13,8 +13,11 @@ class Layout(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    width: Mapped[int] = mapped_column(Integer, default=80)
-    height: Mapped[int] = mapped_column(Integer, default=24)
+    # Optional: a layout may have a width, a height, both, or neither.
+    # A set dimension is a visual bounds line in the editor — it does not
+    # constrain block placement or the canvas size.
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

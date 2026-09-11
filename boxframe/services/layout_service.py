@@ -51,7 +51,13 @@ class LayoutService:
 
     # ── Layouts ───────────────────────────────────────────────
 
-    async def create_layout(self, project_id: str, name: str, width: int = 80, height: int = 24) -> Layout:
+    async def create_layout(
+        self,
+        project_id: str,
+        name: str,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> Layout:
         layout = Layout(project_id=project_id, name=name, width=width, height=height)
         self.db.add(layout)
         await self.db.commit()

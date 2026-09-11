@@ -144,7 +144,7 @@ test("grid expansion", () => {
         content: "", border_style: "solid",
     }], 40, 14);
     const ls = lines(result);
-    // Canvas expanded to 45×14 — the full box is drawn, not clamped
+    // Canvas is the 80×24 default floor — the full box is drawn, not clamped
     assert.equal(ls[10][35], "┌");
     assert.equal(ls[10][44], "┐");
     assert.equal(ls[13][35], "└");
@@ -152,17 +152,70 @@ test("grid expansion", () => {
 });
 
 test("canvasSize expands to fit blocks", () => {
-    assert.deepEqual(PG.canvasSize([], 40, 12), [40, 12]);
+    // Set dimensions below the default floor keep the floor
+    assert.deepEqual(PG.canvasSize([], 40, 12), [80, 24]);
     assert.deepEqual(PG.canvasSize([{
         id: "b1", block_type: "box",
         x: 35, y: 10, width: 10, height: 4,
-    }], 40, 14), [45, 14]);
+    }], 40, 14), [80, 24]);
     // Children counted with 1-cell container padding:
     // child absolute x = 70 + 1 + 5 = 76, extends to 86 > 80
     assert.deepEqual(PG.canvasSize([
         { id: "p", block_type: "box", x: 70, y: 0, width: 10, height: 10 },
         { id: "c", block_type: "text", x: 5, y: 0, width: 10, height: 2, parent_id: "p" },
     ], 80, 24), [86, 24]);
+});
+
+test("canvasSize without dimensions", () => {
+    // Unset dimensions (null) fall back to the default canvas (80×24)
+    assert.deepEqual(PG.canvasSize([], null, null), [80, 24]);
+    assert.deepEqual(PG.canvasSize([{
+        id: "b1", block_type: "box",
+        x: 5, y: 2, width: 10, height: 3,
+    }], null, null), [80, 24]);
+    // A set dimension smaller than the default keeps the default floor
+    assert.deepEqual(PG.canvasSize([{
+        id: "b1", block_type: "box",
+        x: 5, y: 2, width: 10, height: 3,
+    }], 40, null), [80, 24]);
+    // A set dimension larger than the default raises the floor for that axis
+    assert.deepEqual(PG.canvasSize([{
+        id: "b1", block_type: "box",
+        x: 5, y: 2, width: 10, height: 3,
+    }], 100, null), [100, 24]);
+});
+
+test("renderBoundsHtml draws a line for set dimensions only", () => {
+    const html = PG.renderBoundsHtml({ width: 40, height: 12, charWidthPx: 12, charHeightPx: 14.4, paddingOffset: 16 });
+    assert.ok(html.includes('class="layout-bounds layout-bounds--v"'));
+    assert.ok(html.includes('class="layout-bounds layout-bounds--h"'));
+    // Vertical line at x=40: 16 + 40*12 = 496px; horizontal at y=12: 16 + 12*14.4
+    assert.ok(html.includes("left:496px"));
+    assert.ok(html.includes("top:188.8px"));
+
+    assert.equal(PG.renderBoundsHtml({ width: null, height: null }), "");
+    assert.ok(!PG.renderBoundsHtml({ width: null, height: 12 }).includes("layout-bounds--v"));
+    assert.ok(!PG.renderBoundsHtml({ width: 40, height: null }).includes("layout-bounds--h"));
+});
+
+test("renderHtml includes bounds for set dimensions", () => {
+    const blocks = [{
+        id: "b1", block_type: "box",
+        x: 0, y: 0, width: 10, height: 3,
+        content: "", border_style: "solid", order: 0,
+    }];
+    const withBounds = PG.renderHtml(
+        PG.render(blocks, 40, 12), blocks,
+        { width: 40, height: 12, charWidthPx: 12, charHeightPx: 14.4, paddingOffset: 16 }
+    );
+    assert.ok(withBounds.includes("layout-bounds--v"));
+    assert.ok(withBounds.includes("layout-bounds--h"));
+
+    const noBounds = PG.renderHtml(
+        PG.render(blocks, null, null), blocks,
+        { width: null, height: null, charWidthPx: 12, charHeightPx: 14.4, paddingOffset: 16 }
+    );
+    assert.ok(!noBounds.includes("layout-bounds"));
 });
 
 test("double border", () => {
@@ -251,7 +304,7 @@ test("hline beyond layout", () => {
         x: 35, y: 0, width: 20, height: 1,
         content: "", border_style: "solid",
     }], 40, 12);
-    // Canvas expanded to 55 — the full line is drawn
+    // Canvas is the 80×24 default floor — the full line is drawn
     assert.equal(lines(result)[0].slice(35), "─".repeat(20));
 });
 
@@ -621,12 +674,14 @@ test("renderHtml builds the canvas wrapper like the API", () => {
     }], { width: 20, height: 5, charWidthPx: 12, charHeightPx: 14.4, paddingOffset: 16 });
 
     assert.ok(html.startsWith('<div class="render-wrapper"'));
-    assert.ok(html.includes("width:240px")); // 20 * 12
-    assert.ok(html.includes("height:72px")); // round(5 * 14.4, 1)
+    // The 20×5 layout is below the default floor — the canvas keeps 80×24
+    assert.ok(html.includes("width:960px")); // 80 * 12
+    assert.ok(html.includes("height:345.6px")); // round(24 * 14.4, 1)
     assert.ok(html.includes('<div class="ascii-art"'));
     assert.ok(html.includes('data-block-id="b1"'));
-    // No layout-bounds frame
-    assert.ok(!html.includes('class="layout-bounds"'));
+    // Bounds line at the layout size (20×5)
+    assert.ok(html.includes('class="layout-bounds layout-bounds--v"'));
+    assert.ok(html.includes('class="layout-bounds layout-bounds--h"'));
     // ASCII is escaped inside the .ascii-art layer
     assert.ok(html.includes("Hi"));
 });
@@ -656,18 +711,16 @@ test("renderHtml art layer is a div, not a pre", () => {
 test("renderHtml expands canvas for out-of-bounds blocks", () => {
     const blocks = [{
         id: "b1", block_type: "box",
-        x: 18, y: 4, width: 10, height: 3,
+        x: 75, y: 20, width: 10, height: 5,
         content: "Out", border_style: "solid",
     }];
     const ascii = PG.render(blocks, 20, 5);
     const html = PG.renderHtml(ascii, blocks, {
         width: 20, height: 5, charWidthPx: 12, charHeightPx: 14.4, paddingOffset: 16,
     });
-    // Canvas expanded to 28×7 → wrapper 336×100.8px
-    assert.ok(html.includes("width:336px"));
-    assert.ok(html.includes("height:100.8px"));
-    // No bounds frame at the layout size (20×5)
-    assert.ok(!html.includes("width:240px;height:72px"));
+    // Canvas expanded past the 80×24 floor to 85×25 → wrapper 1020×360px
+    assert.ok(html.includes("width:1020px"));
+    assert.ok(html.includes("height:360px"));
 });
 
 test("renderHtml escapes html in ascii", () => {

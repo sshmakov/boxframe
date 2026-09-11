@@ -34,8 +34,8 @@ class ProjectOut(BaseModel):
 class LayoutOut(BaseModel):
     id: str
     name: str
-    width: int
-    height: int
+    width: int | None = None
+    height: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -129,8 +129,10 @@ async def project_info(project_id: str, db: AsyncSession = Depends(get_db)):
 
 class LayoutCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    width: int = Field(default=80, ge=20, le=200)
-    height: int = Field(default=24, ge=10, le=100)
+    # Optional: a layout may have a width, a height, both, or neither.
+    # A set dimension is a visual bounds line in the editor, not a constraint.
+    width: int | None = Field(default=None, ge=1)
+    height: int | None = Field(default=None, ge=1)
 
 
 @router.post("/{project_id}/layouts", response_model=LayoutOut)

@@ -297,6 +297,19 @@
     white-space: pre;
 }
 
+/* ── Layout bounds (set width/height — visual guide only) ──
+   A set layout width draws a vertical line at x=width, a set height a
+   horizontal line at y=height. The lines do not constrain block
+   placement or the canvas size and are not part of the ASCII art. */
+.layout-bounds {
+    position: absolute;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.layout-bounds--v { border-left: 1px dashed rgba(233, 69, 96, 0.45); }
+.layout-bounds--h { border-top: 1px dashed rgba(233, 69, 96, 0.45); }
+
 /* ── Render overlay (block previews + resize handles) ──── */
 .block-preview {
     position: absolute;

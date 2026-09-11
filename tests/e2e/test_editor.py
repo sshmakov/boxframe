@@ -335,6 +335,8 @@ def test_static_editor_loads_and_renders(page: Page):
     # The canvas is rendered by the local JS renderer: an empty 80x24 grid
     expect(page.locator(".render-wrapper")).to_be_visible()
     expect(page.locator(".canvas-container .ascii-art")).to_be_visible()
+    # Static editor: dimensions are considered unset — no bounds line
+    expect(page.locator(".layout-bounds")).to_have_count(0)
 
 
 def test_static_editor_adds_block_in_memory(page: Page):

@@ -70,9 +70,10 @@ def test_project_page_no_500_error(page: Page):
     expect(page).to_have_title("E2E: Drag Drop Test — boxframe")
     expect(page.get_by_role("heading", name="E2E: Drag Drop Test")).to_be_visible()
 
-    # The layout card should be visible with formatted date
+    # The layout card should be visible with formatted date; the layout has
+    # no dimensions (optional) — the card shows "no bounds"
     expect(page.get_by_text("E2E: Canvas")).to_be_visible()
-    expect(page.get_by_text("grid")).to_be_visible()
+    expect(page.get_by_text("no bounds")).to_be_visible()
 
     # Verify the date is formatted correctly (YYYY-MM-DD)
     date_text = page.locator("p.text-small.text-muted").first.text_content()

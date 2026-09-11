@@ -26,11 +26,12 @@ RENDERER_JS = str(
 )
 
 
-def render_js(blocks: list[dict], width: int, height: int) -> str:
+def render_js(blocks: list[dict], width: int | None, height: int | None) -> str:
     """Render blocks with the JS renderer via a node one-liner."""
     script = (
         f"const PG = require({json.dumps(RENDERER_JS)});"
-        f"process.stdout.write(PG.render({json.dumps(blocks)}, {width}, {height}));"
+        f"process.stdout.write(PG.render({json.dumps(blocks)}, "
+        f"{json.dumps(width)}, {json.dumps(height)}));"
     )
     result = subprocess.run(
         [NODE, "-e", script],
@@ -155,3 +156,15 @@ def test_parity_grid_expansion():
     ]
     py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
     assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 14)
+
+
+def test_parity_no_dimensions():
+    """Unset layout dimensions: the canvas is the 80×24 default floor."""
+    blocks = [
+        {"id": "b1", "block_type": "box", "x": 3, "y": 2, "width": 10, "height": 4,
+         "content": "edge", "border_style": "solid", "order": 0},
+        {"id": "h1", "block_type": "hline", "x": 0, "y": 8, "width": 12, "height": 1,
+         "content": "", "border_style": "dashed", "order": 1},
+    ]
+    py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
+    assert render_js(blocks, None, None) == PseudoGraphicRenderer.render_simple(py_blocks, None, None)

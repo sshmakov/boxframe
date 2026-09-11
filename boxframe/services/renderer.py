@@ -125,24 +125,45 @@ BORDERS: dict[str, dict[str, str]] = {
 }
 
 
+def _fmt_px(v: float) -> str:
+    """Format a pixel value: integers without a decimal part."""
+    if v == int(v):
+        return str(int(v))
+    return str(v)
+
+
+# Default canvas size for layouts without set dimensions — the working
+# area the editor shows when nothing else determines the canvas size.
+DEFAULT_CANVAS_WIDTH = 80
+DEFAULT_CANVAS_HEIGHT = 24
+
+
 class PseudoGraphicRenderer:
     """Renders block trees as pseudo-graphic ASCII art."""
 
-    def __init__(self, grid_width: int = 80, grid_height: int = 24):
-        self.grid_width = grid_width
-        self.grid_height = grid_height
-        self.grid: list[list[str]] = [[" " for _ in range(grid_width)] for _ in range(grid_height)]
+    def __init__(self, grid_width: int | None = DEFAULT_CANVAS_WIDTH, grid_height: int | None = DEFAULT_CANVAS_HEIGHT):
+        # Unset layout dimensions (None) fall back to the default canvas
+        self.grid_width = grid_width if grid_width is not None else DEFAULT_CANVAS_WIDTH
+        self.grid_height = grid_height if grid_height is not None else DEFAULT_CANVAS_HEIGHT
+        self.grid: list[list[str]] = [[" " for _ in range(self.grid_width)] for _ in range(self.grid_height)]
 
     @classmethod
-    def canvas_size(cls, blocks: list[RenderBlock], width: int, height: int) -> tuple[int, int]:
-        """Canvas dimensions: at least width×height, expanded to fit all blocks.
+    def canvas_size(cls, blocks: list[RenderBlock], width: int | None, height: int | None) -> tuple[int, int]:
+        """Canvas dimensions: the max of the blocks' extent, the set
+        dimensions, and the default canvas size (80×24).
 
-        Blocks are not restricted to the layout bounds — the canvas grows to
-        the right/bottom so out-of-bounds blocks are fully visible. Children
-        are counted with their 1-cell container padding (same as
+        The default size is the editor's working area: it applies when a
+        dimension is unset and when the set dimension is smaller than the
+        default (the bounds line must stay inside the canvas). Set
+        dimensions only raise the floor for their axis — they are a visual
+        bounds line, not a constraint. Blocks are not restricted to the
+        layout bounds — the canvas grows to the right/bottom so
+        out-of-bounds blocks are fully visible. Children are counted with
+        their 1-cell container padding (same as
         _render_children_in_container).
         """
-        max_x, max_y = width, height
+        max_x = max(width, DEFAULT_CANVAS_WIDTH) if width is not None else DEFAULT_CANVAS_WIDTH
+        max_y = max(height, DEFAULT_CANVAS_HEIGHT) if height is not None else DEFAULT_CANVAS_HEIGHT
 
         def walk(bs: list[RenderBlock], ox: int, oy: int) -> None:
             nonlocal max_x, max_y
@@ -405,8 +426,17 @@ class PseudoGraphicRenderer:
             self._render_block(child)
 
     @classmethod
-    def render_simple(cls, blocks_data: list[dict], width: int = 80, height: int = 24) -> str:
-        """Convenience method: render from raw dicts."""
+    def render_simple(
+        cls,
+        blocks_data: list[dict],
+        width: int | None = DEFAULT_CANVAS_WIDTH,
+        height: int | None = DEFAULT_CANVAS_HEIGHT,
+    ) -> str:
+        """Convenience method: render from raw dicts.
+
+        width/height may be None — unset dimensions fall back to the
+        default canvas size (80×24).
+        """
         blocks = []
         for bd in blocks_data:
             rb = RenderBlock(
@@ -480,4 +510,37 @@ class PseudoGraphicRenderer:
                 parts.append(crb.to_html_preview(
                     c["id"], char_width_px, char_height_px, padding_offset,
                 ))
+        return "\n".join(parts)
+
+    @classmethod
+    def render_bounds_html(
+        cls,
+        width: int | None,
+        height: int | None,
+        char_width_px: float = 12.0,
+        char_height_px: float = 14.4,
+        padding_offset: float = 16.0,
+    ) -> str:
+        """Generate the layout bounds overlay for the editor canvas.
+
+        A set width draws a vertical line at x=width; a set height draws a
+        horizontal line at y=height. The lines are a visual guide only —
+        they do not constrain block placement or the canvas size, and they
+        are not part of the pseudo-graphic format (ASCII art).
+        """
+        parts: list[str] = []
+        if width:
+            left = _fmt_px(round(padding_offset + width * char_width_px, 1))
+            parts.append(
+                f'<div class="layout-bounds layout-bounds--v" '
+                f'style="left:{left}px;top:{_fmt_px(padding_offset)}px;'
+                f'bottom:{_fmt_px(padding_offset)}px;"></div>'
+            )
+        if height:
+            top = _fmt_px(round(padding_offset + height * char_height_px, 1))
+            parts.append(
+                f'<div class="layout-bounds layout-bounds--h" '
+                f'style="top:{top}px;left:{_fmt_px(padding_offset)}px;'
+                f'right:{_fmt_px(padding_offset)}px;"></div>'
+            )
         return "\n".join(parts)

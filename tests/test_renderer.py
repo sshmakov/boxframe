@@ -152,7 +152,7 @@ def test_grid_expansion():
         "border_style": "solid",
     }], width=40, height=14)
     lines = result.split("\n")
-    # Canvas expanded to 45×14 — the full box is drawn, not clamped
+    # Canvas is the 80×24 default floor — the full box is drawn, not clamped
     assert lines[10][35] == "┌"
     assert lines[10][44] == "┐"
     assert lines[13][35] == "└"
@@ -160,14 +160,15 @@ def test_grid_expansion():
 
 
 def test_render_keeps_layout_size_when_blocks_fit():
-    """Canvas stays at the layout size when all blocks fit inside."""
-    r = PseudoGraphicRenderer(40, 12)
+    """Canvas stays at the layout size when all blocks fit inside
+    (layout size above the default floor)."""
+    r = PseudoGraphicRenderer(100, 30)
     r.render([RenderBlock(
         x=0, y=0, width=10, height=3,
         block_type="box", content="", border_style="solid",
     )])
-    assert len(r.grid) == 12
-    assert len(r.grid[0]) == 40
+    assert len(r.grid) == 30
+    assert len(r.grid[0]) == 100
 
 
 def test_canvas_size_expands_for_blocks_outside_layout():
@@ -175,13 +176,15 @@ def test_canvas_size_expands_for_blocks_outside_layout():
         x=0, y=0, width=10, height=3,
         block_type="box", content="", border_style="solid",
     )
-    assert PseudoGraphicRenderer.canvas_size([inside], 40, 12) == (40, 12)
+    # Set dimensions below the default floor keep the floor
+    assert PseudoGraphicRenderer.canvas_size([inside], 40, 12) == (80, 24)
 
+    # A block past the floor expands the canvas
     outside = RenderBlock(
-        x=35, y=10, width=10, height=4,
+        x=75, y=20, width=10, height=5,
         block_type="box", content="", border_style="solid",
     )
-    assert PseudoGraphicRenderer.canvas_size([outside], 40, 14) == (45, 14)
+    assert PseudoGraphicRenderer.canvas_size([outside], 40, 14) == (85, 25)
 
 
 def test_canvas_size_counts_children():
@@ -197,6 +200,34 @@ def test_canvas_size_counts_children():
     )
     # Child absolute x = 70 + 1 + 5 = 76, extends to 86 > 80
     assert PseudoGraphicRenderer.canvas_size([parent], 80, 24) == (86, 24)
+
+
+def test_canvas_size_without_dimensions():
+    """Unset layout dimensions (None) fall back to the default canvas (80×24)."""
+    block = RenderBlock(
+        x=5, y=2, width=10, height=3,
+        block_type="box", content="", border_style="solid",
+    )
+    assert PseudoGraphicRenderer.canvas_size([block], None, None) == (80, 24)
+    assert PseudoGraphicRenderer.canvas_size([], None, None) == (80, 24)
+    # A set dimension smaller than the default keeps the default floor
+    assert PseudoGraphicRenderer.canvas_size([block], 40, None) == (80, 24)
+    # A set dimension larger than the default raises the floor for that axis
+    assert PseudoGraphicRenderer.canvas_size([block], 100, None) == (100, 24)
+
+
+def test_render_bounds_html():
+    """Bounds overlay: a set width/height draws a line, unset draws nothing."""
+    html = PseudoGraphicRenderer.render_bounds_html(40, 12, 12.0, 14.4, 16.0)
+    assert 'class="layout-bounds layout-bounds--v"' in html
+    assert 'class="layout-bounds layout-bounds--h"' in html
+    # Vertical line at x=40: 16 + 40*12 = 496px; horizontal at y=12: 16 + 12*14.4
+    assert "left:496px" in html
+    assert "top:188.8px" in html
+
+    assert PseudoGraphicRenderer.render_bounds_html(None, None) == ""
+    assert "layout-bounds--v" not in PseudoGraphicRenderer.render_bounds_html(None, 12)
+    assert "layout-bounds--h" not in PseudoGraphicRenderer.render_bounds_html(40, None)
 
 
 def test_double_border():
@@ -301,7 +332,7 @@ def test_hline_beyond_layout():
         "border_style": "solid",
     }], width=40, height=12)
     lines = result.split("\n")
-    assert lines[0][35:] == "─" * 20  # canvas expanded to 55
+    assert lines[0][35:] == "─" * 20  # canvas is the 80×24 default floor
 
 
 # ── Button tests (tasks/0021-0030/0022-button.md) ────────

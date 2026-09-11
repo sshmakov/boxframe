@@ -141,8 +141,10 @@
         var layout = {
             id: null,
             name: options.name || "Untitled",
-            width: options.width || 80,
-            height: options.height || 24,
+            // Static editor: layout dimensions are considered unset — the
+            // canvas is the 80×24 default floor and no bounds line is drawn.
+            width: options.width != null ? options.width : null,
+            height: options.height != null ? options.height : null,
             blocks: (options.blocks || []).map(function (b) { return Object.assign({}, b); }),
         };
 

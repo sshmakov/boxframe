@@ -12,7 +12,7 @@
     </div>
 
     <!-- New layout form -->
-    <div x-data="{ showNew: false, name: '', width: 80, height: 24 }">
+    <div x-data="{ showNew: false, name: '', width: '', height: '' }">
         <div class="flex-between mb-4">
             <button x-show="!showNew" x-cloak @click="showNew = true" class="btn btn-primary">+ New Layout</button>
         </div>
@@ -21,7 +21,11 @@
                 fetch('/api/projects/{{ project.id }}/layouts', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name, width: parseInt(width), height: parseInt(height)})
+                    body: JSON.stringify({
+                        name,
+                        width: width === '' ? null : parseInt(width),
+                        height: height === '' ? null : parseInt(height)
+                    })
                 }).then(r => r.json()).then(data => {
                     window.location.href = '/layout/' + data.id;
                 });
@@ -29,8 +33,8 @@
             ">
                 <div class="form-row">
                     <input type="text" x-model="name" placeholder="Layout name..." class="input" required>
-                    <input type="number" x-model="width" placeholder="Width (80)" class="input input-sm" min="1">
-                    <input type="number" x-model="height" placeholder="Height (24)" class="input input-sm" min="1">
+                    <input type="number" x-model="width" placeholder="Width (optional)" class="input input-sm" min="1">
+                    <input type="number" x-model="height" placeholder="Height (optional)" class="input input-sm" min="1">
                     <button type="submit" class="btn btn-primary">Create</button>
                 </div>
             </form>
@@ -43,7 +47,17 @@
         <div class="card">
             <a href="/layout/{{ layout.id }}" class="card-link">
                 <h3>{{ layout.name }}</h3>
-                <p class="text-muted">{{ layout.width }}×{{ layout.height }} grid</p>
+                <p class="text-muted">
+                    {% if layout.width is not none and layout.height is not none %}
+                    {{ layout.width }}×{{ layout.height }} grid
+                    {% elif layout.width is not none %}
+                    width {{ layout.width }}
+                    {% elif layout.height is not none %}
+                    height {{ layout.height }}
+                    {% else %}
+                    no bounds
+                    {% endif %}
+                </p>
                 <p class="text-small text-muted">Created: {{ layout.created_at.strftime('%Y-%m-%d') if layout.created_at else '' }}</p>
             </a>
             <button hx-delete="/api/layouts/{{ layout.id }}"
