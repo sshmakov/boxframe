@@ -45,12 +45,13 @@ function editorApp() {
 
         async init() {
             // Web mode: the server-rendered page sets data-layout-id → talk
-            // to the API. Static mode (no layout id) → in-memory store.
+            // to the API. Static mode (no layout id) → localStorage store
+            // (the layout survives page reloads).
             const root = document.querySelector('[data-layout-id]');
             this.layoutId = root?.dataset.layoutId || null;
             this.store = this.layoutId
                 ? createFetchStore(this.layoutId, root.dataset.projectId)
-                : createMemoryStore();
+                : createLocalStorageStore();
 
             await Promise.all([
                 this.fetchInfo(),
@@ -944,6 +945,18 @@ function editorApp() {
                 this.selectedBlockId = null;
             }
             this._reorderBlocks();
+            await this.refreshRender();
+        },
+
+        // Clear the entire layout (static mode only — the fetch store has
+        // no clear()). Asks for confirmation before removing all blocks.
+        async clearLayout() {
+            if (typeof this.store.clear !== 'function') return;
+            if (!confirm('Clear the entire layout? All blocks will be removed.')) return;
+            await this.store.clear();
+            this.blocks = [];
+            this.selectedBlockId = null;
+            this.editingBlock = null;
             await this.refreshRender();
         },
 

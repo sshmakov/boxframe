@@ -24,12 +24,14 @@
                     </div>
                 </div>
                 <button class="btn btn-sm copy-btn" @click="copyRaw()">Copy</button>
+                <button class="btn btn-sm clear-layout-btn" x-show="blocks.length > 0" x-cloak
+                        @click="clearLayout()" title="Remove all blocks (asks for confirmation)">Clear</button>
             </div>
         </div>
         <nav class="editor-header__breadcrumb">
             <span class="current">static editor</span>
             <span class="sep">—</span>
-            <span>no backend, data lives in memory and is lost on reload</span>
+            <span>no backend, layout is saved in your browser (localStorage)</span>
         </nav>
     </header>
 

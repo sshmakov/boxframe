@@ -28,7 +28,7 @@ boxframe/
 │   │   └── js/
 │   │       ├── alpine.min.js   # Alpine.js (вендор, без CDN)
 │   │       ├── core/renderer.js# JS-порт рендерера (static-режим)
-│   │       ├── core/store.js   # FetchStore / MemoryStore
+│   │       ├── core/store.js   # FetchStore / LocalStorageStore / MemoryStore
 │   │       └── editor.js       # Alpine.js editor app (общий)
 │   ├── templates/pages/        # Jinja2 шаблоны
 │   │   ├── base.html
@@ -47,6 +47,7 @@ boxframe/
 │   │   ├── test_editor.py      # Загрузка страниц editor/project/index + static
 │   │   └── test_projects.py    # New Project / New Layout кнопки + форма
 │   ├── js/test_renderer.js     # Тесты JS-рендерера (node:test)
+│   ├── js/test_store.js        # Тесты JS-хранилищ (node:test)
 │   ├── conftest.py             # API-файстуры (async engine + TestClient)
 │   ├── test_js_renderer_parity.py # Parity Python↔JS рендереры
 │   └── test_renderer.py        # Тесты рендерера (ASCII + HTML-оверлей)
@@ -82,14 +83,17 @@ boxframe/
 ### Статический режим
 
 Редактор работает без бэкенда: `static/editor/index.html` открывается
-напрямую в браузере (даже через `file://`), данные живут в памяти.
+напрямую в браузере (даже через `file://`), макет хранится в localStorage.
 
-- `core/store.js` — единый интерфейс хранилища: `FetchStore` (API, web-режим)
-  и `MemoryStore` (in-memory, static-режим); `editor.js` не знает о fetch
+- `core/store.js` — единый интерфейс хранилища: `FetchStore` (API, web-режим),
+  `LocalStorageStore` (static-режим, persist в localStorage, key
+  `boxframe.static.layout`, `options.storage` — для тестов) и `MemoryStore`
+  (in-memory, fallback); `editor.js` не знает о fetch. `clear()` (очистка
+  всего макета) есть только у memory/local-сторов
 - `core/renderer.js` — JS-порт `services/renderer.py`: ASCII + HTML-оверлей;
   вывод должен совпадать с Python побайтово (parity-тесты)
 - Режим определяется по `data-layout-id` в DOM: есть → `FetchStore`,
-  нет → `MemoryStore`
+  нет → `LocalStorageStore`
 - Блоки в JS — плоский список с `parent_id` (x/y детей — относительные,
   как в БД); константы `BLOCK_TYPES`/`BORDER_STYLES` дублируются в
   `core/renderer.js` (держать в синхроне с `models/block.py`)

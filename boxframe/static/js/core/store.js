@@ -11,13 +11,23 @@
  *   updateBlock(id, p)   → block
  *   deleteBlock(id)      → { ok }
  *   export()             → { json, markdown, ascii }
+ *   clear()              → { ok }   (memory/local stores only)
  *
  * createFetchStore(layoutId, projectId) — web mode: talks to the boxframe
  * REST API (server-rendered page with data-layout-id).
  *
  * createMemoryStore(options) — static mode: keeps the layout in memory,
  * renders with the local PGRenderer (core/renderer.js). No backend needed;
- * state is lost on reload (by design for now).
+ * state is lost on reload.
+ *
+ * createLocalStorageStore(options) — static mode with browser persistence:
+ * same as the memory store, but the layout is restored from localStorage on
+ * load and saved after every mutation. options.key — storage key (default
+ * "boxframe.static.layout"); options.storage — injectable { getItem,
+ * setItem } object (tests); falls back to the in-memory behavior when the
+ * browser has no localStorage.
+ *
+ * clear() removes all blocks (and the saved state for the local store).
  */
 
 (function (global) {
@@ -86,7 +96,7 @@
         };
     }
 
-    // ── MemoryStore (static mode) ───────────────────────────
+    // ── Layout store core (shared by memory / localStorage) ─
 
     function newId() {
         if (global.crypto && global.crypto.randomUUID) {
@@ -135,7 +145,11 @@
         };
     }
 
-    function createMemoryStore(options) {
+    // options: { name, width, height, blocks }
+    // onMutate(state) — called after every mutation (create/update/delete/
+    // clear) with a deep snapshot { width, height, blocks }; null for a
+    // plain in-memory store.
+    function createLayoutStore(options, onMutate) {
         options = options || {};
 
         var layout = {
@@ -147,6 +161,18 @@
             height: options.height != null ? options.height : null,
             blocks: (options.blocks || []).map(function (b) { return Object.assign({}, b); }),
         };
+
+        function snapshot() {
+            return {
+                width: layout.width,
+                height: layout.height,
+                blocks: layout.blocks.map(function (b) { return Object.assign({}, b); }),
+            };
+        }
+
+        function mutate() {
+            if (onMutate) onMutate(snapshot());
+        }
 
         function maxOrder() {
             if (layout.blocks.length === 0) return 0;
@@ -160,8 +186,6 @@
         }
 
         return {
-            mode: "memory",
-
             info: function () {
                 return Promise.resolve({
                     block_types: PGRenderer.BLOCK_TYPES,
@@ -197,6 +221,7 @@
                 };
                 normalizeLine(block);
                 layout.blocks.push(block);
+                mutate();
                 return Promise.resolve(Object.assign({}, block));
             },
 
@@ -209,6 +234,7 @@
                 });
                 normalizeLine(block);
                 block.updated_at = new Date().toISOString();
+                mutate();
                 return Promise.resolve(Object.assign({}, block));
             },
 
@@ -216,6 +242,15 @@
                 var idx = layout.blocks.findIndex(function (b) { return b.id === blockId; });
                 if (idx === -1) return Promise.reject(new Error("Block not found: " + blockId));
                 layout.blocks.splice(idx, 1);
+                mutate();
+                return Promise.resolve({ ok: true });
+            },
+
+            clear: function () {
+                layout.width = null;
+                layout.height = null;
+                layout.blocks = [];
+                mutate();
                 return Promise.resolve({ ok: true });
             },
 
@@ -242,10 +277,81 @@
         };
     }
 
+    // ── MemoryStore (static mode) ───────────────────────────
+
+    function createMemoryStore(options) {
+        var store = createLayoutStore(options, null);
+        store.mode = "memory";
+        return store;
+    }
+
+    // ── LocalStorageStore (static mode, browser persistence) ──
+
+    var DEFAULT_STORAGE_KEY = "boxframe.static.layout";
+
+    function readSavedState(storage, key) {
+        var raw = null;
+        try {
+            raw = storage.getItem(key);
+        } catch (err) {
+            return null;
+        }
+        if (!raw) return null;
+        var state = null;
+        try {
+            state = JSON.parse(raw);
+        } catch (err) {
+            return null; // corrupted JSON — start with an empty layout
+        }
+        if (!state || !Array.isArray(state.blocks)) return null;
+        return state;
+    }
+
+    function createLocalStorageStore(options) {
+        options = options || {};
+        var key = options.key || DEFAULT_STORAGE_KEY;
+        var storage = options.storage ||
+            (typeof localStorage !== "undefined" ? localStorage : null);
+
+        var width = options.width != null ? options.width : null;
+        var height = options.height != null ? options.height : null;
+        var blocks = options.blocks || [];
+
+        if (storage) {
+            var saved = readSavedState(storage, key);
+            if (saved) {
+                width = saved.width != null ? saved.width : null;
+                height = saved.height != null ? saved.height : null;
+                blocks = saved.blocks;
+            }
+        }
+
+        var store = createLayoutStore(
+            { name: options.name, width: width, height: height, blocks: blocks },
+            storage ? function (state) {
+                try {
+                    storage.setItem(key, JSON.stringify(state));
+                } catch (err) {
+                    // QuotaExceeded / private mode — the layout still works
+                    // in memory, it just will not survive a reload.
+                    console.warn("Failed to save layout to localStorage:", err);
+                }
+            } : null
+        );
+        store.mode = "local";
+        store.storageKey = key;
+        return store;
+    }
+
     global.createFetchStore = createFetchStore;
     global.createMemoryStore = createMemoryStore;
+    global.createLocalStorageStore = createLocalStorageStore;
 
     if (typeof module !== "undefined" && module.exports) {
-        module.exports = { createFetchStore: createFetchStore, createMemoryStore: createMemoryStore };
+        module.exports = {
+            createFetchStore: createFetchStore,
+            createMemoryStore: createMemoryStore,
+            createLocalStorageStore: createLocalStorageStore,
+        };
     }
 })(typeof window !== "undefined" ? window : globalThis);

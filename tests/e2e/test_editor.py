@@ -397,3 +397,37 @@ def test_static_editor_delete_block_in_memory(page: Page):
 
     expect(page.locator(".block-preview")).to_have_count(0)
     expect(page.locator(".block-item")).to_have_count(0)
+
+
+def test_static_editor_persists_layout_in_localstorage(page: Page):
+    """Blocks added in the static editor survive a page reload (localStorage)."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="box").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+
+    page.reload()
+    expect(page.locator(".block-preview")).to_have_count(1)
+    expect(page.locator(".block-item__info strong")).to_have_text("box")
+
+
+def test_static_editor_clear_layout_with_confirmation(page: Page):
+    """The Clear button asks for confirmation and removes all blocks."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="box").click()
+    page.locator(".palette-btn", has_text="header").click()
+    expect(page.locator(".block-preview")).to_have_count(2)
+
+    # Dismissing the dialog keeps the layout intact
+    page.once("dialog", lambda dialog: dialog.dismiss())
+    page.locator(".clear-layout-btn").click()
+    expect(page.locator(".block-preview")).to_have_count(2)
+
+    # Accepting the dialog clears the layout
+    page.once("dialog", lambda dialog: dialog.accept())
+    page.locator(".clear-layout-btn").click()
+    expect(page.locator(".block-preview")).to_have_count(0)
+    expect(page.locator(".block-item")).to_have_count(0)
+
+    # The cleared state survives a reload
+    page.reload()
+    expect(page.locator(".block-preview")).to_have_count(0)
