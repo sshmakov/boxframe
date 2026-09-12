@@ -1,7 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "boxframe"
 version = "0.1.0"
 description = "Pseudo-graphic UI mockup editor for AI agents"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
@@ -22,6 +27,9 @@ dev = [
     "pytest-cov>=5.0",
     "playwright>=1.44",
 ]
+
+[project.scripts]
+boxframe = "boxframe.main:run"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

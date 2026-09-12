@@ -14,12 +14,16 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from boxframe import __version__
+from boxframe.config import settings
 from boxframe.database import init_db
+
+BASE_DIR = Path(__file__).resolve().parent
 
 # ── Server logging ─────────────────────────────────────────
 
-LOG_DIR = Path(__file__).resolve().parent.parent / "log"
-LOG_DIR.mkdir(exist_ok=True)
+LOG_DIR = Path(settings.log_dir)
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "boxframe.log"
 
 file_handler = logging.handlers.RotatingFileHandler(
@@ -65,14 +69,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="boxframe",
     description="Pseudo-graphic UI mockup editor for AI agents",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
 # ── Mount static files & templates ────────────────────────
 
-app.mount("/static", StaticFiles(directory="boxframe/static"), name="static")
-templates = Jinja2Templates(directory="boxframe/templates")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 # ── Include API routers ───────────────────────────────────
 
@@ -156,3 +160,18 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     logger.info("%s %s → %d", request.method, request.url.path, response.status_code)
     return response
+
+
+# ── Console entry point ────────────────────────────────────
+
+def run() -> None:
+    """Entry point for the `boxframe` console script."""
+    import argparse
+
+    import uvicorn
+
+    parser = argparse.ArgumentParser(description="Run the boxframe server")
+    parser.add_argument("--host", default="0.0.0.0", help="bind address (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8000, help="bind port (default: 8000)")
+    args = parser.parse_args()
+    uvicorn.run("boxframe.main:app", host=args.host, port=args.port)
