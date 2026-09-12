@@ -90,8 +90,7 @@ async def page_index(request: Request):
     async with async_session() as db:
         service = LayoutService(db)
         projects = await service.list_projects()
-    return templates.TemplateResponse("pages/projects.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "pages/projects.html", {
         "projects": projects,
     })
 
@@ -104,11 +103,10 @@ async def page_project(request: Request, project_id: str):
         service = LayoutService(db)
         project = await service.get_project(project_id)
         if not project:
-            return templates.TemplateResponse("pages/404.html", {
-                "request": request, "message": "Project not found"
+            return templates.TemplateResponse(request, "pages/404.html", {
+                "message": "Project not found"
             }, status_code=404)
-    return templates.TemplateResponse("pages/project.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "pages/project.html", {
         "project": project,
         "project_name": project.name,
     })
@@ -122,12 +120,11 @@ async def page_editor(request: Request, layout_id: str):
         service = LayoutService(db)
         layout = await service.get_layout(layout_id)
         if not layout:
-            return templates.TemplateResponse("pages/404.html", {
-                "request": request, "message": "Layout not found"
+            return templates.TemplateResponse(request, "pages/404.html", {
+                "message": "Layout not found"
             }, status_code=404)
         project = await service.get_project(layout.project_id)
-    return templates.TemplateResponse("pages/editor.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "pages/editor.html", {
         "layout": layout,
         "project_name": project.name if project else "Unknown",
         "blocks": layout.blocks,
@@ -145,8 +142,7 @@ async def api_page_project(request: Request, project_id: str):
         project = await service.get_project(project_id)
         if not project:
             return "<p>Project not found</p>"
-    return templates.TemplateResponse("pages/project.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "pages/project.html", {
         "project": project,
         "project_name": project.name,
     })
