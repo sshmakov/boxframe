@@ -55,7 +55,6 @@ boxframe/
 │   ├── conftest.py             # API-файстуры (async engine + TestClient)
 │   ├── test_js_renderer_parity.py # Parity Python↔JS рендереры
 │   └── test_renderer.py        # Тесты рендерера (ASCII + HTML-оверлей)
-├── Dockerfile
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
@@ -199,12 +198,6 @@ pytest tests/e2e/ -v                  # e2e: нужен запущенный с�
 
 Внимание: e2e и API-тесты запускать **раздельными командами** (playwright
 sync API конфликтует с pytest-asyncio в одном процессе).
-
-Docker:
-```bash
-docker build -t boxframe .
-docker run -p 8000:8000 boxframe
-```
 
 ## Чего НЕ делать
 
