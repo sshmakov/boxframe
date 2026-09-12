@@ -24,11 +24,11 @@
 # Create virtual environment
 python -m venv venv && source venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install module
+pip install boxframe
 
 # Run the server
-uvicorn boxframe.main:app --reload
+boxframe
 
 # Open http://localhost:8000
 ```
@@ -199,11 +199,11 @@ Draw UI layouts using ASCII/Unicode box-drawing characters — machine-readable,
 # Create virtual environment
 python -m venv venv && source venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install module
+pip install boxframe
 
 # Run the server
-uvicorn boxframe.main:app --reload
+boxframe
 
 # Open http://localhost:8000
 ```

@@ -46,4 +46,4 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           # tag push → pypi; manual run → input (default: testpypi)
-          repository: ${{ github.event.inputs.repository || 'pypi' }}
+          repository-url: ${{ github.event.inputs.repository || 'pypi' }}
