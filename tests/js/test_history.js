@@ -27,6 +27,58 @@ function blockById(list, id) {
     return list.find((b) => b.id === id);
 }
 
+function makeStorage() {
+    return {
+        data: {},
+        getItem(k) { return this.data[k] != null ? this.data[k] : null; },
+        setItem(k, v) { this.data[k] = String(v); },
+        removeItem(k) { delete this.data[k]; },
+    };
+}
+
+// A fetch-like store bound to a shared "server" state object — mimics
+// FetchStore (no replaceState, state restore goes through replaceBlocks).
+function makeFetchLike(serverState) {
+    const replaceCalls = [];
+    return {
+        replaceCalls,
+        mode: "fetch",
+        load: function () {
+            return Promise.resolve({
+                width: serverState.width,
+                height: serverState.height,
+                blocks: serverState.blocks.map((b) => Object.assign({}, b)),
+            });
+        },
+        createBlock: function (data) {
+            const b = Object.assign(
+                { id: "id-" + Math.random().toString(36).slice(2), border_style: "solid", meta: {}, order: 1 },
+                data
+            );
+            serverState.blocks.push(b);
+            return Promise.resolve(Object.assign({}, b));
+        },
+        updateBlock: function (id, props) {
+            const b = serverState.blocks.find((x) => x.id === id);
+            Object.assign(b, props);
+            return Promise.resolve(Object.assign({}, b));
+        },
+        deleteBlock: function (id) {
+            serverState.blocks = serverState.blocks.filter((b) => b.id !== id);
+            return Promise.resolve({ ok: true });
+        },
+        clear: function () {
+            serverState.blocks = [];
+            return Promise.resolve({ ok: true });
+        },
+        replaceBlocks: function (blocks) {
+            replaceCalls.push(blocks.map((b) => b.id));
+            serverState.blocks = blocks.map((b) => Object.assign({}, b));
+            return Promise.resolve({ blocks: serverState.blocks });
+        },
+    };
+}
+
 test("undo of createBlock removes the block, redo restores it with the same id", async () => {
     const store = makeStore();
     const created = await store.createBlock({ block_type: "box", x: 0, y: 0 });
@@ -248,68 +300,183 @@ test("works with the localStorage store (restored state is persisted)", async ()
 test("works with a fetch-like store that restores via replaceBlocks", async () => {
     // Mimics FetchStore: no replaceState, state restore goes through the
     // batch endpoint (replaceBlocks).
-    var state = { width: null, height: null, blocks: [] };
-    var replaceCalls = [];
-    var fetchLike = {
-        mode: "fetch",
-        load: function () {
-            return Promise.resolve({
-                width: state.width,
-                height: state.height,
-                blocks: state.blocks.map(function (b) { return Object.assign({}, b); }),
-            });
-        },
-        createBlock: function (data) {
-            var b = Object.assign(
-                { id: "id-" + Math.random().toString(36).slice(2), border_style: "solid", meta: {}, order: 1 },
-                data
-            );
-            state.blocks.push(b);
-            return Promise.resolve(Object.assign({}, b));
-        },
-        updateBlock: function (id, props) {
-            var b = state.blocks.find(function (x) { return x.id === id; });
-            Object.assign(b, props);
-            return Promise.resolve(Object.assign({}, b));
-        },
-        deleteBlock: function (id) {
-            state.blocks = state.blocks.filter(function (b) { return b.id !== id; });
-            return Promise.resolve({ ok: true });
-        },
-        clear: function () {
-            state.blocks = [];
-            return Promise.resolve({ ok: true });
-        },
-        replaceBlocks: function (blocks) {
-            replaceCalls.push(blocks.map(function (b) { return b.id; }));
-            state.blocks = blocks.map(function (b) { return Object.assign({}, b); });
-            return Promise.resolve({ blocks: state.blocks });
-        },
-    };
-
+    const state = { width: null, height: null, blocks: [] };
+    const fetchLike = makeFetchLike(state);
     const store = withHistory(fetchLike);
     const b = await store.createBlock({ block_type: "box", x: 0, y: 0 });
 
     await store.undo();
     assert.equal(state.blocks.length, 0);
-    assert.deepEqual(replaceCalls, [[]]); // undo sent the empty pre-state
+    assert.deepEqual(fetchLike.replaceCalls, [[]]); // undo sent the empty pre-state
 
     await store.redo();
     assert.equal(state.blocks.length, 1);
     assert.equal(state.blocks[0].id, b.id);
-    assert.deepEqual(replaceCalls, [[], [b.id]]);
+    assert.deepEqual(fetchLike.replaceCalls, [[], [b.id]]);
 });
 
-test("unlimited buffer: many operations are all undoable", async () => {
-    const store = makeStore();
-    for (let i = 0; i < 200; i++) {
+test("the buffer is capped at maxSnapshots (oldest dropped first)", async () => {
+    const store = withHistory(createMemoryStore(), { maxSnapshots: 5 });
+    for (let i = 0; i < 8; i++) {
         await store.createBlock({ block_type: "box", x: i, y: 0 });
     }
-    assert.equal(store.undoCount, 200);
+    assert.equal(store.undoCount, 5);
 
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 5; i++) {
         await store.undo();
     }
-    assert.equal((await blocks(store)).length, 0);
-    assert.equal(store.redoCount, 200);
+    const list = await blocks(store);
+    assert.equal(list.length, 3); // the three oldest blocks survive
+    assert.deepEqual(list.map((b) => b.x), [0, 1, 2]);
+    assert.equal(store.canUndo, false);
+});
+
+test("the default buffer cap is 50 snapshots", async () => {
+    const store = makeStore();
+    for (let i = 0; i < 60; i++) {
+        await store.createBlock({ block_type: "box", x: i, y: 0 });
+    }
+    assert.equal(store.undoCount, 50);
+
+    for (let i = 0; i < 50; i++) {
+        await store.undo();
+    }
+    const list = await blocks(store);
+    assert.equal(list.length, 10); // blocks 0..9 survive
+    assert.equal(store.canUndo, false);
+    assert.equal(store.redoCount, 50);
+});
+
+test("the undo buffer survives a page reload (static mode)", async () => {
+    const storage = makeStorage();
+    const make = () => withHistory(
+        createLocalStorageStore({ key: "layout", storage }),
+        { storage: storage, historyKey: "hist" }
+    );
+
+    const store1 = make();
+    await store1.load();
+    await store1.createBlock({ block_type: "box", x: 0, y: 0 });
+    await store1.createBlock({ block_type: "text", x: 5, y: 5, content: "hi" });
+    assert.equal(store1.undoCount, 2);
+
+    // "Reload": a fresh store (restored from the layout key) + a fresh
+    // wrapper (restored from the history key).
+    const store2 = make();
+    await store2.load();
+    assert.equal(store2.undoCount, 2);
+    assert.equal(store2.redoCount, 0);
+
+    await store2.undo();
+    const list = await blocks(store2);
+    assert.equal(list.length, 1);
+    assert.equal(list[0].block_type, "box");
+
+    await store2.undo();
+    assert.equal((await blocks(store2)).length, 0);
+    assert.equal(store2.canUndo, false);
+});
+
+test("the redo buffer survives a page reload", async () => {
+    const storage = makeStorage();
+    const make = () => withHistory(
+        createLocalStorageStore({ key: "layout", storage }),
+        { storage: storage, historyKey: "hist" }
+    );
+
+    const store1 = make();
+    await store1.load();
+    await store1.createBlock({ block_type: "box", x: 0, y: 0 });
+    await store1.undo(); // state: empty, redo: 1
+
+    const store2 = make();
+    await store2.load();
+    assert.equal(store2.undoCount, 0);
+    assert.equal(store2.redoCount, 1);
+
+    await store2.redo();
+    assert.equal((await blocks(store2)).length, 1);
+});
+
+test("undo buffer survives a reload in web mode (server state unchanged)", async () => {
+    const storage = makeStorage();
+    const serverState = { width: null, height: null, blocks: [] };
+
+    const store1 = withHistory(makeFetchLike(serverState), { storage: storage, historyKey: "hist" });
+    await store1.load();
+    const b = await store1.createBlock({ block_type: "box", x: 0, y: 0 });
+
+    // "Reload": a fresh wrapper, same server state.
+    const store2 = withHistory(makeFetchLike(serverState), { storage: storage, historyKey: "hist" });
+    await store2.load();
+    assert.equal(store2.undoCount, 1);
+
+    await store2.undo();
+    assert.equal(serverState.blocks.length, 0);
+    assert.equal(store2.canRedo, true);
+
+    await store2.redo();
+    assert.equal(serverState.blocks.length, 1);
+    assert.equal(serverState.blocks[0].id, b.id);
+});
+
+test("stale stacks are dropped when the server state changed", async () => {
+    const storage = makeStorage();
+    const serverState = { width: null, height: null, blocks: [] };
+
+    const store1 = withHistory(makeFetchLike(serverState), { storage: storage, historyKey: "hist" });
+    await store1.load();
+    await store1.createBlock({ block_type: "box", x: 0, y: 0 });
+    assert.equal(store1.undoCount, 1);
+
+    // Another client adds a block while this one is closed.
+    serverState.blocks.push({
+        id: "external", block_type: "text", x: 9, y: 9, width: 5, height: 2,
+        content: "from another tab", border_style: "solid", parent_id: null,
+        meta: {}, order: 2, created_at: "2026-01-01T00:00:00", updated_at: "2026-01-01T00:00:00",
+    });
+
+    const store2 = withHistory(makeFetchLike(serverState), { storage: storage, historyKey: "hist" });
+    await store2.load();
+    assert.equal(store2.undoCount, 0); // stale buffer discarded
+    assert.equal(store2.canRedo, false);
+    assert.equal(storage.getItem("hist"), null); // stale record removed
+});
+
+test("a corrupted history record is ignored", async () => {
+    const storage = makeStorage();
+    storage.setItem("hist", "{not valid json");
+    const store = withHistory(createMemoryStore(), { storage: storage, historyKey: "hist" });
+    await store.createBlock({ block_type: "box", x: 0, y: 0 });
+    assert.equal(store.undoCount, 1); // works, no crash
+});
+
+test("the persisted buffer respects the cap", async () => {
+    const storage = makeStorage();
+    const store = withHistory(createMemoryStore(), {
+        storage: storage, historyKey: "hist", maxSnapshots: 3,
+    });
+    for (let i = 0; i < 5; i++) {
+        await store.createBlock({ block_type: "box", x: i, y: 0 });
+    }
+    const saved = JSON.parse(storage.getItem("hist"));
+    assert.equal(saved.undoStack.length, 3);
+});
+
+test("onChange fires when the buffer is restored on load", async () => {
+    const storage = makeStorage();
+    const s1 = withHistory(
+        createLocalStorageStore({ key: "layout", storage }),
+        { storage: storage, historyKey: "hist" }
+    );
+    await s1.load();
+    await s1.createBlock({ block_type: "box", x: 0, y: 0 });
+
+    const calls = [];
+    const s2 = withHistory(
+        createLocalStorageStore({ key: "layout", storage }),
+        { storage: storage, historyKey: "hist", onChange: (c) => calls.push(c) }
+    );
+    await s2.load();
+    assert.deepEqual(calls, [{ undoCount: 1, redoCount: 0 }]);
 });

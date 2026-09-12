@@ -53,14 +53,22 @@ function editorApp() {
             // (the layout survives page reloads).
             const root = document.querySelector('[data-layout-id]');
             this.layoutId = root?.dataset.layoutId || null;
-            this.store = withHistory(this.layoutId
-                ? createFetchStore(this.layoutId, root.dataset.projectId)
-                : createLocalStorageStore(), {
+            // The undo/redo buffer also survives page reloads: the snapshot
+            // stacks are persisted to localStorage (scoped per layout in
+            // web mode, where several layouts share one browser).
+            const historyOptions = {
                 onChange: (counts) => {
                     this.undoCount = counts.undoCount;
                     this.redoCount = counts.redoCount;
-                }
-            });
+                },
+                storage: typeof localStorage !== "undefined" ? localStorage : null,
+            };
+            if (this.layoutId) {
+                historyOptions.historyKey = "boxframe.history.layout." + this.layoutId;
+            }
+            this.store = withHistory(this.layoutId
+                ? createFetchStore(this.layoutId, root.dataset.projectId)
+                : createLocalStorageStore(), historyOptions);
 
             await Promise.all([
                 this.fetchInfo(),

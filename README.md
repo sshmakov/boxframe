@@ -12,6 +12,7 @@
 - **Живое превью псевдографики** — рендеринг ASCII-арта в реальном времени с Unicode box-drawing символами
 - **Выбор и свойства** — одиночный клик выделяет блок: плавающая панель свойств (позиция, размер, стиль, z-порядок, содержимое), ресайз за угловой маркер, дублирование
 - **Размеры макета** — необязательные width/height: рисуются как визуальная линия границ на холсте, блоки можно размещать за её пределами
+- **Undo/Redo** — Ctrl+Z / Ctrl+Shift+Z: история снапшотов (до 50 шагов), буфер переживает перезагрузку страницы
 - **Статический режим** — редактор работает без бэкенда: откройте `boxframe/static/editor/index.html` в браузере (работает даже через `file://`); макет сохраняется в браузере (localStorage)
 - **Очистка** — кнопка удаления всех блоков макета (с подтверждением)
 - **Экспорт в нескольких форматах** — JSON, Markdown, обычный ASCII + кнопка Copy (raw-ASCII в буфер обмена)
@@ -39,7 +40,7 @@ docker build -t boxframe .
 docker run -p 8000:8000 boxframe
 ```
 
-Без сервера — статический редактор: откройте `boxframe/static/editor/index.html` в браузере (работает даже через `file://`). Макет сохраняется в localStorage браузера и переживает перезагрузку страницы. Статический редактор также публикуется на GitHub Pages по пушу в ветку `develop`.
+Без сервера — статический редактор: откройте `boxframe/static/editor/index.html` в браузере (работает даже через `file://`). Макет сохраняется в localStorage браузера и переживает перезагрузку страницы (как и undo-буфер). Статический редактор также публикуется на GitHub Pages по пушу в ветку `develop`.
 
 ## Структура проекта
 
@@ -186,6 +187,7 @@ Draw UI layouts using ASCII/Unicode box-drawing characters — machine-readable,
 - **Live pseudo-graphic preview** — real-time ASCII art rendering with Unicode box-drawing characters
 - **Selection & properties** — single-click selects a block: floating properties panel (position, size, style, z-order, content), resize via corner handle, duplicate
 - **Layout dimensions** — optional width/height: drawn as a visual bounds line on the canvas; blocks may be placed outside it
+- **Undo/Redo** — Ctrl+Z / Ctrl+Shift+Z: snapshot history (up to 50 steps); the buffer survives page reloads
 - **Static mode** — the editor runs without a backend: open `boxframe/static/editor/index.html` in a browser (works over `file://` too); the layout is saved in the browser (localStorage)
 - **Clear** — a button to remove all blocks from a layout (with confirmation)
 - **Multi-format export** — JSON, Markdown, plain ASCII + a Copy button (raw ASCII to clipboard)
@@ -213,7 +215,7 @@ docker build -t boxframe .
 docker run -p 8000:8000 boxframe
 ```
 
-Without a server — the static editor: open `boxframe/static/editor/index.html` in a browser (works over `file://` too). The layout is persisted in the browser's localStorage and survives page reloads. The static editor is also published to GitHub Pages on push to the `develop` branch.
+Without a server — the static editor: open `boxframe/static/editor/index.html` in a browser (works over `file://` too). The layout is persisted in the browser's localStorage and survives page reloads (so does the undo buffer). The static editor is also published to GitHub Pages on push to the `develop` branch.
 
 ## Project Structure
 

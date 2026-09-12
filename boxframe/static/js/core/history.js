@@ -17,7 +17,19 @@
  *     (replaceState for local stores, the batch replaceBlocks endpoint
  *     for the fetch store). redo() is the mirror image.
  *
- * The stacks are plain arrays with no cap — an "unlimited" buffer.
+ * The stacks are capped at options.maxSnapshots entries (default 50) —
+ * the oldest snapshots are dropped first.
+ *
+ * Persistence (optional): pass options.storage — an object with
+ * getItem/setItem (the browser's localStorage, or a test double) — and
+ * optionally options.historyKey (default "boxframe.static.history").
+ * The stacks, plus the current state they were built against, are saved
+ * after every change and restored on the next load(), so the undo
+ * buffer survives page reloads. The restore is validated: if the state
+ * loaded from the store no longer matches the saved one (the layout was
+ * changed elsewhere — another tab, another client, the API), the stale
+ * stacks are dropped and the record removed. In web mode scope the key
+ * per layout (e.g. "boxframe.history.layout.<layoutId>").
  *
  * State tracking (no extra requests):
  *   The current state is kept in a cache, not re-fetched per mutation:
@@ -42,8 +54,16 @@
 (function (global) {
     "use strict";
 
+    var DEFAULT_HISTORY_KEY = "boxframe.static.history";
+    var DEFAULT_MAX_SNAPSHOTS = 50;
+
     function deepCopy(value) {
         return JSON.parse(JSON.stringify(value));
+    }
+
+    function sameState(a, b) {
+        if (!a || !b) return false;
+        return JSON.stringify(a) === JSON.stringify(b);
     }
 
     function withHistory(store, options) {
@@ -51,6 +71,11 @@
         var coalesceWindowMs = options.coalesceWindowMs != null
             ? options.coalesceWindowMs
             : 500;
+        var maxSnapshots = options.maxSnapshots != null
+            ? options.maxSnapshots
+            : DEFAULT_MAX_SNAPSHOTS;
+        var storage = options.storage || null;
+        var historyKey = options.historyKey || DEFAULT_HISTORY_KEY;
 
         var history = {
             undoStack: [],
@@ -58,6 +83,7 @@
             _lastKey: null,
             _lastTime: 0,
             _state: null, // cached current state { width, height, blocks }
+            _pending: null, // persisted record awaiting validation on load
 
             _seedState: function (data) {
                 history._state = deepCopy({
@@ -73,8 +99,60 @@
                 if (history._state) return Promise.resolve(history._state);
                 return store.load().then(function (data) {
                     history._seedState(data);
+                    history._settlePending();
                     return history._state;
                 });
+            },
+
+            // Validate the persisted record (read at creation) against the
+            // freshly loaded state; restore the stacks if they still match.
+            _settlePending: function () {
+                if (!history._pending) return;
+                var record = history._pending;
+                history._pending = null;
+                if (sameState(record.state, history._state)) {
+                    history.undoStack = record.undoStack;
+                    history.redoStack = record.redoStack;
+                    history._cap(history.undoStack);
+                    history._cap(history.redoStack);
+                    history._lastKey = record.lastKey || null;
+                    history._lastTime = record.lastTime || 0;
+                    history._notify();
+                } else {
+                    // The layout changed since the stacks were saved
+                    // (another tab / client / API call) — the snapshots
+                    // are stale, drop the record.
+                    if (typeof storage.removeItem === "function") {
+                        try {
+                            storage.removeItem(historyKey);
+                        } catch (err) { /* best effort */ }
+                    }
+                }
+            },
+
+            // Save the stacks (and the current state they were built
+            // against) so the buffer survives a page reload.
+            _persist: function () {
+                if (!storage) return;
+                try {
+                    storage.setItem(historyKey, JSON.stringify({
+                        undoStack: history.undoStack,
+                        redoStack: history.redoStack,
+                        lastKey: history._lastKey,
+                        lastTime: history._lastTime,
+                        state: history._state,
+                    }));
+                } catch (err) {
+                    // QuotaExceeded / private mode — history keeps working
+                    // in memory, it just will not survive a reload.
+                    console.warn("Failed to save history to localStorage:", err);
+                }
+            },
+
+            _cap: function (stack) {
+                if (stack.length > maxSnapshots) {
+                    stack.splice(0, stack.length - maxSnapshots);
+                }
             },
 
             // Sync the cache with the server after a restore: the batch
@@ -130,6 +208,7 @@
                 }
                 return history._ensureState().then(function () {
                     history.undoStack.push(deepCopy(history._state));
+                    history._cap(history.undoStack);
                     history.redoStack.length = 0;
                     history._lastKey = key || null;
                     history._lastTime = now;
@@ -142,10 +221,12 @@
                 var current = deepCopy(history._state);
                 var previous = history.undoStack.pop();
                 history.redoStack.push(current);
+                history._cap(history.redoStack);
                 history._lastKey = null;
                 history._notify();
                 return history._applyState(previous).then(function (result) {
                     history._stateAfterRestore(previous, result);
+                    history._persist();
                     return result;
                 });
             },
@@ -155,10 +236,12 @@
                 var current = deepCopy(history._state);
                 var next = history.redoStack.pop();
                 history.undoStack.push(current);
+                history._cap(history.undoStack);
                 history._lastKey = null;
                 history._notify();
                 return history._applyState(next).then(function (result) {
                     history._stateAfterRestore(next, result);
+                    history._persist();
                     return result;
                 });
             },
@@ -169,21 +252,49 @@
             get redoCount() { return history.redoStack.length; },
         };
 
+        // Read the persisted record (if any) — it is validated against
+        // the store's current state on the first load() (_settlePending).
+        if (storage) {
+            var raw = null;
+            try {
+                raw = storage.getItem(historyKey);
+            } catch (err) {
+                raw = null; // storage unavailable — in-memory only
+            }
+            if (raw) {
+                var record = null;
+                try {
+                    record = JSON.parse(raw);
+                } catch (err) {
+                    record = null; // corrupted — start with empty stacks
+                }
+                if (record && Array.isArray(record.undoStack) &&
+                    Array.isArray(record.redoStack)) {
+                    history._pending = record;
+                }
+            }
+        }
+
         // load() seeds the state cache — the editor calls it on init and
-        // after every undo/redo, so the cache tracks the store.
+        // after every undo/redo, so the cache tracks the store. It also
+        // settles the persisted stacks (validation + restore).
         history.load = function () {
             return store.load().then(function (data) {
                 history._seedState(data);
+                history._settlePending();
                 return data;
             });
         };
 
         // Wrapped mutations: snapshot first, then delegate to the inner
-        // store and sync the cache from the result.
+        // store and sync the cache from the result. The stacks are
+        // persisted only after the mutation succeeds, so a failed
+        // mutation leaves the saved buffer consistent with the store.
         history.createBlock = function (data) {
             return history._record(null).then(function () {
                 return store.createBlock(data).then(function (block) {
                     history._state.blocks.push(deepCopy(block));
+                    history._persist();
                     return block;
                 });
             });
@@ -201,6 +312,7 @@
                     }
                     if (idx !== -1) history._state.blocks[idx] = deepCopy(block);
                     else history._state.blocks.push(deepCopy(block));
+                    history._persist();
                     return block;
                 });
             });
@@ -212,6 +324,7 @@
                     history._state.blocks = history._state.blocks.filter(
                         function (b) { return b.id !== blockId; }
                     );
+                    history._persist();
                     return result;
                 });
             });
@@ -222,6 +335,7 @@
             return history._record(null).then(function () {
                 return store.clear().then(function (result) {
                     history._state.blocks = [];
+                    history._persist();
                     return result;
                 });
             });
@@ -231,6 +345,7 @@
             return history._record(null).then(function () {
                 return history._applyState(state).then(function (result) {
                     history._stateAfterRestore(state, result);
+                    history._persist();
                     return result;
                 });
             });
