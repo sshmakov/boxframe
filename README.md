@@ -40,7 +40,7 @@ docker build -t boxframe .
 docker run -p 8000:8000 boxframe
 ```
 
-Без сервера — статический редактор: откройте `boxframe/static/editor/index.html` в браузере (работает даже через `file://`). Макет сохраняется в localStorage браузера и переживает перезагрузку страницы (как и undo-буфер). Статический редактор также публикуется на GitHub Pages по пушу в ветку `develop`.
+Без сервера — статический редактор: откройте `boxframe/static/editor/index.html` в браузере (работает даже через `file://`). Макет сохраняется в localStorage браузера и переживает перезагрузку страницы (как и undo-буфер). Статический редактор также публикуется на GitHub Pages по пушу в ветку `develop`: <https://sshmakov.github.io/boxframe/editor/>.
 
 ## Структура проекта
 
@@ -215,7 +215,7 @@ docker build -t boxframe .
 docker run -p 8000:8000 boxframe
 ```
 
-Without a server — the static editor: open `boxframe/static/editor/index.html` in a browser (works over `file://` too). The layout is persisted in the browser's localStorage and survives page reloads (so does the undo buffer). The static editor is also published to GitHub Pages on push to the `develop` branch.
+Without a server — the static editor: open `boxframe/static/editor/index.html` in a browser (works over `file://` too). The layout is persisted in the browser's localStorage and survives page reloads (so does the undo buffer). The static editor is also published to GitHub Pages on push to the `develop` branch: <https://sshmakov.github.io/boxframe/editor/>.
 
 ## Project Structure
 
