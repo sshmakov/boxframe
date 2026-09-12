@@ -46,4 +46,5 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           # tag push → pypi; manual run → input (default: testpypi)
-          repository-url: ${{ github.event.inputs.repository || 'pypi' }}
+          # action expects a full URL — it derives the OIDC audience from the host
+          repository-url: ${{ github.event.inputs.repository == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
