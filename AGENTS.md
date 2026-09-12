@@ -30,6 +30,7 @@ boxframe/
 │   │       ├── core/renderer.js# JS-порт рендерера (static-режим)
 │   │       ├── core/store.js   # FetchStore / LocalStorageStore / MemoryStore
 │   │       ├── core/history.js # withHistory — undo/redo (snapshot-стеки)
+│   │       ├── core/import.js  # parseLayoutJson / prepareImport (импорт JSON)
 │   │       └── editor.js       # Alpine.js editor app (общий)
 │   ├── templates/pages/        # Jinja2 шаблоны
 │   │   ├── base.html
@@ -50,6 +51,7 @@ boxframe/
 │   ├── js/test_renderer.js     # Тесты JS-рендерера (node:test)
 │   ├── js/test_store.js        # Тесты JS-хранилищ (node:test)
 │   ├── js/test_history.js      # Тесты undo/redo-истории (node:test)
+│   ├── js/test_import.js       # Тесты импорта JSON (node:test)
 │   ├── conftest.py             # API-файстуры (async engine + TestClient)
 │   ├── test_js_renderer_parity.py # Parity Python↔JS рендереры
 │   └── test_renderer.py        # Тесты рендерера (ASCII + HTML-оверлей)
@@ -131,6 +133,15 @@ boxframe/
   500 мс = одна запись. Хоткеи Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (не
   перехватываются в текстовых полях)
 - Экспорт: скачивание файла (JSON/MD/ASCII)
+- **Импорт** — кнопка Import открывает скрытый `input[type=file]`; выбранный
+  JSON разбирается `core/import.js` (`parseLayoutJson` — вложенный экспорт
+  `type`/`metadata`/`children` → плоский список `block_type`/`meta`/`parent_id`,
+  `order` сохраняется или присваивается по порядку документа) и применяется
+  через `store.replaceState` (одна запись undo/redo). Если редактор не пуст —
+  `confirm`: OK = добавить блоки поверх существующих (`prepareImport` в режиме
+  `add`: новые id, order сдвинут выше текущего максимума), Cancel = заменить
+  всё содержимое (режим `replace`). Экспорт JSON несёт `order` (добавлен для
+  корректного round-trip z-порядка).
 
 ## Соглашения
 

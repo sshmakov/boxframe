@@ -142,6 +142,7 @@
                         content: b.content,
                         border_style: b.border_style,
                         metadata: b.meta,
+                        order: b.order,
                         children: layout.blocks
                             .filter(function (c) { return c.parent_id === b.id; })
                             .map(function (c) {
@@ -155,6 +156,7 @@
                                     content: c.content,
                                     border_style: c.border_style,
                                     metadata: c.meta,
+                                    order: c.order,
                                 };
                             }),
                     };

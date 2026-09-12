@@ -15,11 +15,18 @@
      data-layout-id="{{ layout.id }}" data-project-id="{{ layout.project_id }}"
      class="editor-root">
 
+    <!-- Hidden file input for layout import (opened by the Import button) -->
+    <input type="file" x-ref="importFile" class="import-file-input"
+           accept=".json,application/json" style="display:none"
+           @change="onImportFile($event)">
+
     <!-- Header: logo + actions, then breadcrumb -->
     <header class="editor-header">
         <div class="editor-header__top">
             <a href="/" class="logo">boxframe</a>
             <div class="editor-header__actions">
+                <button class="btn btn-sm import-btn" @click="$refs.importFile.click()"
+                        title="Import a layout from a JSON file">Import</button>
                 <div class="dropdown" x-data="{ open: false }" @click.outside="open = false">
                     <button class="btn btn-sm" @click="open = !open">Export...</button>
                     <div class="dropdown__menu" x-show="open" x-cloak>
@@ -186,5 +193,6 @@
 <script src="/static/js/core/renderer.js"></script>
 <script src="/static/js/core/store.js"></script>
 <script src="/static/js/core/history.js"></script>
+<script src="/static/js/core/import.js"></script>
 <script src="/static/js/editor.js"></script>
 {% endblock %}

@@ -11,6 +11,10 @@ function editorApp() {
         rawText: '',
         htmlPreview: '',
         loading: true,
+        // Layout dimensions (visual bounds line). Tracked so an import in
+        // "add" mode can keep the current bounds instead of the file's.
+        layoutWidth: null,
+        layoutHeight: null,
 
         // ── Undo/redo (kept in sync by the history store's onChange) ──
         undoCount: 0,
@@ -132,6 +136,8 @@ function editorApp() {
         async _syncStateFromStore() {
             const data = await this.store.load();
             this.blocks = this._flattenBlocks(data.blocks || []);
+            this.layoutWidth = data.width != null ? data.width : null;
+            this.layoutHeight = data.height != null ? data.height : null;
             this._reorderBlocks();
             if (this.selectedBlockId && !this.blocks.some(b => b.id === this.selectedBlockId)) {
                 this.selectedBlockId = null;
@@ -732,6 +738,8 @@ function editorApp() {
             const data = await this.store.load();
             // Blocks are nested in the layout response
             this.blocks = this._flattenBlocks(data.blocks || []);
+            this.layoutWidth = data.width != null ? data.width : null;
+            this.layoutHeight = data.height != null ? data.height : null;
             this._reorderBlocks();
         },
 
@@ -1076,6 +1084,89 @@ function editorApp() {
             a.download = filename;
             a.click();
             URL.revokeObjectURL(url);
+        },
+
+        // ── Import from a JSON file ────────────────────────────
+
+        // Triggered by the hidden file input's change event. Reads the
+        // selected file and hands its text to _applyImport.
+        onImportFile(e) {
+            const input = e.target;
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                input.value = ''; // allow re-importing the same file
+                this._applyImport(String(reader.result));
+            };
+            reader.onerror = () => {
+                input.value = '';
+                alert('Could not read the file.');
+            };
+            reader.readAsText(file);
+        },
+
+        // Parse the layout JSON and apply it. When the editor already has
+        // blocks, ask whether to add the imported blocks on top or replace
+        // everything. The whole operation goes through the store's
+        // replaceState, so it is a single undo/redo step.
+        async _applyImport(text) {
+            let json;
+            try {
+                json = JSON.parse(text);
+            } catch (err) {
+                alert('Not a valid JSON file: ' + err.message);
+                return;
+            }
+
+            let parsed;
+            try {
+                parsed = parseLayoutJson(json);
+            } catch (err) {
+                alert(err.message);
+                return;
+            }
+            if (parsed.blocks.length === 0) {
+                alert('The file contains no blocks.');
+                return;
+            }
+
+            let state;
+            if (this.blocks.length > 0) {
+                const add = confirm(
+                    'The editor already contains blocks.\n\n' +
+                    'OK — add the imported blocks to the current layout.\n' +
+                    'Cancel — replace all content with the imported layout.'
+                );
+                if (add) {
+                    const merged = this.blocks.concat(
+                        prepareImport(parsed.blocks, this.blocks, 'add')
+                    );
+                    // Keep the current bounds — the file's blocks are just
+                    // being added inside the existing layout.
+                    state = { width: this.layoutWidth, height: this.layoutHeight, blocks: merged };
+                } else {
+                    state = {
+                        width: parsed.width,
+                        height: parsed.height,
+                        blocks: prepareImport(parsed.blocks, null, 'replace'),
+                    };
+                }
+            } else {
+                state = {
+                    width: parsed.width,
+                    height: parsed.height,
+                    blocks: prepareImport(parsed.blocks, null, 'replace'),
+                };
+            }
+
+            try {
+                await this.store.replaceState(state);
+                await this._syncStateFromStore();
+            } catch (err) {
+                console.error('Failed to import layout:', err);
+                alert('Failed to import the layout: ' + err.message);
+            }
         }
     };
 }

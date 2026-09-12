@@ -311,6 +311,7 @@ class LayoutService:
                     "content": b.content,
                     "border_style": b.border_style,
                     "metadata": b.meta,
+                    "order": b.order,
                     "children": [
                         {
                             "id": c.id,
@@ -322,6 +323,7 @@ class LayoutService:
                             "content": c.content,
                             "border_style": c.border_style,
                             "metadata": c.meta,
+                            "order": c.order,
                         }
                         for c in b.children
                     ],

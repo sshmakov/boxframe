@@ -5,6 +5,7 @@ Requires a running server at http://127.0.0.1:8000.
 Run with: pytest tests/e2e/ -v --asyncio-mode=auto
 """
 
+import json
 import re
 
 import requests
@@ -12,6 +13,44 @@ from playwright.sync_api import Page, expect
 
 
 BASE_URL = "http://127.0.0.1:8000"
+
+# A nested export (the format produced by the Export → JSON action) used by
+# the import tests. Two blocks: a box and a button.
+IMPORT_JSON = {
+    "id": "imported-layout",
+    "name": "Imported",
+    "width": 40,
+    "height": 12,
+    "blocks": [
+        {
+            "id": "imp-1",
+            "type": "box",
+            "x": 0, "y": 0, "width": 20, "height": 6,
+            "content": "Imported Box",
+            "border_style": "solid",
+            "metadata": {},
+            "order": 0,
+        },
+        {
+            "id": "imp-2",
+            "type": "button",
+            "x": 2, "y": 1, "width": 10, "height": 1,
+            "content": "Go",
+            "border_style": "dashed",
+            "metadata": {},
+            "order": 1,
+        },
+    ],
+}
+
+
+def _import_file(page: Page) -> None:
+    """Feed the import JSON to the editor's hidden file input."""
+    page.set_input_files(
+        ".import-file-input",
+        {"name": "layout.json", "mimeType": "application/json",
+         "buffer": json.dumps(IMPORT_JSON).encode()},
+    )
 
 
 def _create_project_with_block(page: Page) -> tuple[str, str]:
@@ -541,3 +580,99 @@ def test_static_editor_undo_redo(page: Page):
     page.locator(".palette-btn", has_text="header").click()
     expect(page.locator(".block-preview")).to_have_count(2)
     expect(redo_btn).to_be_disabled()
+
+
+# ── Import from a JSON file ───────────────────────────────
+
+
+def test_static_editor_import_into_empty(page: Page):
+    """Importing a JSON file into the empty static editor loads its blocks."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    expect(page.locator(".block-preview")).to_have_count(0)
+
+    _import_file(page)
+
+    # Both imported blocks appear on the canvas and in the list
+    expect(page.locator(".block-preview")).to_have_count(2)
+    expect(page.locator(".block-item")).to_have_count(2)
+    types = page.locator(".block-item__info strong").all_inner_texts()
+    assert sorted(types) == ["box", "button"]
+
+
+def test_static_editor_import_add_when_not_empty(page: Page):
+    """A non-empty editor asks on import; OK adds the file's blocks on top."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="box").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+
+    page.once("dialog", lambda d: d.accept())  # OK = add
+    _import_file(page)
+
+    # 1 existing + 2 imported = 3 blocks
+    expect(page.locator(".block-preview")).to_have_count(3)
+    expect(page.locator(".block-item")).to_have_count(3)
+
+
+def test_static_editor_import_replace_when_not_empty(page: Page):
+    """A non-empty editor asks on import; Cancel replaces all content."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="box").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+
+    page.once("dialog", lambda d: d.dismiss())  # Cancel = replace
+    _import_file(page)
+
+    # Only the 2 imported blocks remain
+    expect(page.locator(".block-preview")).to_have_count(2)
+    expect(page.locator(".block-item")).to_have_count(2)
+
+
+def test_static_editor_import_invalid_json(page: Page):
+    """A file that is not valid JSON is rejected with an alert (no blocks)."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    expect(page.locator(".block-preview")).to_have_count(0)
+
+    page.once("dialog", lambda d: d.accept())  # the "not valid JSON" alert
+    page.set_input_files(
+        ".import-file-input",
+        {"name": "bad.json", "mimeType": "application/json",
+         "buffer": b"{not valid json"},
+    )
+    expect(page.locator(".block-preview")).to_have_count(0)
+
+
+def test_web_editor_import_replaces_blocks(page: Page):
+    """Importing into a non-empty web editor replaces the blocks (Cancel)."""
+    layout_id, _ = _create_project_with_block(page)
+
+    page.once("dialog", lambda d: d.dismiss())  # Cancel = replace
+    _import_file(page)
+
+    blocks = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if len(blocks) == 2:
+            break
+        page.wait_for_timeout(100)
+    assert blocks is not None and len(blocks) == 2
+    assert sorted(b["block_type"] for b in blocks) == ["box", "button"]
+
+
+def test_web_editor_import_adds_blocks(page: Page):
+    """Accepting the import prompt adds the file's blocks on top (OK)."""
+    layout_id, existing_id = _create_project_with_block(page)
+
+    page.once("dialog", lambda d: d.accept())  # OK = add
+    _import_file(page)
+
+    blocks = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if len(blocks) == 3:
+            break
+        page.wait_for_timeout(100)
+    assert blocks is not None and len(blocks) == 3
+    # The original block survives the add
+    assert any(b["id"] == existing_id for b in blocks)

@@ -10,11 +10,18 @@
 <body>
 <div x-data="editorApp()" x-init="init()" class="editor-root">
 
+    <!-- Hidden file input for layout import (opened by the Import button) -->
+    <input type="file" x-ref="importFile" class="import-file-input"
+           accept=".json,application/json" style="display:none"
+           @change="onImportFile($event)">
+
     <!-- Header: logo + actions (no backend — no project breadcrumbs) -->
     <header class="editor-header">
         <div class="editor-header__top">
             <span class="logo">boxframe</span>
             <div class="editor-header__actions">
+                <button class="btn btn-sm import-btn" @click="$refs.importFile.click()"
+                        title="Import a layout from a JSON file">Import</button>
                 <div class="dropdown" x-data="{ open: false }" @click.outside="open = false">
                     <button class="btn btn-sm" @click="open = !open">Export...</button>
                     <div class="dropdown__menu" x-show="open" x-cloak>
@@ -178,6 +185,7 @@
 <script src="../js/core/renderer.js"></script>
 <script src="../js/core/store.js"></script>
 <script src="../js/core/history.js"></script>
+<script src="../js/core/import.js"></script>
 <script src="../js/editor.js"></script>
 </body>
 </html>
