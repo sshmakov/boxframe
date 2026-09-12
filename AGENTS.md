@@ -55,6 +55,8 @@ boxframe/
 │   ├── conftest.py             # API-файстуры (async engine + TestClient)
 │   ├── test_js_renderer_parity.py # Parity Python↔JS рендереры
 │   └── test_renderer.py        # Тесты рендерера (ASCII + HTML-оверлей)
+├── scripts/
+│   └── bump.sh                 # Релиз: bump минора, тег vX.Y.Z, push
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
@@ -180,6 +182,15 @@ boxframe/
 1. Создать шаблон в `templates/pages/`
 2. Добавить route в `main.py`
 3. Добавить ссылки в существующие шаблоны
+
+### Релиз (bump минорной версии)
+
+- Команда агента `/bump` (`.qwen/commands/bump.md`) — обёртка над `scripts/bump.sh`
+- `bash scripts/bump.sh` — bump минора в `pyproject.toml`, commit
+  `chore(release): bump version to X.Y.0`, тег `vX.Y.0`, push ветки и тега
+- `bash scripts/bump.sh --dry-run` — предпросмотр без изменений
+- Версия живёт только в `pyproject.toml` (`boxframe/__init__.py` читает её
+  через `importlib.metadata`)
 
 ## Запуск
 

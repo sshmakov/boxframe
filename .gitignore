@@ -12,6 +12,7 @@ venv/
 .mypy_cache/
 /log/
 /tmp/
-/.qwen/
+/.qwen/*
+!/.qwen/commands/
 /.idea/
 /.venv/
