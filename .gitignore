@@ -14,3 +14,4 @@ venv/
 /tmp/
 /.qwen/
 /.idea/
+/.venv/
