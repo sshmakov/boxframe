@@ -394,31 +394,6 @@
     pointer-events: none;
 }
 
-.sel-icon {
-    position: absolute;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    font-size: 11px;
-    line-height: 1;
-    color: #fff;
-    background: rgba(233, 69, 96, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    border-radius: 3px;
-    pointer-events: auto;
-    transition: background 0.15s;
-}
-
-.sel-icon--dup,
-.sel-icon--del { cursor: pointer; }
-.sel-icon--dup:hover,
-.sel-icon--del:hover { background: #ff6b81; }
-
-.sel-icon--dup { top: -9px; left: -9px; }
-.sel-icon--del { top: -9px; right: -9px; }
-
 /* Resize handle on the selection frame (bottom-right corner) */
 .sel-resize {
     position: absolute;
@@ -515,6 +490,96 @@
 }
 
 .prop--wide { grid-column: 1 / -1; }
+
+/* Actions row (duplicate / delete) — the panel is the single place for
+   block actions; the selection frame keeps only the resize handle. */
+.block-props__actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 6px;
+    padding: 6px;
+    border: 1px solid #333;
+    border-radius: 4px;
+}
+
+.action-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    background: #0f0f23;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 11px;
+    padding: 5px 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.action-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.action-btn--danger:hover {
+    background: rgba(233, 69, 96, 0.12);
+}
+
+/* Line Style: icon-only buttons showing the box-drawing glyph of the style */
+.style-btns {
+    display: flex;
+    gap: 4px;
+}
+
+.style-btn {
+    flex: 1;
+    background: #0f0f23;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1;
+    padding: 6px 0;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.style-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.style-btn--active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(233, 69, 96, 0.12);
+}
+
+/* X/Y/W/H: one row of four fields, label to the left of the input */
+.prop-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.prop--inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+}
+
+.prop--inline > span {
+    flex: none;
+    width: 10px;
+}
+
+.prop--inline input {
+    padding: 4px 4px;
+}
 
 /* ── Inline content editor (double-click a block) ───────── */
 .block-edit-overlay {

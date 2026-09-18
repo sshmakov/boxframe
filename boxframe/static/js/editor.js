@@ -828,7 +828,7 @@ function editorApp() {
             if (!b) return 'display:none';
             const pad = 16; // matches .render-wrapper padding
             const container = document.querySelector('.canvas-container');
-            const panelW = 208;
+            const panelW = 264;
             const panelH = 300; // approximate height, for vertical clamping
 
             const bx = pad + b.x * this.charWidth;
@@ -900,6 +900,13 @@ function editorApp() {
         },
 
         // ── Properties panel (floating, next to selected block) ──
+
+        // Glyph for a border style in the panel's Line Style buttons —
+        // the box-drawing character the style renders with.
+        styleIcon(style) {
+            const icons = { solid: '─', dashed: '┄', dotted: '┈', double: '═', none: '∅' };
+            return icons[style] || style;
+        },
 
         async updateSelectedBlock(props) {
             const b = this.selectedBlock;

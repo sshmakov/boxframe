@@ -158,12 +158,12 @@ def test_single_click_selects_block(page: Page):
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
 
-    # Semi-transparent selection frame with action icons appears on the canvas
+    # Semi-transparent selection frame with a resize handle appears on the
+    # canvas; the block actions live in the properties panel
     selection = page.locator(".block-selection")
     expect(selection).to_be_visible()
-    expect(selection.locator(".sel-icon--dup")).to_be_visible()
-    expect(selection.locator(".sel-icon--del")).to_be_visible()
     expect(selection.locator(".sel-resize")).to_be_visible()
+    expect(selection.locator(".sel-icon")).to_have_count(0)
 
     # The block is highlighted in the sidebar list
     expect(page.locator(".block-item--selected")).to_have_count(1)
@@ -195,12 +195,12 @@ def test_click_empty_canvas_deselects(page: Page):
     expect(page.locator(".block-item--selected")).to_have_count(0)
 
 
-def test_duplicate_icon_creates_block_copy(page: Page):
-    """The duplicate icon on the selection frame creates a copy of the block."""
+def test_panel_duplicate_creates_block_copy(page: Page):
+    """The Duplicate action in the properties panel creates a copy of the block."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
-    page.locator(".block-selection .sel-icon--dup").click()
+    page.locator(".block-props .action-btn", has_text="Duplicate").click()
 
     # Poll: the browser's POST may still be in flight
     blocks = []
@@ -219,14 +219,14 @@ def test_duplicate_icon_creates_block_copy(page: Page):
     expect(page.locator(".block-item--selected")).to_have_count(1)
 
 
-def test_delete_icon_removes_block(page: Page):
-    """The delete icon on the selection frame deletes the selected block."""
+def test_panel_delete_removes_block(page: Page):
+    """The Delete action in the properties panel deletes the selected block."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.on("dialog", lambda dialog: dialog.accept())
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
-    page.locator(".block-selection .sel-icon--del").click()
+    page.locator(".block-props .action-btn", has_text="Delete").click()
 
     # Poll: the browser's DELETE may still be in flight
     blocks = None
@@ -414,8 +414,21 @@ def test_properties_panel_shows_next_to_selected_block(page: Page):
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
     expect(panel.locator(".block-props__type")).to_have_text("box")
-    # The style select reflects the current border style
-    expect(panel.locator("select")).to_have_value("solid")
+    # The Line Style buttons reflect the current border style
+    expect(panel.locator(".style-btn")).to_have_count(5)
+    expect(panel.locator(".style-btn--active")).to_have_count(1)
+    expect(panel.locator(".style-btn--active")).to_have_attribute("title", "solid")
+
+    # The panel floats to the right of the block (the preferred side) and
+    # stays inside the visible canvas area
+    block_box = page.locator(f'.block-preview[data-block-id="{block_id}"]').bounding_box()
+    panel_box = panel.bounding_box()
+    canvas_box = page.locator(".canvas-container").bounding_box()
+    assert panel_box["x"] >= block_box["x"] + block_box["width"] - 1
+    assert panel_box["x"] >= canvas_box["x"]
+    assert panel_box["y"] >= canvas_box["y"]
+    assert panel_box["x"] + panel_box["width"] <= canvas_box["x"] + canvas_box["width"]
+    assert panel_box["y"] + panel_box["height"] <= canvas_box["y"] + canvas_box["height"]
 
 
 def test_properties_panel_updates_border_style(page: Page):
@@ -426,7 +439,7 @@ def test_properties_panel_updates_border_style(page: Page):
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
-    panel.locator("select").select_option("dashed")
+    panel.locator(".style-btn[title='dashed']").click()
 
     # Poll: the browser's PUT may still be in flight
     block = None
@@ -437,6 +450,62 @@ def test_properties_panel_updates_border_style(page: Page):
             break
         page.wait_for_timeout(100)
     assert block["border_style"] == "dashed"
+
+
+def test_properties_panel_fields_in_one_row(page: Page):
+    """X/Y/W/H are one row of four fields; each label sits to the left of
+    its input, not above it."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    boxes = [
+        panel.locator(".prop-row input").nth(i).bounding_box()
+        for i in range(4)
+    ]
+    assert all(b is not None for b in boxes)
+
+    # One row: the same top (up to a couple of px) and strictly
+    # increasing left — X, Y, W, H from left to right
+    tops = [b["y"] for b in boxes]
+    assert max(tops) - min(tops) <= 2
+    lefts = [b["x"] for b in boxes]
+    assert all(b2 > b1 for b1, b2 in zip(lefts, lefts[1:]))
+
+    # The label of each field is to the left of its input, vertically
+    # centered against it
+    for i in range(4):
+        label = panel.locator(".prop-row .prop--inline > span").nth(i).bounding_box()
+        inp = boxes[i]
+        assert label is not None
+        assert label["x"] + label["width"] <= inp["x"] + 1
+        label_cy = label["y"] + label["height"] / 2
+        assert inp["y"] <= label_cy <= inp["y"] + inp["height"]
+
+
+def test_properties_panel_section_order(page: Page):
+    """Panel sections top to bottom: actions, Line Style, X/Y/W/H, Order,
+    Content."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    sections = {
+        "actions": panel.locator(".block-props__actions"),
+        "line_style": panel.locator(".prop--wide:has(.style-btns)"),
+        "xywh": panel.locator(".prop-row"),
+        "order": panel.locator(".prop--wide:has(input[type=number])"),
+        "content": panel.locator(".prop--wide:has(input[type=text])"),
+    }
+    for name, loc in sections.items():
+        expect(loc).to_have_count(1)
+
+    tops = [sections[name].bounding_box()["y"] for name in sections]
+    assert all(b > a for a, b in zip(tops, tops[1:]))
 
 
 # ── Static editor (no backend, in-memory store) ───────────
@@ -502,6 +571,31 @@ def test_static_editor_block_not_shifted_when_not_at_top(page: Page):
         "}"
     )
     assert leading_empty == 5
+
+
+def test_static_editor_panel_matches_web_layout(page: Page):
+    """The static editor's panel keeps the web layout: an actions row,
+    Line Style buttons and X/Y/W/H in one row (the markup is duplicated
+    in static/editor/index.html)."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="box").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+
+    page.locator(".block-preview").click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    expect(panel.locator(".block-props__actions .action-btn")).to_have_count(2)
+    expect(panel.locator(".style-btn")).to_have_count(5)
+
+    boxes = [
+        panel.locator(".prop-row input").nth(i).bounding_box()
+        for i in range(4)
+    ]
+    assert all(b is not None for b in boxes)
+    assert max(b["y"] for b in boxes) - min(b["y"] for b in boxes) <= 2
+    lefts = [b["x"] for b in boxes]
+    assert all(b2 > b1 for b1, b2 in zip(lefts, lefts[1:]))
 
 
 def test_static_editor_delete_block_in_memory(page: Page):
