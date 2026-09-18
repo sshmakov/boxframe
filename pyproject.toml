@@ -31,6 +31,11 @@ dev = [
 [project.scripts]
 boxframe = "boxframe.main:run"
 
+[project.urls]
+"Online editor" = "https://sshmakov.github.io/boxframe/editor/"
+Repository = "https://github.com/sshmakov/boxframe.git"
+Issues = "https://github.com/sshmakov/boxframe/issues"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
