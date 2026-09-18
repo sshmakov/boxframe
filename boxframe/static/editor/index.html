@@ -80,13 +80,6 @@
                                 <span class="block-order" x-text="'#' + block.order"></span>
                             </span>
                             <span class="block-actions">
-                                <select class="style-select" :value="block.border_style"
-                                        @change="updateBlockStyle(block.id, $event.target.value)"
-                                        title="Border / line style">
-                                    <template x-for="s in borderStyles" :key="s">
-                                        <option :value="s" x-text="s"></option>
-                                    </template>
-                                </select>
                                 <button class="order-btn" @click="moveBlockOrder(block.id, -1)" :disabled="block.order <= 0" title="Move down (lower z-index)">↓</button>
                                 <button class="order-btn" @click="moveBlockOrder(block.id, 1)" :disabled="block.order >= maxOrder" title="Move up (higher z-index)">↑</button>
                                 <button class="delete-block" @click="deleteBlock(block.id)" title="Delete">×</button>

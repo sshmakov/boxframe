@@ -884,21 +884,6 @@ function editorApp() {
             await this.refreshRender();
         },
 
-        async updateBlockStyle(blockId, style) {
-            const block = this.blocks.find(b => b.id === blockId);
-            if (!block) return;
-
-            const oldStyle = block.border_style;
-            try {
-                await this.store.updateBlock(blockId, { border_style: style });
-                block.border_style = style;
-                await this.refreshRender();
-            } catch (err) {
-                block.border_style = oldStyle;
-                console.error('Failed to update border style:', err);
-            }
-        },
-
         // ── Properties panel (floating, next to selected block) ──
 
         // Glyph for a border style in the panel's Line Style buttons —
