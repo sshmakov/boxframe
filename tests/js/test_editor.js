@@ -227,3 +227,107 @@ test("_commitBlockMove: a box cannot be dropped into its own child", async () =>
     assert.equal(calls[0].props.x, 0);
     assert.equal(calls[0].props.y, 0);
 });
+
+// ── Selection: drag / hover-resize must not select ────────
+
+// Simulates a mousedown on a block (the "pending" state) and a mousemove
+// past the 3px click threshold, which starts the move-drag.
+function startMoveDrag(app, block) {
+    app._ensurePreviewEl = () => null; // no DOM in node
+    app._showPreview = () => {};
+    app.dragMode = "pending";
+    app.pendingBlock = block;
+    app.pendingToggle = false;
+    app.dragStartX = 100;
+    app.dragStartY = 100;
+    app.onCanvasMouseMove({ clientX: 110, clientY: 105, preventDefault() {} });
+}
+
+test("drag start does not select the block (selection only on click)", () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    startMoveDrag(app, app.blocks[0]);
+
+    assert.equal(app.dragMode, "move");
+    assert.equal(app.dragBlock.id, "b1");
+    assert.deepEqual(app.selectedIds, []);
+});
+
+test("dragging a block of an existing multi-selection moves the group", () => {
+    const app = appWith([
+        block("b1", "box", 2, 2, 20, 4),
+        block("b2", "box", 30, 2, 10, 4),
+    ]);
+    app.selectedIds = ["b1", "b2"];
+    startMoveDrag(app, app.blocks[0]);
+
+    assert.equal(app.dragMode, "move");
+    assert.equal(app.dragGroup, true);
+    assert.deepEqual(app.selectedIds, ["b1", "b2"]);
+});
+
+test("hover-resize does not select the block", () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    let target = null;
+    app._startResizeDrag = (b) => { target = b; };
+
+    const e = {
+        button: 0,
+        target: {
+            closest: (sel) =>
+                sel === ".block-preview" ? { dataset: { blockId: "b1" } } : null,
+        },
+    };
+    app.onResizeHandleMouseDown(e);
+
+    assert.equal(target.id, "b1");
+    assert.deepEqual(app.selectedIds, []);
+});
+
+test("_startResizeDrag: a single block resizes itself (no group)", () => {
+    const app = appWith([
+        block("b1", "box", 2, 2, 20, 4),
+        block("b2", "box", 30, 2, 10, 4),
+    ]);
+    app.charWidth = 8;
+    app.charHeight = 16;
+    app._ensurePreviewEl = () => null;
+    app._setPreviewMode = () => {};
+    app._showPreview = () => {};
+    // A single selection is not a group either
+    app.selectedIds = ["b1"];
+
+    app._startResizeDrag(app.blocks[0], {
+        clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {},
+    });
+
+    assert.equal(app.dragMode, "resize");
+    assert.equal(app.resizeGroup, false);
+    assert.equal(app.dragBlock.id, "b1");
+    assert.equal(app.resizeStartW, 20);
+    assert.equal(app.resizeStartH, 4);
+});
+
+test("_startResizeDrag: a block from a multi-selection resizes the group bbox", () => {
+    const app = appWith([
+        block("b1", "box", 2, 2, 20, 4),
+        block("b2", "box", 30, 2, 10, 4),
+    ]);
+    app.charWidth = 8;
+    app.charHeight = 16;
+    app._ensurePreviewEl = () => null;
+    app._setPreviewMode = () => {};
+    app._showPreview = () => {};
+    app.selectedIds = ["b1", "b2"];
+
+    app._startResizeDrag(app.blocks[1], {
+        clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {},
+    });
+
+    assert.equal(app.dragMode, "resize");
+    assert.equal(app.resizeGroup, true);
+    // Group bbox: x 2..40, y 2..6
+    assert.equal(app.resizePreviewX, 2);
+    assert.equal(app.resizePreviewY, 2);
+    assert.equal(app.resizeStartW, 38);
+    assert.equal(app.resizeStartH, 4);
+});

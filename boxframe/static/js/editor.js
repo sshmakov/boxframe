@@ -601,10 +601,9 @@ function editorApp() {
             const block = this.blocks.find(b => b.id === blockPreview.dataset.blockId);
             if (!block) return;
 
-            // Hover-resize selects the block first — the selection frame
-            // takes over the handle from here on.
-            this.selectBlock(block.id);
-            this._startResizeDrag(e);
+            // Hover-resize does not select the block — the selection
+            // (and the properties panel) only changes on a click.
+            this._startResizeDrag(block, e);
         },
 
         // Resize handle on the selection frame (visible while a block is
@@ -615,16 +614,19 @@ function editorApp() {
 
             if (!this.selectedBlock) return;
 
-            this._startResizeDrag(e);
+            this._startResizeDrag(this.selectedBlock, e);
         },
 
-        _startResizeDrag(e) {
-            const sel = this.selectedBlocks;
+        _startResizeDrag(block, e) {
+            // A block that is part of a multi-selection resizes the whole
+            // group (the selection frame's handle); otherwise just itself.
+            const sel = (this.selectedIds.length > 1 && this.selectedIds.includes(block.id))
+                ? this.selectedBlocks
+                : [block];
             if (!sel.length) return;
-            const block = sel[0];
 
             this.dragMode = 'resize';
-            this.dragBlock = block;
+            this.dragBlock = sel[0];
             this.resizeGroup = sel.length > 1;
             if (this.resizeGroup) {
                 // Group bbox: the preview tracks the bounding box, each
@@ -835,8 +837,9 @@ function editorApp() {
                             id: b.id, x: b.x, y: b.y,
                         }));
                     } else {
-                        // Selecting a single block on drag start
-                        this.selectBlock(this.dragBlock.id);
+                        // A plain drag does not select the block — the
+                        // selection (and the properties panel) only changes
+                        // on a click.
                         const preview = this._ensurePreviewEl();
                         if (preview) {
                             preview.style.width = (this.dragBlock.width * this.charWidth) + 'px';
