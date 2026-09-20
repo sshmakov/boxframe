@@ -50,45 +50,45 @@
 
 ## Данные / API
 
-- [ ] Проверить каскадное удаление детей в `LayoutService.delete_block` и
+- [x] Проверить каскадное удаление детей в `LayoutService.delete_block` и
       `batch_blocks` (тесты: удаление родителя удаляет всех потомков;
       undo/redo через `replace_blocks` восстанавливает)
-- [ ] Re-parenting в `update_block`/`batch_blocks`: валидация нового
+- [x] Re-parenting в `update_block`/`batch_blocks`: валидация нового
       `parent_id` (родитель существует, тот же layout) и запрет циклов
       (блок не может стать потомком самого себя)
 
 ## Редактор (editor.js)
 
-- [ ] Drop из палитры: hit-test точки drop по существующим блокам — если
+- [x] Drop из палитры: hit-test точки drop по существующим блокам — если
       точка внутри `box` (верхнего по z), создать блок с `parent_id` и
       относительными x/y (позиция drop минус позиция родителя минус
       padding)
-- [ ] Move drag: при отпускании над `box` (не являющимся его потомком) —
+- [x] Move drag: при отпускании над `box` (не являющимся его потомком) —
       re-parenting с переводом координат; при вытаскивании из контейнера —
       re-parenting в корень с переводом в абсолютные координаты
-- [ ] Hit-testing: абсолютные координаты детей (родитель + padding +
+- [x] Hit-testing: абсолютные координаты детей (родитель + padding +
       относительные) для выделения, drag и marquee
-- [ ] `deleteBlock`: удалять из `this.blocks` блок и всех его потомков
-- [ ] Undo/redo: re-parenting — один шаг истории (через существующие
+- [x] `deleteBlock`: удалять из `this.blocks` блок и всех его потомков
+- [x] Undo/redo: re-parenting — один шаг истории (через существующие
       snapshot-стеки / batch)
 
 ## Рендерер (renderer.py + core/renderer.js, parity)
 
-- [ ] HTML-превью: позиционировать детей по абсолютным координатам
+- [x] HTML-превью: позиционировать детей по абсолютным координатам
       (родитель + padding + относительные), вложить в div родителя с
       `overflow: hidden` (отсечение)
-- [ ] ASCII: сохранить clamp детей во внутренний размер контейнера —
+- [x] ASCII: сохранить clamp детей во внутренний размер контейнера —
       проверить, что дети не рисуются поверх/за рамкой
-- [ ] Parity: Python ↔ JS для вложенных макетов (ASCII + превью)
+- [x] Parity: Python ↔ JS для вложенных макетов (ASCII + превью)
 
 ## Тесты
 
-- [ ] `tests/test_renderer.py` + `tests/js/test_renderer.js`: клип детей по
+- [x] `tests/test_renderer.py` + `tests/js/test_renderer.js`: клип детей по
       рамке контейнера, box внутри box, ребёнок больше родителя
-- [ ] `tests/api/test_layouts.py`: re-parent через update/batch, каскадное
+- [x] `tests/api/test_layouts.py`: re-parent через update/batch, каскадное
       удаление, валидация цикла
-- [ ] `pytest tests/test_js_renderer_parity.py` — parity
-- [ ] Полный прогон: unit/API + `node --test "tests/js/*.js"` + e2e
+- [x] `pytest tests/test_js_renderer_parity.py` — parity
+- [x] Полный прогон: unit/API + `node --test "tests/js/*.js"` + e2e
 
 # Исследование
 
@@ -122,7 +122,83 @@
 
 # Выполнение задачи
 
-(не начато — задача в бэклоге)
+Выполнено (2026-09-20). Итог: `box` — полноценный контейнер в редакторе;
+вложенность достижима из UI, ASCII и HTML-представления согласованы.
+
+## Редактор (editor.js)
+
+- `_absoluteRect(block)` — абсолютные координаты блока (ход по цепочке
+  родителей, +1-cell padding на каждом уровне). Используются везде, где
+  раньше были «сырые» x/y: hit-testing (mousedown, dblclick), marquee,
+  оверлеи (рамка выделения, properties-панель, edit-overlay), resize,
+  nudge.
+- `_findDropContainer(cx, cy, excludeIds)` — внутренняя `box`, абсолютная
+  область которой содержит точку (максимальная глубина); `excludeIds` —
+  поддерево перетаскиваемого блока (защита от циклов).
+- Drop из палитры (`onCanvasDrop`): центр падающего блока внутри `box` →
+  `parent_id` + относительные координаты (abs − parentAbs − 1).
+- Move drag (`_commitBlockMove`): центр блока при отпускании внутри `box`
+  (кроме собственного поддерева) → re-parenting в относительные; блок с
+  родителем, отпущенный вне контейнера → `parent_id: null` + абсолютные.
+- `deleteBlock`/`deleteSelection`: из `this.blocks` удаляется весь
+  поддерево (BFS `_subtreeIds`), а не только корень.
+- `duplicateBlock`: копия сохраняет `parent_id`.
+
+## Store / API / сервис
+
+- `core/store.js`: `updateBlock`/`batchBlocks` всегда применяют
+  `parent_id` — `null` значимое значение (un-parenting), в отличие от
+  прочих null.
+- `api/layouts.py`: PUT блока и batch принимают явный `parent_id`
+  (включая `null`) через `model_fields_set`. `_serialize_blocks_for_html`
+  сделан рекурсивным — ранее вложенность была только на один уровень, и
+  web-редактор терял внуков в HTML-превью (закреплено тестом
+  `test_render_nested_three_levels_html_preview`).
+- `layout_service.py`: `_validate_reparent` — родитель существует и в том
+  же layout; цикл запрещён (ход по цепочке предков). Применяется в
+  `update_block` и `batch_blocks`.
+
+## Рендерер (renderer.py + core/renderer.js, parity)
+
+- HTML-превью: дети вложены в div родителя и позиционируются по
+  абсолютным координатам (parentAbs + 1 + relative); у родителя
+  `overflow: hidden` — отсечение вылезших детей.
+- ASCII: clamp детей во внутренний размер контейнера сохранён
+  (проверен и зафиксирован тестами: ребёнок больше родителя, box в box).
+
+## Undo/redo
+
+Re-parenting и un-parenting — один шаг истории (snapshot-стеки; для
+групп — batch). Закреплено тестами `tests/js/test_history.js`.
+
+## Тесты
+
+- `tests/js/test_editor.js` (новый, 16 тестов): `_absoluteRect`
+  (root/child/grandchild/missing-parent), `_absToRel`, `_subtreeIds`,
+  `_depth`, `_findDropContainer` (пусто/не-box/внутренний/исключение
+  поддерева), `_commitBlockMove` (drop в box → relative, drag-out →
+  un-parent, move по корню, box в собственный ребёнок — цикл игнорируется).
+- `tests/js/test_store.js` (+3): `parent_id=null` в update/batch
+  un-parents; re-parenting с parent_id.
+- `tests/js/test_history.js` (+2): re-parenting/un-parenting — один шаг
+  undo/redo.
+- `tests/api/test_layouts.py` (+7): каскадное удаление (delete/batch),
+  re-parent через update/batch, цикл/сам в себя/чужой ребёнок/несуществующий
+  родитель — 422, HTML-превью на три уровня вложенности.
+- `tests/test_renderer.py` + `tests/js/test_renderer.js`: дети в
+  HTML-превью (вложенность, позиционирование, ребёнок больше родителя —
+  clip), box внутри box.
+- `tests/test_js_renderer_parity.py`: parity для вложенных макетов
+  (ASCII + HTML-превью, включая ребёнка больше родителя).
+- `tests/e2e/test_editor.py` (+2): drag блока в box (re-parenting,
+  координаты relative), drag ребёнка из box (un-parenting, absolute).
+  Плюс `_wait_editor_ready` — ожидание инициализации Alpine-приложения
+  (глобальные mouse-слушатели bind-ятся после асинхронной загрузки;
+  canvas-операции до этого молча теряются — без ожидания drag-тесты
+  были flaky).
+
+Результат полного прогона: 134 unit/API (pytest, без e2e) + 137 JS
+(node --test) + 54 e2e (Playwright) — все зелёные.
 
 # Замечания
 
@@ -135,9 +211,22 @@
    самого себя (drop box на собственного ребёнка — игнорировать).
 4. Групповой drag (мульти-выделение) — правило re-parenting определить при
    реализации: весь группой, если все элементы над контейнером, либо
-   только перетаскиваемый.
+   только перетаскиваемый. **Решено:** re-parenting — только одиночный
+   drag; групповой move/nudge сдвигает блоки относительным дельтой и
+   не меняет `parent_id`.
 5. Задача говорит о `box`, но рендерер/модель не ограничивают тип
    контейнера — логика drop/drag может работать и для других типов с
    рамкой; начать с `box`, расширение — в последующих задачах.
+   **Решено:** контейнер в редакторе — только `box`
+   (`_findDropContainer` фильтрует `block_type === 'box'`).
 6. При конкретизации файл получает номер (следующий свободный) и переезжает
    в подпапку десятка, из backlog удаляется (см. `tasks/README.md`).
+7. e2e: глобальные mouse-слушатели редактора bind-ятся в `init()` только
+   после асинхронной загрузки (fetchInfo/fetchBlocks/refreshRender) —
+   canvas-операции, начатые раньше, молча теряются (mousedown срабатывает,
+   mousemove/mouseup — нет). В e2e перед drag/marquee ждать инициализацию
+   (`_wait_editor_ready`: `!loading && blocks.length === n && charWidth > 0`).
+8. `base.html` грузит HTMX с CDN (unpkg), тогда как Alpine вендорится
+   локально — e2e-тесты зависят от внешней сети (при недоступном CDN
+   `page.goto` висит до таймаута «load»). Кандидат на вендоринг
+   `htmx.min.js` в `static/js/`.

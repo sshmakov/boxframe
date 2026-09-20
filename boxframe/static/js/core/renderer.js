@@ -110,7 +110,16 @@
 
     // ── Grid drawing (ports of the PseudoGraphicRenderer methods) ──
 
-    function drawBorder(block, style, grid, gw, gh) {
+    // Write a cell, respecting the grid bounds and the active clip rect
+    // (half-open [x1, x2) × [y1, y2)) — the clip keeps a container's
+    // children from being drawn past the parent's border.
+    function setCell(grid, gw, gh, clip, x, y, ch) {
+        if (x < 0 || y < 0 || x >= gw || y >= gh) return;
+        if (clip && (x < clip[0] || y < clip[1] || x >= clip[2] || y >= clip[3])) return;
+        grid[y][x] = ch;
+    }
+
+    function drawBorder(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
         var w = Math.min(block.width, gw - x);
@@ -118,40 +127,40 @@
 
         if (w < 2 || h < 2) return;
 
-        grid[y][x] = style.tl;
-        grid[y][x + w - 1] = style.tr;
-        grid[y + h - 1][x] = style.bl;
-        grid[y + h - 1][x + w - 1] = style.br;
+        setCell(grid, gw, gh, clip, x, y, style.tl);
+        setCell(grid, gw, gh, clip, x + w - 1, y, style.tr);
+        setCell(grid, gw, gh, clip, x, y + h - 1, style.bl);
+        setCell(grid, gw, gh, clip, x + w - 1, y + h - 1, style.br);
 
         for (var i = 1; i < w - 1; i++) {
-            grid[y][x + i] = style.h;
-            grid[y + h - 1][x + i] = style.h;
+            setCell(grid, gw, gh, clip, x + i, y, style.h);
+            setCell(grid, gw, gh, clip, x + i, y + h - 1, style.h);
         }
         for (var j = 1; j < h - 1; j++) {
-            grid[y + j][x] = style.v;
-            grid[y + j][x + w - 1] = style.v;
+            setCell(grid, gw, gh, clip, x, y + j, style.v);
+            setCell(grid, gw, gh, clip, x + w - 1, y + j, style.v);
         }
     }
 
-    function drawLine(block, style, grid, gw, gh) {
+    function drawLine(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 1));
         var y = Math.max(0, Math.min(block.y, gh - 1));
 
         if (block.block_type === "hline") {
             var w = Math.min(block.width, gw - x);
             for (var i = 0; i < Math.max(1, w); i++) {
-                grid[y][x + i] = style.h;
+                setCell(grid, gw, gh, clip, x + i, y, style.h);
             }
         } else { // vline
             var h = Math.min(block.height, gh - y);
             for (var j = 0; j < Math.max(1, h); j++) {
-                grid[y + j][x] = style.v;
+                setCell(grid, gw, gh, clip, x, y + j, style.v);
             }
         }
     }
 
     // Port of PseudoGraphicRenderer._draw_button
-    function drawButton(block, style, grid, gw, gh) {
+    function drawButton(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
         var w = Math.min(block.width, gw - x);
@@ -163,26 +172,26 @@
 
         if (framed) {
             if (h === 1) {
-                grid[y][x] = "[";
-                grid[y][x + w - 1] = "]";
+                setCell(grid, gw, gh, clip, x, y, "[");
+                setCell(grid, gw, gh, clip, x + w - 1, y, "]");
             } else {
                 // Side borders on all rows
                 for (var j = 0; j < h; j++) {
-                    grid[y + j][x] = style.v;
-                    grid[y + j][x + w - 1] = style.v;
+                    setCell(grid, gw, gh, clip, x, y + j, style.v);
+                    setCell(grid, gw, gh, clip, x + w - 1, y + j, style.v);
                 }
                 // Bottom border
-                grid[y + h - 1][x] = style.bl;
-                grid[y + h - 1][x + w - 1] = style.br;
+                setCell(grid, gw, gh, clip, x, y + h - 1, style.bl);
+                setCell(grid, gw, gh, clip, x + w - 1, y + h - 1, style.br);
                 for (var i = 1; i < w - 1; i++) {
-                    grid[y + h - 1][x + i] = style.h;
+                    setCell(grid, gw, gh, clip, x + i, y + h - 1, style.h);
                 }
                 if (h >= 3) {
                     // Top border
-                    grid[y][x] = style.tl;
-                    grid[y][x + w - 1] = style.tr;
+                    setCell(grid, gw, gh, clip, x, y, style.tl);
+                    setCell(grid, gw, gh, clip, x + w - 1, y, style.tr);
                     for (var k = 1; k < w - 1; k++) {
-                        grid[y][x + k] = style.h;
+                        setCell(grid, gw, gh, clip, x + k, y, style.h);
                     }
                 }
             }
@@ -196,15 +205,13 @@
             if (innerW > 0 && row < gh) {
                 var label = String(block.content).split("\n")[0].slice(0, innerW);
                 for (var c = 0; c < label.length; c++) {
-                    if (innerX + c < gw) {
-                        grid[row][innerX + c] = label[c];
-                    }
+                    setCell(grid, gw, gh, clip, innerX + c, row, label[c]);
                 }
             }
         }
     }
 
-    function drawContent(block, grid, gw, gh) {
+    function drawContent(block, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
         var w = Math.min(block.width, gw - x);
@@ -222,7 +229,7 @@
                 var hx = x + 1, hy = y + 1;
                 for (var i = 0; i < hint.length; i++) {
                     if (hx + i < x + w - 1 && hy < gh) {
-                        grid[hy][hx + i] = hint[i];
+                        setCell(grid, gw, gh, clip, hx + i, hy, hint[i]);
                     }
                 }
             }
@@ -243,19 +250,39 @@
             if (row >= gh) break;
             var line = lines[lineIdx];
             for (var colIdx = 0; colIdx < line.length; colIdx++) {
-                var col = contentX + colIdx;
-                if (col < gw) {
-                    grid[row][col] = line[colIdx];
-                }
+                setCell(grid, gw, gh, clip, contentX + colIdx, row, line[colIdx]);
             }
         }
     }
 
-    function renderChildrenInContainer(parent, style, grid, gw, gh, allBlocks) {
+    // Children are placed at the parent's origin + 1-cell padding + their
+    // relative coordinates and clipped to the parent's inner area (the
+    // border is not overdrawn) — mirrors Python's
+    // PseudoGraphicRenderer._render_children_in_container.
+    function renderChildrenInContainer(parent, style, grid, gw, gh, allBlocks, clip) {
         var padX = 1, padY = 1;
         var children = allBlocks
             .filter(function (b) { return b.parent_id === parent.id; })
             .sort(function (a, b) { return (a.y - b.y) || (a.x - b.x); });
+
+        // Inner area of the parent (half-open), in absolute grid coordinates
+        var inner = [
+            parent.x + padX,
+            parent.y + padY,
+            parent.x + parent.width - padX,
+            parent.y + parent.height - padY,
+        ];
+        if (inner[2] <= inner[0] || inner[3] <= inner[1]) return; // no inner area
+        // Intersect with the active clip (nested containers clip cumulatively)
+        if (clip) {
+            inner = [
+                Math.max(inner[0], clip[0]),
+                Math.max(inner[1], clip[1]),
+                Math.min(inner[2], clip[2]),
+                Math.min(inner[3], clip[3]),
+            ];
+            if (inner[2] <= inner[0] || inner[3] <= inner[1]) return;
+        }
 
         for (var i = 0; i < children.length; i++) {
             var child = children[i];
@@ -264,44 +291,44 @@
                 id: child.id,
                 x: parent.x + padX + child.x,
                 y: parent.y + padY + child.y,
-                width: Math.min(child.width, parent.width - 2 * padX),
-                height: Math.min(child.height, parent.height - 2 * padY),
+                width: child.width,
+                height: child.height,
                 block_type: child.block_type,
                 content: child.content,
                 border_style: child.border_style,
                 order: child.order,
                 parent_id: child.parent_id,
             };
-            renderBlock(c, grid, gw, gh, allBlocks);
+            renderBlock(c, grid, gw, gh, allBlocks, inner);
         }
     }
 
-    function renderBlock(block, grid, gw, gh, allBlocks) {
+    function renderBlock(block, grid, gw, gh, allBlocks, clip) {
         var style = BORDERS[block.border_style] || BORDERS.solid;
 
         if (block.block_type === "hline" || block.block_type === "vline") {
             if (block.border_style !== "none") {
-                drawLine(block, style, grid, gw, gh);
+                drawLine(block, style, grid, gw, gh, clip);
             }
             return;
         }
 
         if (block.block_type === "button") {
-            drawButton(block, style, grid, gw, gh);
+            drawButton(block, style, grid, gw, gh, clip);
             return;
         }
 
         var hasBorder = block.border_style !== "none" && block.width >= 2 && block.height >= 2;
 
         if (hasBorder) {
-            drawBorder(block, style, grid, gw, gh);
-            drawContent(block, grid, gw, gh);
+            drawBorder(block, style, grid, gw, gh, clip);
+            drawContent(block, grid, gw, gh, clip);
             var hasChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
             if (hasChildren) {
-                renderChildrenInContainer(block, style, grid, gw, gh, allBlocks);
+                renderChildrenInContainer(block, style, grid, gw, gh, allBlocks, clip);
             }
         } else {
-            drawContent(block, grid, gw, gh);
+            drawContent(block, grid, gw, gh, clip);
         }
     }
 
@@ -364,7 +391,7 @@
         });
 
         for (var i = 0; i < sorted.length; i++) {
-            renderBlock(sorted[i], grid, canvas[0], canvas[1], blocks);
+            renderBlock(sorted[i], grid, canvas[0], canvas[1], blocks, null);
         }
 
         var lines = grid.map(function (row) { return row.join("").replace(/\s+$/, ""); });
@@ -400,54 +427,110 @@
             '" style="width:100%;height:100%;"></div>';
     }
 
+    // Build the HTML for a block and its nested children (recursive).
+    // A root block is positioned relative to the canvas (paddingOffset +
+    // grid * charSize). A child is positioned relative to its parent's div
+    // (1-cell container padding + relative grid * charSize); the parent's
+    // overflow:hidden clips it at the container border — mirroring the ASCII
+    // clip. Must stay in sync with Python's _block_preview_html.
+    function _blockPreviewHtml(bd, opts, isRoot) {
+        var x = bd.x || 0;
+        var y = bd.y || 0;
+        var width = bd.width != null ? bd.width : 20;
+        var height = bd.height != null ? bd.height : 3;
+        var order = bd.order || 0;
+        var blockType = bd.block_type || "box";
+        var borderStyle = bd.border_style || "solid";
+
+        var left, top;
+        if (isRoot) {
+            left = round1(opts.paddingOffset + x * opts.charWidthPx);
+            top = round1(opts.paddingOffset + y * opts.charHeightPx);
+        } else {
+            left = round1((1 + x) * opts.charWidthPx);
+            top = round1((1 + y) * opts.charHeightPx);
+        }
+        var widthPx = round1(width * opts.charWidthPx);
+        var heightPx = round1(height * opts.charHeightPx);
+
+        var children = bd.children || [];
+        // fmtPx already appends "px" (mirrors Python's _fmt_px + "px")
+        var style = "position:absolute;left:" + fmtPx(left) + ";top:" + fmtPx(top) + ";width:" + fmtPx(widthPx) + ";height:" + fmtPx(heightPx) + ";z-index:" + (10 + order) + ";";
+        if (children.length) {
+            style += "overflow:hidden;";
+        }
+
+        var borderMap = { solid: "solid", dashed: "dashed", dotted: "dotted", double: "double", none: "none" };
+        var bs = borderMap[borderStyle] || "solid";
+        var borderHtml;
+        if (blockType === "hline" || blockType === "vline") {
+            var direction = blockType === "hline" ? "h" : "v";
+            borderHtml = '<div class="block-line block-line--' + direction + ' block-line--' + bs + '"></div>';
+        } else {
+            borderHtml = '<div class="block-border block-border--' + bs + '" style="width:100%;height:100%;"></div>';
+        }
+
+        var childrenHtml = "";
+        children.forEach(function (c) {
+            childrenHtml += _blockPreviewHtml(c, opts, false);
+        });
+
+        return '<div class="block-preview" data-block-id="' + bd.id + '" style="' + style + '" data-order="' + order + '">' +
+            '<div class="block-inner block-' + blockType + '">' +
+            borderHtml +
+            '</div>' +
+            '<div class="resize-handle" title="Drag to resize"></div>' +
+            childrenHtml +
+            '</div>';
+    }
+
+    function _previewOpts(opts) {
+        opts = opts || {};
+        return {
+            charWidthPx: opts.charWidthPx != null ? opts.charWidthPx : 12.0,
+            charHeightPx: opts.charHeightPx != null ? opts.charHeightPx : 14.4,
+            paddingOffset: opts.paddingOffset != null ? opts.paddingOffset : 16.0,
+        };
+    }
+
     /**
      * Generate an HTML preview div for one block with a resize handle.
      * opts: { charWidthPx, charHeightPx, paddingOffset }
      */
     function toHtmlPreview(block, opts) {
-        opts = opts || {};
-        var charWidthPx = opts.charWidthPx != null ? opts.charWidthPx : 12.0;
-        var charHeightPx = opts.charHeightPx != null ? opts.charHeightPx : 14.4;
-        var paddingOffset = opts.paddingOffset != null ? opts.paddingOffset : 16.0;
-
-        var left = round1(paddingOffset + block.x * charWidthPx);
-        var top = round1(paddingOffset + block.y * charHeightPx);
-        var w = round1(block.width * charWidthPx);
-        var h = round1(block.height * charHeightPx);
-        // z-index: base 10 + order so default order=0 → z-index 10
-        var zIndex = 10 + (block.order || 0);
-
-        return (
-            '<div class="block-preview" data-block-id="' + block.id + '"' +
-            ' style="position:absolute;left:' + fmtPx(left) + ";top:" + fmtPx(top) + ";" +
-            "width:" + fmtPx(w) + ";height:" + fmtPx(h) + ";z-index:" + zIndex + ';"' +
-            ' data-order="' + (block.order || 0) + '">' +
-            '<div class="block-inner block-' + block.block_type + '">' +
-            borderHtml(block) +
-            "</div>" +
-            '<div class="resize-handle" title="Drag to resize"></div>' +
-            "</div>"
-        );
+        return _blockPreviewHtml(block, _previewOpts(opts), true);
     }
 
     /**
-     * Generate HTML previews for all blocks (children flattened onto the
-     * same layer, positioned by their own x/y — same as the server).
+     * Generate HTML previews for all blocks. Takes a flat list (children
+     * reference their parent via parent_id) and nests the children inside
+     * their parent's div so the parent's overflow:hidden clips them —
+     * mirroring the ASCII clip and the Python renderer.
      */
     function renderHtmlPreview(blocks, opts) {
-        var byId = new Map(blocks.map(function (b) { return [b.id, b]; }));
-        var parts = [];
-        for (var i = 0; i < blocks.length; i++) {
-            var block = blocks[i];
-            if (block.parent_id && byId.has(block.parent_id)) continue;
-            parts.push(toHtmlPreview(block, opts));
-            for (var j = 0; j < blocks.length; j++) {
-                if (blocks[j].parent_id === block.id) {
-                    parts.push(toHtmlPreview(blocks[j], opts));
-                }
+        var o = _previewOpts(opts);
+        var nodes = new Map();
+        blocks.forEach(function (b) {
+            nodes.set(b.id, {
+                id: b.id,
+                x: b.x, y: b.y,
+                width: b.width, height: b.height,
+                block_type: b.block_type,
+                border_style: b.border_style,
+                order: b.order,
+                children: [],
+            });
+        });
+        var roots = [];
+        blocks.forEach(function (b) {
+            var node = nodes.get(b.id);
+            if (b.parent_id && nodes.has(b.parent_id)) {
+                nodes.get(b.parent_id).children.push(node);
+            } else {
+                roots.push(node);
             }
-        }
-        return parts.join("\n");
+        });
+        return roots.map(function (r) { return _blockPreviewHtml(r, o, true); }).join("\n");
     }
 
     function escapeHtml(s) {

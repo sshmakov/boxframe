@@ -177,6 +177,71 @@ test("undo of clear restores all blocks", async () => {
     assert.ok(blockById(restored, c.id));
 });
 
+test("undo of a cascade delete restores the whole subtree", async () => {
+    const store = makeStore();
+    const parent = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    const child = await store.createBlock({ block_type: "box", x: 1, y: 1, width: 20, height: 6, parent_id: parent.id });
+    const grandchild = await store.createBlock({ block_type: "text", x: 1, y: 1, content: "hi", parent_id: child.id });
+
+    // Deleting the container removes the whole subtree
+    await store.deleteBlock(parent.id);
+    assert.equal((await blocks(store)).length, 0);
+
+    await store.undo();
+    const restored = await blocks(store);
+    assert.equal(restored.length, 3);
+    assert.ok(blockById(restored, parent.id));
+    const rChild = blockById(restored, child.id);
+    assert.ok(rChild);
+    assert.equal(rChild.parent_id, parent.id);
+    const rGrandchild = blockById(restored, grandchild.id);
+    assert.ok(rGrandchild);
+    assert.equal(rGrandchild.parent_id, child.id);
+});
+
+test("re-parenting a block is a single undo/redo step", async () => {
+    const store = makeStore();
+    const parent = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    const child = await store.createBlock({ block_type: "text", x: 40, y: 0, width: 8, height: 2 });
+    assert.equal(store.undoCount, 2); // two creates
+
+    // Drag the child into the container (re-parent + move) — one entry
+    await store.updateBlock(child.id, { parent_id: parent.id, x: 2, y: 2 });
+    assert.equal(store.undoCount, 3);
+    let c = blockById(await blocks(store), child.id);
+    assert.equal(c.parent_id, parent.id);
+    assert.equal(c.x, 2);
+
+    // Undo reverts the re-parent (back to root at the old position)
+    await store.undo();
+    c = blockById(await blocks(store), child.id);
+    assert.equal(c.parent_id, null);
+    assert.equal(c.x, 40);
+
+    // Redo re-applies the re-parent
+    await store.redo();
+    c = blockById(await blocks(store), child.id);
+    assert.equal(c.parent_id, parent.id);
+    assert.equal(c.x, 2);
+});
+
+test("un-parenting (parent_id=null) is undoable", async () => {
+    const store = makeStore();
+    const parent = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    const child = await store.createBlock({ block_type: "text", x: 1, y: 1, width: 8, height: 2, parent_id: parent.id });
+
+    // Drag the child out of the container
+    await store.updateBlock(child.id, { parent_id: null, x: 50, y: 5 });
+    let c = blockById(await blocks(store), child.id);
+    assert.equal(c.parent_id, null);
+    assert.equal(c.x, 50);
+
+    await store.undo();
+    c = blockById(await blocks(store), child.id);
+    assert.equal(c.parent_id, parent.id);
+    assert.equal(c.x, 1);
+});
+
 test("a new mutation after undo clears the redo stack", async () => {
     const store = makeStore();
     await store.createBlock({ block_type: "box", x: 0, y: 0 });

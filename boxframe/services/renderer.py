@@ -132,6 +132,79 @@ def _fmt_px(v: float) -> str:
     return str(v)
 
 
+def _block_preview_html(
+    bd: dict,
+    char_width_px: float,
+    char_height_px: float,
+    padding_offset: float,
+    is_root: bool,
+) -> str:
+    """Build the HTML for a block and its nested children.
+
+    A root block is positioned relative to the canvas (padding_offset +
+    grid * char_size). A child is positioned relative to its parent's div
+    (1-cell container padding + relative grid * char_size); the parent's
+    ``overflow:hidden`` clips it at the container border — mirroring the
+    ASCII clip.
+    """
+    x = bd.get("x", 0)
+    y = bd.get("y", 0)
+    width = bd.get("width", 20)
+    height = bd.get("height", 3)
+    order = bd.get("order", 0)
+    block_type = bd.get("block_type", "box")
+    border_style = bd.get("border_style", "solid")
+
+    if is_root:
+        left = round(padding_offset + x * char_width_px, 1)
+        top = round(padding_offset + y * char_height_px, 1)
+    else:
+        left = round((1 + x) * char_width_px, 1)
+        top = round((1 + y) * char_height_px, 1)
+    width_px = round(width * char_width_px, 1)
+    height_px = round(height * char_height_px, 1)
+
+    children = bd.get("children", [])
+    style = (
+        f"position:absolute;left:{_fmt_px(left)}px;top:{_fmt_px(top)}px;"
+        f"width:{_fmt_px(width_px)}px;height:{_fmt_px(height_px)}px;"
+        f"z-index:{10 + order};"
+    )
+    if children:
+        style += "overflow:hidden;"
+
+    border_map = {
+        "solid": "solid",
+        "dashed": "dashed",
+        "dotted": "dotted",
+        "double": "double",
+        "none": "none",
+    }
+    bs = border_map.get(border_style, "solid")
+    if block_type in ("hline", "vline"):
+        direction = "h" if block_type == "hline" else "v"
+        border_html = f'<div class="block-line block-line--{direction} block-line--{bs}"></div>'
+    else:
+        border_html = f'<div class="block-border block-border--{bs}" style="width:100%;height:100%;"></div>'
+
+    children_html = "".join(
+        _block_preview_html(c, char_width_px, char_height_px, padding_offset, False)
+        for c in children
+    )
+
+    return (
+        f'<div class="block-preview" data-block-id="{bd["id"]}"'
+        f' style="{style}"'
+        f' data-order="{order}">'
+        f'<div class="block-inner block-{block_type}">'
+        f'{border_html}'
+        f'</div>'
+        f'<div class="resize-handle" title="Drag to resize"></div>'
+        f'{children_html}'
+        f'</div>'
+    )
+
+
 # Default canvas size for layouts without set dimensions — the working
 # area the editor shows when nothing else determines the canvas size.
 DEFAULT_CANVAS_WIDTH = 80
@@ -146,6 +219,10 @@ class PseudoGraphicRenderer:
         self.grid_width = grid_width if grid_width is not None else DEFAULT_CANVAS_WIDTH
         self.grid_height = grid_height if grid_height is not None else DEFAULT_CANVAS_HEIGHT
         self.grid: list[list[str]] = [[" " for _ in range(self.grid_width)] for _ in range(self.grid_height)]
+        # Clip rectangle (half-open [x1, x2) × [y1, y2)) that all cell writes
+        # must fall inside while rendering a container's children — this is
+        # what keeps children from being drawn past the parent's border.
+        self._clip: tuple[int, int, int, int] | None = None
 
     @classmethod
     def canvas_size(cls, blocks: list[RenderBlock], width: int | None, height: int | None) -> tuple[int, int]:
@@ -186,6 +263,7 @@ class PseudoGraphicRenderer:
         """
         self.grid_width, self.grid_height = self.canvas_size(blocks, self.grid_width, self.grid_height)
         self.grid = [[" " for _ in range(self.grid_width)] for _ in range(self.grid_height)]
+        self._clip = None
 
         # Sort by order (ascending) — higher order renders on top
         sorted_blocks = sorted(blocks, key=lambda b: b.order)
@@ -197,6 +275,16 @@ class PseudoGraphicRenderer:
         while lines and not lines[-1]:
             lines.pop()
         return "\n".join(lines)
+
+    def _set(self, x: int, y: int, ch: str) -> None:
+        """Write a cell, respecting the grid bounds and the active clip rect."""
+        if not (0 <= x < self.grid_width and 0 <= y < self.grid_height):
+            return
+        if self._clip is not None:
+            cx1, cy1, cx2, cy2 = self._clip
+            if not (cx1 <= x < cx2 and cy1 <= y < cy2):
+                return
+        self.grid[y][x] = ch
 
     def _render_block(self, block: RenderBlock) -> None:
         """Render a single block (including children) onto the grid."""
@@ -237,20 +325,20 @@ class PseudoGraphicRenderer:
             return
 
         # Corners
-        self.grid[y][x] = style["tl"]
-        self.grid[y][x + w - 1] = style["tr"]
-        self.grid[y + h - 1][x] = style["bl"]
-        self.grid[y + h - 1][x + w - 1] = style["br"]
+        self._set(x, y, style["tl"])
+        self._set(x + w - 1, y, style["tr"])
+        self._set(x, y + h - 1, style["bl"])
+        self._set(x + w - 1, y + h - 1, style["br"])
 
         # Top and bottom edges
         for i in range(1, w - 1):
-            self.grid[y][x + i] = style["h"]
-            self.grid[y + h - 1][x + i] = style["h"]
+            self._set(x + i, y, style["h"])
+            self._set(x + i, y + h - 1, style["h"])
 
         # Left and right edges
         for j in range(1, h - 1):
-            self.grid[y + j][x] = style["v"]
-            self.grid[y + j][x + w - 1] = style["v"]
+            self._set(x, y + j, style["v"])
+            self._set(x + w - 1, y + j, style["v"])
 
     def _draw_line(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw an hline (top row) or vline (left column) with style characters."""
@@ -260,11 +348,11 @@ class PseudoGraphicRenderer:
         if block.block_type == "hline":
             w = min(block.width, self.grid_width - x)
             for i in range(max(1, w)):
-                self.grid[y][x + i] = style["h"]
+                self._set(x + i, y, style["h"])
         else:  # vline
             h = min(block.height, self.grid_height - y)
             for j in range(max(1, h)):
-                self.grid[y + j][x] = style["v"]
+                self._set(x, y + j, style["v"])
 
     def _draw_button(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw a button. The shape depends on the height:
@@ -290,24 +378,24 @@ class PseudoGraphicRenderer:
 
         if framed:
             if h == 1:
-                self.grid[y][x] = "["
-                self.grid[y][x + w - 1] = "]"
+                self._set(x, y, "[")
+                self._set(x + w - 1, y, "]")
             else:
                 # Side borders on all rows
                 for j in range(h):
-                    self.grid[y + j][x] = style["v"]
-                    self.grid[y + j][x + w - 1] = style["v"]
+                    self._set(x, y + j, style["v"])
+                    self._set(x + w - 1, y + j, style["v"])
                 # Bottom border
-                self.grid[y + h - 1][x] = style["bl"]
-                self.grid[y + h - 1][x + w - 1] = style["br"]
+                self._set(x, y + h - 1, style["bl"])
+                self._set(x + w - 1, y + h - 1, style["br"])
                 for i in range(1, w - 1):
-                    self.grid[y + h - 1][x + i] = style["h"]
+                    self._set(x + i, y + h - 1, style["h"])
                 if h >= 3:
                     # Top border
-                    self.grid[y][x] = style["tl"]
-                    self.grid[y][x + w - 1] = style["tr"]
+                    self._set(x, y, style["tl"])
+                    self._set(x + w - 1, y, style["tr"])
                     for i in range(1, w - 1):
-                        self.grid[y][x + i] = style["h"]
+                        self._set(x + i, y, style["h"])
 
         # Label — single line, vertically centered, truncated to fit
         if block.content:
@@ -317,8 +405,7 @@ class PseudoGraphicRenderer:
             if inner_w > 0 and row < self.grid_height:
                 label = block.content.split("\n")[0][:inner_w]
                 for i, ch in enumerate(label):
-                    if inner_x + i < self.grid_width:
-                        self.grid[row][inner_x + i] = ch
+                    self._set(inner_x + i, row, ch)
 
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""
@@ -342,7 +429,7 @@ class PseudoGraphicRenderer:
                 hx, hy = x + 1, y + 1
                 for i, ch in enumerate(hint):
                     if hx + i < x + w - 1 and hy < self.grid_height:
-                        self.grid[hy][hx + i] = ch
+                        self._set(hx + i, hy, ch)
             return
 
         # Determine content area
@@ -363,9 +450,7 @@ class PseudoGraphicRenderer:
             if row >= self.grid_height:
                 break
             for col_idx, ch in enumerate(line):
-                col = content_x + col_idx
-                if col < self.grid_width:
-                    self.grid[row][col] = ch
+                self._set(content_x + col_idx, row, ch)
 
     def _wrap_text(self, text: str, width: int) -> list[str]:
         """Wrap text by words to fit within `width` columns.
@@ -414,16 +499,47 @@ class PseudoGraphicRenderer:
         return wrapped
 
     def _render_children_in_container(self, parent: RenderBlock, style: dict[str, str]) -> None:
-        """Render child blocks inside a parent container with padding."""
+        """Render child blocks inside a parent container with padding.
+
+        Children are placed at the parent's origin + 1-cell padding + their
+        relative coordinates, and clipped to the parent's inner area (the
+        border is not overdrawn): a child that is larger than the container,
+        or offset past its edge, is cut off at the border instead of being
+        drawn outside it.
+        """
         pad_x = 1
         pad_y = 1
 
-        for child in sorted(parent.children, key=lambda c: (c.y, c.x)):
-            child.x = parent.x + pad_x + child.x
-            child.y = parent.y + pad_y + child.y
-            child.width = min(child.width, parent.width - 2 * pad_x)
-            child.height = min(child.height, parent.height - 2 * pad_y)
-            self._render_block(child)
+        # Inner area of the parent (half-open), in absolute grid coordinates
+        inner = (
+            parent.x + pad_x,
+            parent.y + pad_y,
+            parent.x + parent.width - pad_x,
+            parent.y + parent.height - pad_y,
+        )
+        if inner[2] <= inner[0] or inner[3] <= inner[1]:
+            return  # no inner area (degenerate container)
+
+        # Intersect with the active clip (nested containers clip cumulatively)
+        if self._clip is not None:
+            inner = (
+                max(inner[0], self._clip[0]),
+                max(inner[1], self._clip[1]),
+                min(inner[2], self._clip[2]),
+                min(inner[3], self._clip[3]),
+            )
+            if inner[2] <= inner[0] or inner[3] <= inner[1]:
+                return
+
+        prev_clip = self._clip
+        self._clip = inner
+        try:
+            for child in sorted(parent.children, key=lambda c: (c.y, c.x)):
+                child.x = parent.x + pad_x + child.x
+                child.y = parent.y + pad_y + child.y
+                self._render_block(child)
+        finally:
+            self._clip = prev_clip
 
     @classmethod
     def render_simple(
@@ -479,37 +595,17 @@ class PseudoGraphicRenderer:
         char_height_px: float = 14.4,
         padding_offset: float = 16.0,
     ) -> str:
-        """Generate an HTML preview with positioned block divs and resize handles."""
-        parts: list[str] = []
-        for bd in blocks_data:
-            rb = RenderBlock(
-                x=bd.get("x", 0),
-                y=bd.get("y", 0),
-                width=bd.get("width", 20),
-                height=bd.get("height", 3),
-                block_type=bd.get("block_type", "box"),
-                content=bd.get("content", ""),
-                border_style=bd.get("border_style", "solid"),
-                order=bd.get("order", 0),
-            )
-            # Flatten children for the preview (all blocks on the same layer)
-            parts.append(rb.to_html_preview(
-                bd["id"], char_width_px, char_height_px, padding_offset,
-            ))
-            for c in bd.get("children", []):
-                crb = RenderBlock(
-                    x=c.get("x", 0),
-                    y=c.get("y", 0),
-                    width=c.get("width", 10),
-                    height=c.get("height", 1),
-                    block_type=c.get("block_type", "box"),
-                    content=c.get("content", ""),
-                    border_style=c.get("border_style", "solid"),
-                    order=c.get("order", 0),
-                )
-                parts.append(crb.to_html_preview(
-                    c["id"], char_width_px, char_height_px, padding_offset,
-                ))
+        """Generate an HTML preview with positioned block divs and resize handles.
+
+        Children are nested inside their parent's div and positioned relative
+        to it (1-cell container padding + relative grid), so the parent's
+        ``overflow:hidden`` clips them at the container border — mirroring the
+        ASCII clip.
+        """
+        parts: list[str] = [
+            _block_preview_html(bd, char_width_px, char_height_px, padding_offset, True)
+            for bd in blocks_data
+        ]
         return "\n".join(parts)
 
     @classmethod

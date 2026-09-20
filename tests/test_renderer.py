@@ -644,6 +644,98 @@ def test_render_html_preview_with_children():
     assert html.count('class="resize-handle"') == 2
 
 
+def _opening_tag(html: str, block_id: str) -> str:
+    """Return the opening ``<div ...>`` tag for the block with the given id."""
+    idx = html.index(f'data-block-id="{block_id}"')
+    start = html.rindex("<div", 0, idx)
+    end = html.index(">", idx) + 1
+    return html[start:end]
+
+
+def test_render_html_preview_child_nested_in_parent():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "child-1", "x": 1, "y": 1, "width": 10, "height": 2,
+            "block_type": "button", "content": "Click", "border_style": "dashed",
+        }],
+    }])
+    parent_tag = _opening_tag(html, "parent")
+    child_tag = _opening_tag(html, "child-1")
+    # The parent has overflow:hidden (it contains children); the child does not
+    assert "overflow:hidden" in parent_tag
+    assert "overflow:hidden" not in child_tag
+    # The child is nested inside the parent: the parent's tag opens first
+    assert html.index('data-block-id="parent"') < html.index('data-block-id="child-1"')
+
+
+def test_render_html_preview_child_positioned_relative_to_parent():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "child-1", "x": 1, "y": 1, "width": 10, "height": 2,
+            "block_type": "button", "content": "Click", "border_style": "dashed",
+        }],
+    }])
+    child_tag = _opening_tag(html, "child-1")
+    # Child positioned relative to the parent: 1-cell padding + relative grid
+    # (1+1)*12 = 24px, (1+1)*14.4 = 28.8px — NOT 16 + 1*12 = 28px (flattened)
+    assert "left:24px" in child_tag
+    assert "top:28.8px" in child_tag
+
+
+def test_render_html_preview_box_in_box():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "outer", "x": 0, "y": 0, "width": 40, "height": 12,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "inner", "x": 2, "y": 2, "width": 20, "height": 6,
+            "block_type": "box", "content": "", "border_style": "dashed",
+            "children": [{
+                "id": "leaf", "x": 1, "y": 1, "width": 8, "height": 2,
+                "block_type": "text", "content": "hi", "border_style": "none",
+            }],
+        }],
+    }])
+    outer_tag = _opening_tag(html, "outer")
+    inner_tag = _opening_tag(html, "inner")
+    leaf_tag = _opening_tag(html, "leaf")
+    # Both containers have overflow:hidden; the leaf does not
+    assert "overflow:hidden" in outer_tag
+    assert "overflow:hidden" in inner_tag
+    assert "overflow:hidden" not in leaf_tag
+    # Nesting order: outer < inner < leaf
+    assert html.index('data-block-id="outer"') < html.index('data-block-id="inner"')
+    assert html.index('data-block-id="inner"') < html.index('data-block-id="leaf"')
+    # inner positioned relative to outer: (1+2)*12=36px, (1+2)*14.4=43.2px
+    assert "left:36px" in inner_tag
+    assert "top:43.2px" in inner_tag
+    # leaf positioned relative to inner: (1+1)*12=24px, (1+1)*14.4=28.8px
+    assert "left:24px" in leaf_tag
+    assert "top:28.8px" in leaf_tag
+
+
+def test_render_html_preview_child_bigger_than_parent():
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 10, "height": 4,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "big", "x": 2, "y": 1, "width": 30, "height": 10,
+            "block_type": "box", "content": "", "border_style": "dashed",
+        }],
+    }])
+    parent_tag = _opening_tag(html, "parent")
+    big_tag = _opening_tag(html, "big")
+    # The oversized child is still nested and clipped by the parent
+    assert "overflow:hidden" in parent_tag
+    assert html.index('data-block-id="parent"') < html.index('data-block-id="big"')
+    # The child keeps its full size — clipping is visual (overflow:hidden)
+    assert "width:360px" in big_tag   # 30*12
+    assert "height:144px" in big_tag  # 10*14.4
+
+
 def test_render_html_preview_dashed_border():
     html = PseudoGraphicRenderer.render_html_preview([{
         "id": "b1",

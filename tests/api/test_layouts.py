@@ -320,6 +320,27 @@ def test_render_without_dimensions_has_no_bounds(client: TestClient):
     assert 'class="layout-bounds"' not in data["html"]
 
 
+def test_render_nested_three_levels_html_preview(client: TestClient):
+    """The HTML preview nests children at arbitrary depth (box in box in box).
+
+    Every block gets its own .block-preview div — including a grandchild two
+    levels deep — and each container clips its children (overflow:hidden).
+    """
+    _, layout_id = _create_project_with_layout(client)
+    parent_id, child_id, grandchild_id = _create_nested(client, layout_id)
+
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert r.status_code == 200
+    html = r.json()["html"]
+    # All three blocks are present, the grandchild included
+    assert html.count('class="block-preview"') == 3
+    assert f'data-block-id="{parent_id}"' in html
+    assert f'data-block-id="{child_id}"' in html
+    assert f'data-block-id="{grandchild_id}"' in html
+    # The containers clip their children
+    assert "overflow:hidden" in html
+
+
 def test_export_layout(client: TestClient):
     """Test exporting a layout."""
     _, layout_id = _create_project_with_layout(client)
@@ -886,3 +907,185 @@ def test_batch_blocks_not_found(client: TestClient):
         json={"delete": []},
     )
     assert r.status_code == 404
+
+
+# ── Container re-parenting & cascade tests ─────────────────
+
+
+def _create_nested(client: TestClient, layout_id: str) -> tuple[str, str, str]:
+    """Create parent → child → grandchild and return their ids."""
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10,
+    })
+    parent_id = r.json()["id"]
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 1, "y": 1, "width": 20, "height": 6,
+        "parent_id": parent_id,
+    })
+    child_id = r.json()["id"]
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text", "x": 1, "y": 1, "width": 8, "height": 2,
+        "parent_id": child_id,
+    })
+    grandchild_id = r.json()["id"]
+    return parent_id, child_id, grandchild_id
+
+
+def test_delete_block_cascades_to_descendants(client: TestClient):
+    """Deleting a container removes all of its descendants."""
+    _, layout_id = _create_project_with_layout(client)
+    parent_id, child_id, grandchild_id = _create_nested(client, layout_id)
+
+    r = client.delete(f"/api/layouts/{layout_id}/blocks/{parent_id}")
+    assert r.status_code == 200
+
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.status_code == 200
+    assert r.json()["blocks"] == []
+
+
+def test_batch_delete_cascades_to_descendants(client: TestClient):
+    """A batch delete of a container removes all of its descendants."""
+    _, layout_id = _create_project_with_layout(client)
+    parent_id, child_id, grandchild_id = _create_nested(client, layout_id)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "delete": [parent_id],
+    })
+    assert r.status_code == 200
+    assert r.json()["deleted"] == [parent_id]
+
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.json()["blocks"] == []
+
+
+def test_reparent_via_update(client: TestClient):
+    """Moving a block into a container via update sets parent_id + relative x/y."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10,
+    })
+    container_id = r.json()["id"]
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "parent_id": container_id, "x": 2, "y": 3,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["parent_id"] == container_id
+    assert data["x"] == 2
+    assert data["y"] == 3
+
+
+def test_reparent_via_batch(client: TestClient):
+    """A batch update can re-parent a block into a container."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10,
+    })
+    container_id = r.json()["id"]
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+    })
+    block_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [{"id": block_id, "parent_id": container_id, "x": 1, "y": 1}],
+    })
+    assert r.status_code == 200
+    updated = r.json()["updated"][0]
+    assert updated["parent_id"] == container_id
+    assert updated["x"] == 1
+
+
+def test_unparent_via_update(client: TestClient):
+    """Setting parent_id to null moves a block back to the root."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10,
+    })
+    container_id = r.json()["id"]
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button", "x": 1, "y": 1, "width": 10, "height": 2,
+        "parent_id": container_id,
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "parent_id": None, "x": 5, "y": 6,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["parent_id"] is None
+    assert data["x"] == 5
+
+
+def test_reparent_cycle_rejected(client: TestClient):
+    """Moving a block into its own descendant is rejected (400)."""
+    _, layout_id = _create_project_with_layout(client)
+    parent_id, child_id, grandchild_id = _create_nested(client, layout_id)
+
+    # Make the parent a child of its own grandchild → cycle
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{parent_id}", json={
+        "parent_id": grandchild_id,
+    })
+    assert r.status_code == 400
+
+    # The parent is unchanged
+    r = client.get(f"/api/layouts/{layout_id}")
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    assert blocks[parent_id]["parent_id"] is None
+
+
+def test_reparent_into_own_child_rejected(client: TestClient):
+    """Dropping a box onto its own direct child is rejected (400)."""
+    _, layout_id = _create_project_with_layout(client)
+    parent_id, child_id, _ = _create_nested(client, layout_id)
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{parent_id}", json={
+        "parent_id": child_id,
+    })
+    assert r.status_code == 400
+
+
+def test_reparent_self_rejected(client: TestClient):
+    """A block cannot become its own parent (400)."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 3,
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "parent_id": block_id,
+    })
+    assert r.status_code == 400
+
+
+def test_reparent_missing_parent_rejected(client: TestClient):
+    """Re-parenting to a non-existent parent is rejected (400)."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 3,
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "parent_id": "00000000-0000-0000-0000-000000000000",
+    })
+    assert r.status_code == 400
+
+
+def test_create_block_missing_parent_rejected(client: TestClient):
+    """Creating a block with a non-existent parent is rejected (400)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text", "x": 1, "y": 1, "width": 8, "height": 2,
+        "parent_id": "00000000-0000-0000-0000-000000000000",
+    })
+    assert r.status_code == 400

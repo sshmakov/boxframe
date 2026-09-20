@@ -129,6 +129,11 @@ class LayoutService:
             max_order = result.scalar() or 0
             order = max_order + 1
 
+        # Validate a parent (exists, same layout, no cycle) before inserting
+        block_id = str(uuid.uuid4())
+        if parent_id:
+            await self._validate_reparent(block_id, parent_id, layout_id)
+
         # Lines are always 1 cell thick — the thin dimension is fixed
         if block_type == "hline":
             height = 1
@@ -136,6 +141,7 @@ class LayoutService:
             width = 1
 
         block = Block(
+            id=block_id,
             layout_id=layout_id,
             block_type=block_type,
             x=x,
@@ -156,6 +162,10 @@ class LayoutService:
     async def update_block(self, block_id: str, **kwargs) -> Block | None:
         block = await self.db.get(Block, block_id)
         if block:
+            # Validate a re-parenting before applying it (parent exists,
+            # same layout, no cycle)
+            if "parent_id" in kwargs:
+                await self._validate_reparent(block_id, kwargs["parent_id"], block.layout_id)
             for key, value in kwargs.items():
                 if hasattr(block, key):
                     setattr(block, key, value)
@@ -240,6 +250,36 @@ class LayoutService:
     async def get_block(self, block_id: str) -> Block | None:
         return await self.db.get(Block, block_id)
 
+    async def _validate_reparent(
+        self, block_id: str, parent_id: str | None, layout_id: str
+    ) -> None:
+        """Validate a re-parenting (or a create with a parent).
+
+        Raises ValueError when the parent is missing, belongs to another
+        layout, or the change would create a cycle (a block becoming its own
+        descendant — e.g. dropping a box onto one of its own children).
+        """
+        if parent_id is None:
+            return
+        if parent_id == block_id:
+            raise ValueError("A block cannot be its own parent")
+        parent = await self.db.get(Block, parent_id)
+        if parent is None or parent.layout_id != layout_id:
+            raise ValueError("Parent block not found in this layout")
+        # Walk up from the proposed parent; reaching the block means a cycle.
+        cursor_id = parent.parent_id
+        seen = {parent_id}
+        while cursor_id is not None:
+            if cursor_id == block_id:
+                raise ValueError("Cannot move a block into its own descendant")
+            if cursor_id in seen:
+                break  # pre-existing cycle in the data — stop
+            seen.add(cursor_id)
+            cursor = await self.db.get(Block, cursor_id)
+            if cursor is None:
+                break
+            cursor_id = cursor.parent_id
+
     async def batch_blocks(
         self,
         layout_id: str,
@@ -289,9 +329,14 @@ class LayoutService:
                 if order == 0:
                     order = next_order
                     next_order += 1
+                parent_id = data.get("parent_id")
+                if parent_id:
+                    await self._validate_reparent(
+                        str(uuid.uuid4()), parent_id, layout_id
+                    )
                 block = Block(
                     layout_id=layout_id,
-                    parent_id=data.get("parent_id"),
+                    parent_id=parent_id,
                     block_type=block_type,
                     x=data.get("x", 0),
                     y=data.get("y", 0),
@@ -309,8 +354,15 @@ class LayoutService:
             block = await self.db.get(Block, data.get("id"))
             if not block or block.layout_id != layout_id:
                 continue
+            # Validate a re-parenting (parent_id may be None — un-parent)
+            if "parent_id" in data:
+                await self._validate_reparent(block.id, data["parent_id"], layout_id)
             for key, value in data.items():
-                if key == "id" or value is None:
+                if key == "id":
+                    continue
+                # parent_id may be explicitly None (drag out of a container);
+                # other None values are "not provided" and are skipped.
+                if value is None and key != "parent_id":
                     continue
                 if hasattr(block, key):
                     setattr(block, key, value)

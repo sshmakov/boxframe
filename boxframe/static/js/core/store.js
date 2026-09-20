@@ -216,6 +216,20 @@
             else if (block.block_type === "vline") block.width = 1;
         }
 
+        // Collect the ids of a block and all of its descendants (BFS over the
+        // flat list). Cascade delete: removing a container removes its whole
+        // subtree — mirrors the ORM cascade on the server.
+        function subtreeIds(blockId) {
+            var ids = [blockId];
+            for (var i = 0; i < ids.length; i++) {
+                var current = ids[i];
+                layout.blocks.forEach(function (b) {
+                    if (b.parent_id === current) ids.push(b.id);
+                });
+            }
+            return ids;
+        }
+
         return {
             info: function () {
                 return Promise.resolve({
@@ -261,7 +275,13 @@
                 if (!block) return Promise.reject(new Error("Block not found: " + blockId));
                 Object.keys(props || {}).forEach(function (key) {
                     var value = props[key];
-                    if (value !== null && value !== undefined) block[key] = value;
+                    // parent_id is always applied — null is meaningful
+                    // (un-parent: move the block back to the root).
+                    if (key === "parent_id") {
+                        block[key] = value == null ? null : value;
+                    } else if (value !== null && value !== undefined) {
+                        block[key] = value;
+                    }
                 });
                 normalizeLine(block);
                 block.updated_at = new Date().toISOString();
@@ -272,7 +292,10 @@
             deleteBlock: function (blockId) {
                 var idx = layout.blocks.findIndex(function (b) { return b.id === blockId; });
                 if (idx === -1) return Promise.reject(new Error("Block not found: " + blockId));
-                layout.blocks.splice(idx, 1);
+                // Cascade: remove the block and all of its descendants
+                var toRemove = {};
+                subtreeIds(blockId).forEach(function (id) { toRemove[id] = true; });
+                layout.blocks = layout.blocks.filter(function (b) { return !toRemove[b.id]; });
                 mutate();
                 return Promise.resolve({ ok: true });
             },
@@ -286,13 +309,19 @@
                 var updated = [];
                 var deleted = [];
 
+                // Cascade: deleting a container removes its whole subtree.
+                // Collect every id to remove (union of subtrees) so the
+                // caller (and the undo cache) can drop all of them.
+                var removedSet = {};
                 (payload.delete || []).forEach(function (blockId) {
-                    var idx = layout.blocks.findIndex(function (b) { return b.id === blockId; });
-                    if (idx !== -1) {
-                        layout.blocks.splice(idx, 1);
-                        deleted.push(blockId);
-                    }
+                    var exists = layout.blocks.some(function (b) { return b.id === blockId; });
+                    if (!exists) return;
+                    subtreeIds(blockId).forEach(function (id) { removedSet[id] = true; });
                 });
+                if (Object.keys(removedSet).length) {
+                    layout.blocks = layout.blocks.filter(function (b) { return !removedSet[b.id]; });
+                    Object.keys(removedSet).forEach(function (id) { deleted.push(id); });
+                }
 
                 var nextOrder = maxOrder() + 1;
                 (payload.create || []).forEach(function (data) {
@@ -321,7 +350,11 @@
                     if (!block) return;
                     Object.keys(data).forEach(function (key) {
                         var value = data[key];
-                        if (key !== "id" && value !== null && value !== undefined) {
+                        if (key === "id") return;
+                        // parent_id is always applied — null un-parents
+                        if (key === "parent_id") {
+                            block[key] = value == null ? null : value;
+                        } else if (value !== null && value !== undefined) {
                             block[key] = value;
                         }
                     });

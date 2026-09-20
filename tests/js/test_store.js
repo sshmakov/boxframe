@@ -63,6 +63,85 @@ test("memory store: clear() removes all blocks", async () => {
     assert.equal(data.blocks.length, 0);
 });
 
+test("memory store: deleteBlock cascades to descendants", async () => {
+    const store = createMemoryStore();
+    const parent = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    const child = await store.createBlock({ block_type: "box", x: 1, y: 1, width: 20, height: 6, parent_id: parent.id });
+    await store.createBlock({ block_type: "text", x: 1, y: 1, width: 8, height: 2, parent_id: child.id });
+    assert.equal((await store.load()).blocks.length, 3);
+
+    // Deleting the container removes the whole subtree
+    await store.deleteBlock(parent.id);
+    const data = await store.load();
+    assert.equal(data.blocks.length, 0);
+});
+
+test("memory store: batchBlocks delete cascades and reports all ids", async () => {
+    const store = createMemoryStore();
+    const parent = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    const child = await store.createBlock({ block_type: "box", x: 1, y: 1, width: 20, height: 6, parent_id: parent.id });
+    const grandchild = await store.createBlock({ block_type: "text", x: 1, y: 1, width: 8, height: 2, parent_id: child.id });
+    await store.createBlock({ block_type: "box", x: 40, y: 0, width: 10, height: 3 });
+
+    const result = await store.batchBlocks({ delete: [parent.id] });
+    // The whole subtree is reported as deleted (for the undo cache)
+    assert.ok(result.deleted.includes(parent.id));
+    assert.ok(result.deleted.includes(child.id));
+    assert.ok(result.deleted.includes(grandchild.id));
+    // Only the unrelated block survives
+    const data = await store.load();
+    assert.equal(data.blocks.length, 1);
+    assert.notEqual(data.blocks[0].id, parent.id);
+});
+
+test("local store: deleteBlock cascades and persists", async () => {
+    const storage = makeStorage();
+    const store = createLocalStorageStore({ key: KEY, storage });
+    const parent = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    await store.createBlock({ block_type: "text", x: 1, y: 1, width: 8, height: 2, parent_id: parent.id });
+
+    await store.deleteBlock(parent.id);
+    const saved = JSON.parse(storage.getItem(KEY));
+    assert.equal(saved.blocks.length, 0);
+});
+
+test("memory store: updateBlock with parent_id=null un-parents", async () => {
+    const store = createMemoryStore();
+    const parent = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    const child = await store.createBlock({ block_type: "text", x: 1, y: 1, width: 8, height: 2, parent_id: parent.id });
+    assert.equal(child.parent_id, parent.id);
+
+    // null is a meaningful value (drag out of the container) — it must be
+    // applied, not skipped like other nulls.
+    const updated = await store.updateBlock(child.id, { parent_id: null, x: 5, y: 5 });
+    assert.equal(updated.parent_id, null);
+    assert.equal(updated.x, 5);
+
+    const data = await store.load();
+    const b = data.blocks.find(x => x.id === child.id);
+    assert.equal(b.parent_id, null);
+});
+
+test("memory store: batchBlocks update with parent_id=null un-parents", async () => {
+    const store = createMemoryStore();
+    const parent = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    const child = await store.createBlock({ block_type: "text", x: 1, y: 1, width: 8, height: 2, parent_id: parent.id });
+
+    const result = await store.batchBlocks({ update: [{ id: child.id, parent_id: null, x: 9 }] });
+    assert.equal(result.updated[0].parent_id, null);
+    assert.equal(result.updated[0].x, 9);
+});
+
+test("memory store: updateBlock with a parent_id re-parents", async () => {
+    const store = createMemoryStore();
+    const parent = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    const child = await store.createBlock({ block_type: "text", x: 40, y: 0, width: 8, height: 2 });
+
+    const updated = await store.updateBlock(child.id, { parent_id: parent.id, x: 2, y: 2 });
+    assert.equal(updated.parent_id, parent.id);
+    assert.equal(updated.x, 2);
+});
+
 // ── LocalStorageStore ─────────────────────────────────────
 
 test("local store: persists mutations to storage", async () => {

@@ -322,8 +322,19 @@
         history.deleteBlock = function (blockId) {
             return history._record(null).then(function () {
                 return store.deleteBlock(blockId).then(function (result) {
+                    // The store cascade-deletes the block's whole subtree;
+                    // mirror that in the cache so undo restores it intact.
+                    var toRemove = {};
+                    var queue = [blockId];
+                    while (queue.length) {
+                        var current = queue.shift();
+                        toRemove[current] = true;
+                        history._state.blocks.forEach(function (b) {
+                            if (b.parent_id === current) queue.push(b.id);
+                        });
+                    }
                     history._state.blocks = history._state.blocks.filter(
-                        function (b) { return b.id !== blockId; }
+                        function (b) { return !toRemove[b.id]; }
                     );
                     history._persist();
                     return result;

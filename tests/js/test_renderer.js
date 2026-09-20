@@ -613,6 +613,112 @@ test("renderHtmlPreview with children", () => {
     assert.equal(html.split('class="resize-handle"').length - 1, 2);
 });
 
+function openingTag(html, blockId) {
+    const idx = html.indexOf('data-block-id="' + blockId + '"');
+    const start = html.lastIndexOf("<div", idx);
+    const end = html.indexOf(">", idx) + 1;
+    return html.slice(start, end);
+}
+
+test("renderHtmlPreview child nested in parent", () => {
+    const html = PG.renderHtmlPreview([
+        {
+            id: "parent", block_type: "box",
+            x: 0, y: 0, width: 30, height: 10,
+            content: "", border_style: "solid",
+        },
+        {
+            id: "child-1", block_type: "button",
+            x: 1, y: 1, width: 10, height: 2,
+            content: "Click", border_style: "dashed",
+            parent_id: "parent",
+        },
+    ]);
+    const parentTag = openingTag(html, "parent");
+    const childTag = openingTag(html, "child-1");
+    assert.ok(parentTag.includes("overflow:hidden"));
+    assert.ok(!childTag.includes("overflow:hidden"));
+    assert.ok(html.indexOf('data-block-id="parent"') < html.indexOf('data-block-id="child-1"'));
+});
+
+test("renderHtmlPreview child positioned relative to parent", () => {
+    const html = PG.renderHtmlPreview([
+        {
+            id: "parent", block_type: "box",
+            x: 0, y: 0, width: 30, height: 10,
+            content: "", border_style: "solid",
+        },
+        {
+            id: "child-1", block_type: "button",
+            x: 1, y: 1, width: 10, height: 2,
+            content: "Click", border_style: "dashed",
+            parent_id: "parent",
+        },
+    ]);
+    const childTag = openingTag(html, "child-1");
+    // (1+1)*12 = 24px, (1+1)*14.4 = 28.8px — NOT 16 + 1*12 = 28px (flattened)
+    assert.ok(childTag.includes("left:24px"));
+    assert.ok(childTag.includes("top:28.8px"));
+});
+
+test("renderHtmlPreview box in box", () => {
+    const html = PG.renderHtmlPreview([
+        {
+            id: "outer", block_type: "box",
+            x: 0, y: 0, width: 40, height: 12,
+            content: "", border_style: "solid",
+        },
+        {
+            id: "inner", block_type: "box",
+            x: 2, y: 2, width: 20, height: 6,
+            content: "", border_style: "dashed",
+            parent_id: "outer",
+        },
+        {
+            id: "leaf", block_type: "text",
+            x: 1, y: 1, width: 8, height: 2,
+            content: "hi", border_style: "none",
+            parent_id: "inner",
+        },
+    ]);
+    const outerTag = openingTag(html, "outer");
+    const innerTag = openingTag(html, "inner");
+    const leafTag = openingTag(html, "leaf");
+    assert.ok(outerTag.includes("overflow:hidden"));
+    assert.ok(innerTag.includes("overflow:hidden"));
+    assert.ok(!leafTag.includes("overflow:hidden"));
+    assert.ok(html.indexOf('data-block-id="outer"') < html.indexOf('data-block-id="inner"'));
+    assert.ok(html.indexOf('data-block-id="inner"') < html.indexOf('data-block-id="leaf"'));
+    // inner relative to outer: (1+2)*12=36px, (1+2)*14.4=43.2px
+    assert.ok(innerTag.includes("left:36px"));
+    assert.ok(innerTag.includes("top:43.2px"));
+    // leaf relative to inner: (1+1)*12=24px, (1+1)*14.4=28.8px
+    assert.ok(leafTag.includes("left:24px"));
+    assert.ok(leafTag.includes("top:28.8px"));
+});
+
+test("renderHtmlPreview child bigger than parent", () => {
+    const html = PG.renderHtmlPreview([
+        {
+            id: "parent", block_type: "box",
+            x: 0, y: 0, width: 10, height: 4,
+            content: "", border_style: "solid",
+        },
+        {
+            id: "big", block_type: "box",
+            x: 2, y: 1, width: 30, height: 10,
+            content: "", border_style: "dashed",
+            parent_id: "parent",
+        },
+    ]);
+    const parentTag = openingTag(html, "parent");
+    const bigTag = openingTag(html, "big");
+    assert.ok(parentTag.includes("overflow:hidden"));
+    assert.ok(html.indexOf('data-block-id="parent"') < html.indexOf('data-block-id="big"'));
+    assert.ok(bigTag.includes("width:360px"));   // 30*12
+    assert.ok(bigTag.includes("height:144px"));  // 10*14.4
+});
+
 test("renderHtmlPreview border classes", () => {
     const dashed = PG.renderHtmlPreview([{
         id: "b1", block_type: "box",

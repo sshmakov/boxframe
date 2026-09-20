@@ -198,19 +198,22 @@ async def delete_layout(layout_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/{layout_id}/blocks", response_model=BlockOut)
 async def create_block(layout_id: str, data: BlockCreate, db: AsyncSession = Depends(get_db)):
     service = LayoutService(db)
-    block = await service.create_block(
-        layout_id=layout_id,
-        block_type=data.block_type,
-        x=data.x,
-        y=data.y,
-        width=data.width,
-        height=data.height,
-        content=data.content,
-        border_style=data.border_style,
-        parent_id=data.parent_id,
-        meta=data.meta,
-        order=data.order,
-    )
+    try:
+        block = await service.create_block(
+            layout_id=layout_id,
+            block_type=data.block_type,
+            x=data.x,
+            y=data.y,
+            width=data.width,
+            height=data.height,
+            content=data.content,
+            border_style=data.border_style,
+            parent_id=data.parent_id,
+            meta=data.meta,
+            order=data.order,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return block
 
 
@@ -222,10 +225,17 @@ async def update_block(layout_id: str, block_id: str, data: BlockUpdate, db: Asy
         raise HTTPException(status_code=404, detail="Block not found")
 
     update_data = data.model_dump(exclude_none=True)
+    # parent_id may be explicitly null (drag a block out of its container) —
+    # exclude_none would drop it, so restore it when the client set the field.
+    if "parent_id" in data.model_fields_set:
+        update_data["parent_id"] = data.parent_id
     if not update_data:
         return block
 
-    updated = await service.update_block(block_id, **update_data)
+    try:
+        updated = await service.update_block(block_id, **update_data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return updated
 
 
@@ -274,12 +284,23 @@ async def batch_blocks(layout_id: str, data: BlocksBatch, db: AsyncSession = Dep
     N, so the client records a single undo step.
     """
     service = LayoutService(db)
-    _, created, updated, deleted = await service.batch_blocks(
-        layout_id,
-        create=[b.model_dump() for b in data.create],
-        update=[b.model_dump(exclude_none=True) for b in data.update],
-        delete=data.delete,
-    )
+    # parent_id may be explicitly null (drag out of a container) — restore it
+    # after exclude_none so the service can un-parent the block.
+    updates = []
+    for b in data.update:
+        d = b.model_dump(exclude_none=True)
+        if "parent_id" in b.model_fields_set:
+            d["parent_id"] = b.parent_id
+        updates.append(d)
+    try:
+        _, created, updated, deleted = await service.batch_blocks(
+            layout_id,
+            create=[b.model_dump() for b in data.create],
+            update=updates,
+            delete=data.delete,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     layout = await service.get_layout(layout_id)
     if not layout:
         raise HTTPException(status_code=404, detail="Layout not found")
@@ -361,13 +382,16 @@ async def render_layout(
 
 
 def _serialize_blocks_for_html(blocks: list) -> list[dict]:
-    """Serialize ORM blocks to dicts for HTML preview generation."""
+    """Serialize ORM blocks to nested dicts for HTML preview generation.
+
+    Children are nested recursively (arbitrary depth) so the Python HTML
+    preview matches the JS renderer, which builds the full tree from the
+    flat list. A block whose parent is missing from the set is a root.
+    """
     by_id = {b.id: b for b in blocks}
-    result = []
-    for block in blocks:
-        if block.parent_id and block.parent_id in by_id:
-            continue
-        bd = {
+
+    def to_dict(block) -> dict:
+        return {
             "id": block.id,
             "x": block.x,
             "y": block.y,
@@ -377,24 +401,10 @@ def _serialize_blocks_for_html(blocks: list) -> list[dict]:
             "content": block.content,
             "border_style": block.border_style,
             "order": block.order,
-            "children": [
-                {
-                    "id": c.id,
-                    "x": c.x,
-                    "y": c.y,
-                    "width": c.width,
-                    "height": c.height,
-                    "block_type": c.block_type,
-                    "content": c.content,
-                    "border_style": c.border_style,
-                    "order": c.order,
-                }
-                for c in blocks
-                if c.parent_id == block.id
-            ],
+            "children": [to_dict(c) for c in blocks if c.parent_id == block.id],
         }
-        result.append(bd)
-    return result
+
+    return [to_dict(b) for b in blocks if not (b.parent_id and b.parent_id in by_id)]
 
 
 @router.get("/{layout_id}/export", response_model=ExportOut)

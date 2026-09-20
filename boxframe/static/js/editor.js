@@ -259,6 +259,82 @@ function editorApp() {
             };
         },
 
+        // ── Container (nesting) geometry ───────────────────────
+        // this.blocks is a flat list: children carry coordinates RELATIVE
+        // to their parent. The renderer places a child at the parent's
+        // origin + 1-cell padding + the child's relative offset, so every
+        // geometry check (hit-test, selection, overlays) must work in
+        // absolute (canvas) coordinates.
+
+        // Absolute (canvas) rectangle of a block — walks up the parent
+        // chain, adding the 1-cell container padding at each level.
+        _absoluteRect(block) {
+            let x = block.x;
+            let y = block.y;
+            let pid = block.parent_id;
+            while (pid) {
+                const parent = this.blocks.find(b => b.id === pid);
+                if (!parent) break;
+                x = parent.x + 1 + x;
+                y = parent.y + 1 + y;
+                pid = parent.parent_id;
+            }
+            return { x, y, width: block.width, height: block.height };
+        },
+
+        // Convert an absolute (canvas) position to the relative position
+        // inside the given parent (the 1-cell container padding is removed).
+        _absToRel(absX, absY, parent) {
+            const pr = this._absoluteRect(parent);
+            return { x: absX - (pr.x + 1), y: absY - (pr.y + 1) };
+        },
+
+        // Ids of a block and all of its descendants (BFS over the flat list).
+        _subtreeIds(blockId) {
+            const ids = [blockId];
+            for (let i = 0; i < ids.length; i++) {
+                const current = ids[i];
+                for (const b of this.blocks) {
+                    if (b.parent_id === current) ids.push(b.id);
+                }
+            }
+            return ids;
+        },
+
+        // Number of ancestors of a block (root = 0).
+        _depth(blockId) {
+            let d = 0;
+            let pid = (this.blocks.find(b => b.id === blockId) || {}).parent_id;
+            while (pid) {
+                d++;
+                pid = (this.blocks.find(b => b.id === pid) || {}).parent_id;
+            }
+            return d;
+        },
+
+        // The container (box) that a point falls into: the innermost box
+        // whose absolute area contains the point. excludeIds — block ids to
+        // ignore (the dragged block's own subtree, so a box cannot be
+        // dropped into itself or its descendants — that would be a cycle).
+        _findDropContainer(cx, cy, excludeIds) {
+            const candidates = this.blocks.filter(b => {
+                if (b.block_type !== 'box') return false;
+                if (excludeIds && excludeIds.includes(b.id)) return false;
+                const r = this._absoluteRect(b);
+                return cx >= r.x && cy >= r.y &&
+                    cx < r.x + r.width && cy < r.y + r.height;
+            });
+            if (!candidates.length) return null;
+            // Innermost = the candidate with the most ancestors
+            let best = candidates[0];
+            let bestDepth = this._depth(best.id);
+            for (const c of candidates) {
+                const d = this._depth(c.id);
+                if (d > bestDepth) { best = c; bestDepth = d; }
+            }
+            return best;
+        },
+
         // ── Preview overlay ─────────────────────────────────────
 
         _showPreview(gx, gy) {
@@ -352,13 +428,15 @@ function editorApp() {
         },
 
         // Blocks fully inside the marquee rectangle (partial overlap
-        // does not select).
+        // does not select). The marquee rect is in absolute (canvas)
+        // coordinates, so compare against each block's absolute rect.
         _marqueeHits() {
             const r = this._marqueeGridRect();
-            return this.blocks.filter(bl =>
-                bl.x >= r.x1 && bl.y >= r.y1 &&
-                bl.x + bl.width <= r.x2 && bl.y + bl.height <= r.y2
-            );
+            return this.blocks.filter(bl => {
+                const ar = this._absoluteRect(bl);
+                return ar.x >= r.x1 && ar.y >= r.y1 &&
+                    ar.x + ar.width <= r.x2 && ar.y + ar.height <= r.y2;
+            });
         },
 
         // ── Global mouse-up (catches drops outside canvas) ──────
@@ -552,15 +630,18 @@ function editorApp() {
                 // Group bbox: the preview tracks the bounding box, each
                 // block is resized by the same delta on commit.
                 this.resizeOriginal = sel.map(b => ({ id: b.id, width: b.width, height: b.height }));
-                const minX = Math.min(...sel.map(b => b.x));
-                const minY = Math.min(...sel.map(b => b.y));
+                // Absolute (canvas) coords — children carry relative coords
+                const rects = sel.map(b => this._absoluteRect(b));
+                const minX = Math.min(...rects.map(r => r.x));
+                const minY = Math.min(...rects.map(r => r.y));
                 this.resizePreviewX = minX;
                 this.resizePreviewY = minY;
-                this.resizeStartW = Math.max(...sel.map(b => b.x + b.width)) - minX;
-                this.resizeStartH = Math.max(...sel.map(b => b.y + b.height)) - minY;
+                this.resizeStartW = Math.max(...rects.map(r => r.x + r.width)) - minX;
+                this.resizeStartH = Math.max(...rects.map(r => r.y + r.height)) - minY;
             } else {
-                this.resizePreviewX = block.x;
-                this.resizePreviewY = block.y;
+                const r = this._absoluteRect(block);
+                this.resizePreviewX = r.x;
+                this.resizePreviewY = r.y;
                 this.resizeStartW = block.width;
                 this.resizeStartH = block.height;
             }
@@ -638,15 +719,32 @@ function editorApp() {
                 ? Math.max(...this.blocks.map(b => b.order))
                 : 0;
 
-            this.store.createBlock({
+            // Drop into a box: the new block becomes the box's child with
+            // coordinates relative to it. The target is the innermost box
+            // whose absolute area contains the block's center. Otherwise the
+            // block lands on the canvas (absolute coordinates).
+            const cx = pos.x + w / 2;
+            const cy = pos.y + h / 2;
+            const container = this._findDropContainer(cx, cy, null);
+
+            const payload = {
                 block_type: this.dragType,
-                x: pos.x,
-                y: pos.y,
                 width: w,
                 height: h,
                 content: defaults.content,
-                order: maxOrder + 1
-            }).then(block => {
+                order: maxOrder + 1,
+            };
+            if (container) {
+                const rel = this._absToRel(pos.x, pos.y, container);
+                payload.x = rel.x;
+                payload.y = rel.y;
+                payload.parent_id = container.id;
+            } else {
+                payload.x = pos.x;
+                payload.y = pos.y;
+            }
+
+            this.store.createBlock(payload).then(block => {
                 this.blocks.push(block);
                 this._reorderBlocks();
                 this.refreshRender();
@@ -672,26 +770,29 @@ function editorApp() {
             // Ignore clicks inside the floating properties panel
             if (e.target.closest('.block-props')) return;
 
-            // Find the topmost block whose area contains the cursor
-            // (this.blocks is sorted by order descending)
+            // Find the topmost block whose ABSOLUTE area contains the cursor
+            // (this.blocks is sorted by order descending; children carry
+            // relative coords, so hit-test in canvas coordinates)
             const pos = this._pixelToGrid(e.clientX, e.clientY);
-            const block = this.blocks.find(b =>
-                pos.x >= b.x && pos.y >= b.y &&
-                pos.x < b.x + b.width && pos.y < b.y + b.height
-            );
+            const block = this.blocks.find(b => {
+                const r = this._absoluteRect(b);
+                return pos.x >= r.x && pos.y >= r.y &&
+                    pos.x < r.x + r.width && pos.y < r.y + r.height;
+            });
 
             if (block) {
                 // Pending: becomes a move-drag if the mouse moves past a
                 // threshold, or a select/toggle click if it doesn't.
+                const r = this._absoluteRect(block);
                 this.dragMode = 'pending';
                 this.pendingBlock = block;
                 this.pendingToggle = e.shiftKey || e.ctrlKey || e.metaKey;
                 this.dragStartX = e.clientX;
                 this.dragStartY = e.clientY;
-                this.dragOffsetX = pos.x - block.x;
-                this.dragOffsetY = pos.y - block.y;
-                this.dragGridX = block.x;
-                this.dragGridY = block.y;
+                this.dragOffsetX = pos.x - r.x;
+                this.dragOffsetY = pos.y - r.y;
+                this.dragGridX = r.x;
+                this.dragGridY = r.y;
                 e.preventDefault();
                 return;
             }
@@ -741,7 +842,8 @@ function editorApp() {
                             preview.style.width = (this.dragBlock.width * this.charWidth) + 'px';
                             preview.style.height = (this.dragBlock.height * this.charHeight) + 'px';
                             preview.style.display = 'block';
-                            this._showPreview(this.dragBlock.x, this.dragBlock.y);
+                            const r = this._absoluteRect(this.dragBlock);
+                            this._showPreview(r.x, r.y);
                         }
                     }
                 }
@@ -841,9 +943,10 @@ function editorApp() {
             if (!this.editingBlock) return 'display:none';
             const pad = 16; // matches .render-wrapper padding
             const b = this.editingBlock;
+            const r = this._absoluteRect(b);
             return (
-                `left:${pad + b.x * this.charWidth}px;` +
-                `top:${pad + b.y * this.charHeight}px;` +
+                `left:${pad + r.x * this.charWidth}px;` +
+                `top:${pad + r.y * this.charHeight}px;` +
                 `width:${b.width * this.charWidth}px;` +
                 `height:${b.height * this.charHeight}px;`
             );
@@ -861,10 +964,11 @@ function editorApp() {
             }
 
             const pos = this._pixelToGrid(e.clientX, e.clientY);
-            const block = this.blocks.find(b =>
-                pos.x >= b.x && pos.y >= b.y &&
-                pos.x < b.x + b.width && pos.y < b.y + b.height
-            );
+            const block = this.blocks.find(b => {
+                const r = this._absoluteRect(b);
+                return pos.x >= r.x && pos.y >= r.y &&
+                    pos.x < r.x + r.width && pos.y < r.y + r.height;
+            });
             if (!block) return;
 
             // Clear move-drag state left over from the preceding mousedowns
@@ -921,19 +1025,37 @@ function editorApp() {
         async _commitBlockMove() {
             if (!this.dragBlock || this.dragGridX < 0) return;
             const block = this.dragBlock;
-            const oldX = block.x;
-            const oldY = block.y;
+            const old = { x: block.x, y: block.y, parent_id: block.parent_id };
+
+            // dragGridX/Y is the block's new ABSOLUTE (canvas) top-left.
+            // The drop container is the innermost box whose absolute area
+            // contains the block's center — excluding the block's own
+            // subtree so a box cannot be dropped into itself (a cycle).
+            const cx = this.dragGridX + block.width / 2;
+            const cy = this.dragGridY + block.height / 2;
+            const container = this._findDropContainer(
+                cx, cy, this._subtreeIds(block.id)
+            );
+
+            let props;
+            if (container) {
+                // (Re-)parent into the box: convert to relative coordinates
+                const rel = this._absToRel(this.dragGridX, this.dragGridY, container);
+                props = { x: rel.x, y: rel.y, parent_id: container.id };
+            } else if (block.parent_id) {
+                // Dragged out of its container onto the canvas → back to root
+                props = { x: this.dragGridX, y: this.dragGridY, parent_id: null };
+            } else {
+                props = { x: this.dragGridX, y: this.dragGridY };
+            }
 
             try {
-                const updated = await this.store.updateBlock(block.id, {
-                    x: this.dragGridX, y: this.dragGridY
-                });
+                const updated = await this.store.updateBlock(block.id, props);
                 Object.assign(block, updated);
                 await this.refreshRender();
             } catch (err) {
                 // Rollback on error
-                block.x = oldX;
-                block.y = oldY;
+                Object.assign(block, old);
                 console.error('Failed to move block:', err);
             }
         },
@@ -1184,16 +1306,12 @@ function editorApp() {
             const sel = this.selectedBlocks;
             if (!sel.length) return 'display:none';
             const pad = 16; // matches .render-wrapper padding
-            let x, y, w, h;
-            if (sel.length === 1) {
-                const b = sel[0];
-                x = b.x; y = b.y; w = b.width; h = b.height;
-            } else {
-                x = Math.min(...sel.map(b => b.x));
-                y = Math.min(...sel.map(b => b.y));
-                w = Math.max(...sel.map(b => b.x + b.width)) - x;
-                h = Math.max(...sel.map(b => b.y + b.height)) - y;
-            }
+            // Absolute (canvas) coords — children carry relative coords
+            const rects = sel.map(b => this._absoluteRect(b));
+            const x = Math.min(...rects.map(r => r.x));
+            const y = Math.min(...rects.map(r => r.y));
+            const w = Math.max(...rects.map(r => r.x + r.width)) - x;
+            const h = Math.max(...rects.map(r => r.y + r.height)) - y;
             return (
                 `left:${pad + x * this.charWidth}px;` +
                 `top:${pad + y * this.charHeight}px;` +
@@ -1212,16 +1330,12 @@ function editorApp() {
             const panelW = 264;
             const panelH = 300; // approximate height, for vertical clamping
 
-            let bx, by, bw, bh;
-            if (sel.length === 1) {
-                const b = sel[0];
-                bx = b.x; by = b.y; bw = b.width; bh = b.height;
-            } else {
-                bx = Math.min(...sel.map(b => b.x));
-                by = Math.min(...sel.map(b => b.y));
-                bw = Math.max(...sel.map(b => b.x + b.width)) - bx;
-                bh = Math.max(...sel.map(b => b.y + b.height)) - by;
-            }
+            // Absolute (canvas) coords — children carry relative coords
+            const rects = sel.map(b => this._absoluteRect(b));
+            const bx = Math.min(...rects.map(r => r.x));
+            const by = Math.min(...rects.map(r => r.y));
+            const bw = Math.max(...rects.map(r => r.x + r.width)) - bx;
+            const bh = Math.max(...rects.map(r => r.y + r.height)) - by;
 
             const bxPx = pad + bx * this.charWidth;
             const byPx = pad + by * this.charHeight;
@@ -1260,14 +1374,17 @@ function editorApp() {
             if (!sel.length) return;
 
             const maxOrder = this.maxOrder;
+            // A duplicated child keeps its parent (the copy is a sibling with
+            // a one-cell offset inside the same container).
             const creates = sel.map((b, i) => ({
                 block_type: b.block_type,
-                x: Math.max(0, b.x + 1),
-                y: Math.max(0, b.y + 1),
+                x: b.parent_id ? b.x + 1 : Math.max(0, b.x + 1),
+                y: b.parent_id ? b.y + 1 : Math.max(0, b.y + 1),
                 width: b.width,
                 height: b.height,
                 content: b.content,
                 border_style: b.border_style,
+                parent_id: b.parent_id || null,
                 order: maxOrder + 1 + i,
             }));
 
@@ -1287,8 +1404,11 @@ function editorApp() {
             if (!confirm(n > 1 ? 'Delete ' + n + ' blocks?' : 'Delete this block?')) return;
 
             const ids = sel.map(b => b.id);
-            await this.store.batchBlocks({ delete: ids });
-            this.blocks = this.blocks.filter(b => !ids.includes(b.id));
+            const result = await this.store.batchBlocks({ delete: ids });
+            // Cascade: the store reports every removed id (the whole subtree
+            // of each deleted container) — drop all of them locally.
+            const removed = new Set(result.deleted || ids);
+            this.blocks = this.blocks.filter(b => !removed.has(b.id));
             this.selectedIds = [];
             this._reorderBlocks();
             await this.refreshRender();
@@ -1298,9 +1418,12 @@ function editorApp() {
         async _nudgeSelection(dx, dy) {
             const sel = this.selectedBlocks;
             if (!sel.length) return;
-            // No block may cross the canvas origin (0,0)
-            const minX = Math.min(...sel.map(b => b.x));
-            const minY = Math.min(...sel.map(b => b.y));
+            // No block may cross the canvas origin (0,0) — clamp on the
+            // ABSOLUTE position (children carry relative coords, but a
+            // relative delta equals the absolute delta).
+            const rects = sel.map(b => this._absoluteRect(b));
+            const minX = Math.min(...rects.map(r => r.x));
+            const minY = Math.min(...rects.map(r => r.y));
             dx = Math.max(dx, -minX);
             dy = Math.max(dy, -minY);
             if (dx === 0 && dy === 0) return;
@@ -1477,8 +1600,10 @@ function editorApp() {
         async deleteBlock(blockId) {
             if (!confirm('Delete this block?')) return;
             await this.store.deleteBlock(blockId);
-            this.blocks = this.blocks.filter(b => b.id !== blockId);
-            this.selectedIds = this.selectedIds.filter(id => id !== blockId);
+            // Cascade: the store removes the whole subtree, mirror it locally
+            const removed = new Set(this._subtreeIds(blockId));
+            this.blocks = this.blocks.filter(b => !removed.has(b.id));
+            this.selectedIds = this.selectedIds.filter(id => !removed.has(id));
             this._reorderBlocks();
             await this.refreshRender();
         },
@@ -1628,4 +1753,8 @@ function editorApp() {
             }
         }
     };
+}
+
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = { editorApp: editorApp };
 }

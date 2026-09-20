@@ -42,6 +42,42 @@ def render_js(blocks: list[dict], width: int | None, height: int | None) -> str:
     return result.stdout
 
 
+def render_js_html(blocks: list[dict]) -> str:
+    """Render the HTML preview with the JS renderer via a node one-liner."""
+    script = (
+        f"const PG = require({json.dumps(RENDERER_JS)});"
+        f"process.stdout.write(PG.renderHtmlPreview({json.dumps(blocks)}));"
+    )
+    result = subprocess.run(
+        [NODE, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
+
+
+def to_nested(blocks: list[dict]) -> list[dict]:
+    """Convert a flat block list (parent_id refs) to nested dicts (children).
+
+    The JS renderer takes a flat list; the Python renderer takes nested dicts.
+    Children keep their document order in both.
+    """
+    node_by_id: dict[str, dict] = {}
+    for b in blocks:
+        node = dict(b)
+        node["children"] = []
+        node_by_id[b["id"]] = node
+    roots: list[dict] = []
+    for b in blocks:
+        node = node_by_id[b["id"]]
+        if b.get("parent_id") and b["parent_id"] in node_by_id:
+            node_by_id[b["parent_id"]]["children"].append(node)
+        else:
+            roots.append(node)
+    return roots
+
+
 def test_parity_simple_blocks():
     blocks = [
         {"id": "b1", "block_type": "header", "x": 0, "y": 0, "width": 30, "height": 3,
@@ -168,3 +204,40 @@ def test_parity_no_dimensions():
     ]
     py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
     assert render_js(blocks, None, None) == PseudoGraphicRenderer.render_simple(py_blocks, None, None)
+
+
+def test_parity_html_preview_nested():
+    """HTML preview: children nested in the parent div (overflow:hidden clip)."""
+    blocks = [
+        {"id": "p", "block_type": "box", "x": 0, "y": 0, "width": 24, "height": 8,
+         "content": "", "border_style": "solid", "order": 0},
+        {"id": "c1", "block_type": "button", "x": 1, "y": 1, "width": 10, "height": 2,
+         "content": "Click", "border_style": "dashed", "parent_id": "p", "order": 0},
+        {"id": "c2", "block_type": "text", "x": 1, "y": 4, "width": 12, "height": 2,
+         "content": "Hello", "border_style": "none", "parent_id": "p", "order": 1},
+    ]
+    assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(to_nested(blocks))
+
+
+def test_parity_html_preview_box_in_box():
+    """HTML preview: nested containers, each clipping its children."""
+    blocks = [
+        {"id": "outer", "block_type": "box", "x": 0, "y": 0, "width": 40, "height": 12,
+         "content": "", "border_style": "solid", "order": 0},
+        {"id": "inner", "block_type": "box", "x": 2, "y": 2, "width": 20, "height": 6,
+         "content": "", "border_style": "dashed", "parent_id": "outer", "order": 0},
+        {"id": "leaf", "block_type": "text", "x": 1, "y": 1, "width": 8, "height": 2,
+         "content": "hi", "border_style": "none", "parent_id": "inner", "order": 0},
+    ]
+    assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(to_nested(blocks))
+
+
+def test_parity_html_preview_child_bigger_than_parent():
+    """HTML preview: an oversized child is still nested and clipped."""
+    blocks = [
+        {"id": "parent", "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 4,
+         "content": "", "border_style": "solid", "order": 0},
+        {"id": "big", "block_type": "box", "x": 2, "y": 1, "width": 30, "height": 10,
+         "content": "", "border_style": "dashed", "parent_id": "parent", "order": 0},
+    ]
+    assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(to_nested(blocks))

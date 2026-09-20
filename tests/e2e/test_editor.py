@@ -518,6 +518,31 @@ TWO_BOXES = [
 ]
 
 
+def _wait_editor_ready(page: Page, num_blocks: int) -> None:
+    """Wait until the Alpine editor app has finished its initial load.
+
+    The block previews are server-rendered (visible right after the reload),
+    but the app binds its global mouse listeners and measures the character
+    size only after init()'s async load — canvas interactions started before
+    that are silently dropped (a drag that never commits).
+    """
+    page.wait_for_function(
+        """(n) => {
+            const els = document.querySelectorAll('[x-data]');
+            for (const el of els) {
+                const app = el._x_dataStack ? el._x_dataStack[0] : null;
+                if (app && Array.isArray(app.blocks)) {
+                    return !app.loading && app.blocks.length === n &&
+                        app.charWidth > 0;
+                }
+            }
+            return false;
+        }""",
+        arg=num_blocks,
+        timeout=10000,
+    )
+
+
 def _create_project_with_blocks(page: Page, specs: list[dict]) -> tuple[str, list[str]]:
     """Create a project and layout via the UI, add blocks via the API.
 
@@ -547,6 +572,10 @@ def _create_project_with_blocks(page: Page, specs: list[dict]) -> tuple[str, lis
             payload["content"] = spec["content"]
         if "border_style" in spec:
             payload["border_style"] = spec["border_style"]
+        # parent_index references an earlier block in the same list — used
+        # to seed nested (container → child) layouts.
+        if "parent_index" in spec:
+            payload["parent_id"] = block_ids[spec["parent_index"]]
         r = requests.post(
             f"{BASE_URL}/api/layouts/{layout_id}/blocks",
             json=payload, timeout=5,
@@ -554,8 +583,10 @@ def _create_project_with_blocks(page: Page, specs: list[dict]) -> tuple[str, lis
         assert r.status_code == 200
         block_ids.append(r.json()["id"])
 
-    # Reload so the editor renders the new blocks
+    # Reload so the editor renders the new blocks, and wait until the app
+    # has loaded them (canvas drags before that are silently dropped).
     page.reload()
+    _wait_editor_ready(page, len(block_ids))
     for bid in block_ids:
         expect(page.locator(f'.block-preview[data-block-id="{bid}"]')).to_be_visible()
     return layout_id, block_ids
@@ -1063,3 +1094,77 @@ def test_web_editor_import_adds_blocks(page: Page):
     assert blocks is not None and len(blocks) == 3
     # The original block survives the add
     assert any(b["id"] == existing_id for b in blocks)
+
+
+# ── Container (box) nesting: drag re-parenting ────────────
+
+
+def _wait_block(page: Page, layout_id: str, block_id: str, predicate) -> dict:
+    """Poll the layout until the given block satisfies predicate (the
+    browser's PUT may still be in flight after a drag)."""
+    block = None
+    for _ in range(30):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if predicate(block):
+            return block
+        page.wait_for_timeout(100)
+    return block
+
+
+def test_drag_block_into_box_reparents(page: Page):
+    """Dragging a block so its center lands inside a box re-parents it: the
+    block becomes the box's child with coordinates relative to the box."""
+    specs = [
+        {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
+        {"block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+         "content": "Go"},  # free block, outside the container
+    ]
+    layout_id, (box_id, free_id) = _create_project_with_blocks(page, specs)
+    metrics = _canvas_metrics(page, box_id, 30, 10)
+
+    # Grab the free block at its center (40,20) 10×2 → (45, 21) and drop it
+    # so its top-left lands at grid (5, 3): center (10, 4) is inside the box.
+    start = _grid_point(metrics, 45, 21)
+    end = _grid_point(metrics, 10, 4)
+    page.mouse.move(*start)
+    page.mouse.down()
+    page.mouse.move(*end, steps=12)
+    page.mouse.up()
+
+    block = _wait_block(
+        page, layout_id, free_id,
+        lambda b: b["parent_id"] == box_id,
+    )
+    assert block["parent_id"] == box_id
+    # Relative to the box at (0,0): abs (5, 3) → rel (5 - 1, 3 - 1)
+    assert (block["x"], block["y"]) == (4, 2)
+
+
+def test_drag_child_out_of_box_unparents(page: Page):
+    """Dragging a child out of its box onto the canvas un-parents it: the
+    block returns to the root with absolute coordinates."""
+    specs = [
+        {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
+        {"block_type": "button", "x": 2, "y": 2, "width": 10, "height": 2,
+         "content": "Go", "parent_index": 0},  # child inside the box
+    ]
+    layout_id, (box_id, child_id) = _create_project_with_blocks(page, specs)
+    metrics = _canvas_metrics(page, box_id, 30, 10)
+
+    # The child is at relative (2, 2) → absolute (3, 3), 10×2 → center (8, 4).
+    # Drag it so its top-left lands at grid (40, 20): center (45, 21) is
+    # outside the box → un-parent.
+    start = _grid_point(metrics, 8, 4)
+    end = _grid_point(metrics, 45, 21)
+    page.mouse.move(*start)
+    page.mouse.down()
+    page.mouse.move(*end, steps=12)
+    page.mouse.up()
+
+    block = _wait_block(
+        page, layout_id, child_id,
+        lambda b: b["parent_id"] is None and b["x"] > 30,
+    )
+    assert block["parent_id"] is None
+    assert (block["x"], block["y"]) == (40, 20)

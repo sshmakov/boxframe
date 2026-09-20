@@ -1,0 +1,229 @@
+/**
+ * Tests for the editor's container (nesting) geometry and re-parenting.
+ *
+ * These cover the pure, DOM-free helpers in editor.js:
+ *   _absoluteRect / _absToRel / _subtreeIds / _depth / _findDropContainer
+ * and the re-parenting decision made by _commitBlockMove (drop into a box,
+ * drag out to the canvas, plain root move).
+ *
+ * Run with: node --test tests/js/
+ */
+
+const { test } = require("node:test");
+const assert = require("node:assert");
+const { editorApp } = require("../../boxframe/static/js/editor.js");
+
+function block(id, block_type, x, y, width, height, parent_id) {
+    return {
+        id, block_type, x, y, width, height,
+        parent_id: parent_id || null, order: 0,
+    };
+}
+
+function appWith(blocks) {
+    const app = editorApp();
+    app.blocks = blocks;
+    return app;
+}
+
+// A minimal store double that records updateBlock calls and returns the
+// merged block, plus a no-op refreshRender (the real one needs the DOM).
+function stubStore(app) {
+    const calls = [];
+    app.store = {
+        updateBlock: async (id, props) => {
+            calls.push({ id, props });
+            const b = app.blocks.find(x => x.id === id);
+            return Object.assign({}, b, props);
+        },
+    };
+    app.refreshRender = async () => {};
+    return calls;
+}
+
+// ── _absoluteRect ─────────────────────────────────────────
+
+test("_absoluteRect: a root block is its own coordinates", () => {
+    const app = appWith([block("r", "box", 5, 7, 20, 10)]);
+    assert.deepEqual(app._absoluteRect(app.blocks[0]), { x: 5, y: 7, width: 20, height: 10 });
+});
+
+test("_absoluteRect: a child adds the parent origin + 1-cell padding", () => {
+    const app = appWith([
+        block("p", "box", 4, 6, 30, 12),
+        block("c", "text", 2, 3, 8, 2, "p"),
+    ]);
+    // abs = (4 + 1 + 2, 6 + 1 + 3) = (7, 10)
+    assert.deepEqual(app._absoluteRect(app.blocks[1]), { x: 7, y: 10, width: 8, height: 2 });
+});
+
+test("_absoluteRect: a grandchild accumulates padding at each level", () => {
+    const app = appWith([
+        block("a", "box", 0, 0, 40, 20),
+        block("b", "box", 2, 2, 20, 10, "a"),
+        block("c", "text", 1, 1, 5, 2, "b"),
+    ]);
+    // b abs = (0+1+2, 0+1+2) = (3, 3); c abs = (3+1+1, 3+1+1) = (5, 5)
+    assert.deepEqual(app._absoluteRect(app.blocks[2]), { x: 5, y: 5, width: 5, height: 2 });
+});
+
+test("_absoluteRect: a missing parent is treated as a root", () => {
+    const app = appWith([block("c", "text", 2, 3, 8, 2, "ghost")]);
+    assert.deepEqual(app._absoluteRect(app.blocks[0]), { x: 2, y: 3, width: 8, height: 2 });
+});
+
+// ── _absToRel ─────────────────────────────────────────────
+
+test("_absToRel: removes the parent origin + 1-cell padding", () => {
+    const app = appWith([block("p", "box", 4, 6, 30, 12)]);
+    // abs (7, 10) inside a parent at (4, 6) → rel (7 - 5, 10 - 7) = (2, 3)
+    assert.deepEqual(app._absToRel(7, 10, app.blocks[0]), { x: 2, y: 3 });
+});
+
+test("_absToRel: a nested parent uses its absolute origin", () => {
+    const app = appWith([
+        block("a", "box", 0, 0, 40, 20),
+        block("b", "box", 2, 2, 20, 10, "a"),
+    ]);
+    // b abs = (3, 3); abs (8, 9) → rel (8 - 4, 9 - 4) = (4, 5)
+    assert.deepEqual(app._absToRel(8, 9, app.blocks[1]), { x: 4, y: 5 });
+});
+
+// ── _subtreeIds ───────────────────────────────────────────
+
+test("_subtreeIds: collects the block and every descendant", () => {
+    const app = appWith([
+        block("a", "box", 0, 0, 40, 20),
+        block("b", "box", 2, 2, 20, 10, "a"),
+        block("c", "text", 1, 1, 5, 2, "b"),
+        block("d", "text", 1, 1, 5, 2, "a"),
+        block("e", "box", 50, 0, 10, 5),
+    ]);
+    assert.deepEqual(app._subtreeIds("a").sort(), ["a", "b", "c", "d"]);
+    assert.deepEqual(app._subtreeIds("b").sort(), ["b", "c"]);
+    assert.deepEqual(app._subtreeIds("e"), ["e"]);
+});
+
+// ── _depth ────────────────────────────────────────────────
+
+test("_depth: counts the number of ancestors", () => {
+    const app = appWith([
+        block("a", "box", 0, 0, 40, 20),
+        block("b", "box", 2, 2, 20, 10, "a"),
+        block("c", "text", 1, 1, 5, 2, "b"),
+    ]);
+    assert.equal(app._depth("a"), 0);
+    assert.equal(app._depth("b"), 1);
+    assert.equal(app._depth("c"), 2);
+    assert.equal(app._depth("missing"), 0);
+});
+
+// ── _findDropContainer ────────────────────────────────────
+
+test("_findDropContainer: a point on empty canvas → null", () => {
+    const app = appWith([block("p", "box", 0, 0, 10, 10)]);
+    assert.equal(app._findDropContainer(50, 50, null), null);
+});
+
+test("_findDropContainer: only box blocks are containers", () => {
+    const app = appWith([block("h", "header", 0, 0, 30, 5)]);
+    assert.equal(app._findDropContainer(5, 2, null), null);
+});
+
+test("_findDropContainer: the innermost box wins", () => {
+    const app = appWith([
+        block("outer", "box", 0, 0, 40, 20),
+        block("inner", "box", 2, 2, 20, 10, "outer"),
+    ]);
+    // inner abs = (3, 3) size 20×10 → contains (10, 8)
+    assert.equal(app._findDropContainer(10, 8, null).id, "inner");
+    // (30, 15) is inside outer but outside inner
+    assert.equal(app._findDropContainer(30, 15, null).id, "outer");
+});
+
+test("_findDropContainer: excludes the dragged subtree (cycle guard)", () => {
+    const app = appWith([
+        block("outer", "box", 0, 0, 40, 20),
+        block("inner", "box", 2, 2, 20, 10, "outer"),
+    ]);
+    // Dropping "outer" back over its own area must not target itself or
+    // its descendant — the whole subtree is excluded.
+    const exclude = app._subtreeIds("outer");
+    assert.equal(app._findDropContainer(10, 8, exclude), null);
+});
+
+// ── _commitBlockMove (re-parenting) ───────────────────────
+
+test("_commitBlockMove: dropping into a box re-parents to relative coords", async () => {
+    const app = appWith([
+        block("box", "box", 0, 0, 30, 12),
+        block("free", "text", 40, 0, 8, 2),
+    ]);
+    const calls = stubStore(app);
+
+    // Drag "free" so its absolute top-left lands at (5, 5)
+    app.dragBlock = app.blocks[1];
+    app.dragGridX = 5;
+    app.dragGridY = 5;
+    await app._commitBlockMove();
+
+    // center = (5 + 4, 5 + 1) = (9, 6) → inside the box
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].id, "free");
+    assert.equal(calls[0].props.parent_id, "box");
+    assert.equal(calls[0].props.x, 5 - 1); // rel = 5 - (0 + 1)
+    assert.equal(calls[0].props.y, 5 - 1);
+});
+
+test("_commitBlockMove: dragging a child out to the canvas un-parents", async () => {
+    const app = appWith([
+        block("box", "box", 0, 0, 30, 12),
+        block("child", "text", 1, 1, 8, 2, "box"),
+    ]);
+    const calls = stubStore(app);
+
+    // child abs = (2, 2); drag to abs (40, 20) — outside the box
+    app.dragBlock = app.blocks[1];
+    app.dragGridX = 40;
+    app.dragGridY = 20;
+    await app._commitBlockMove();
+
+    // center = (44, 21) → outside → back to root, absolute coords
+    assert.equal(calls[0].props.parent_id, null);
+    assert.equal(calls[0].props.x, 40);
+    assert.equal(calls[0].props.y, 20);
+});
+
+test("_commitBlockMove: moving a root block stays at root (no parent_id)", async () => {
+    const app = appWith([block("free", "text", 0, 0, 8, 2)]);
+    const calls = stubStore(app);
+
+    app.dragBlock = app.blocks[0];
+    app.dragGridX = 10;
+    app.dragGridY = 12;
+    await app._commitBlockMove();
+
+    assert.equal(calls[0].props.x, 10);
+    assert.equal(calls[0].props.y, 12);
+    assert.equal(calls[0].props.parent_id, undefined); // not sent
+});
+
+test("_commitBlockMove: a box cannot be dropped into its own child", async () => {
+    const app = appWith([
+        block("outer", "box", 0, 0, 40, 20),
+        block("inner", "box", 2, 2, 20, 10, "outer"),
+    ]);
+    const calls = stubStore(app);
+
+    // Drag "outer" to (0, 0): its center (20, 10) is inside "inner" (its
+    // own child). Without the cycle guard this would re-parent outer into
+    // inner; the guard excludes the whole subtree, so outer just moves.
+    app.dragBlock = app.blocks[0];
+    app.dragGridX = 0;
+    app.dragGridY = 0;
+    await app._commitBlockMove();
+
+    assert.equal(calls[0].props.parent_id, undefined); // not re-parented
+    assert.equal(calls[0].props.x, 0);
+    assert.equal(calls[0].props.y, 0);
+});
