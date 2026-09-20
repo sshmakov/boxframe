@@ -625,12 +625,12 @@ def _marquee_select(page: Page, metrics: dict, x1: float, y1: float,
 
 
 def test_marquee_selects_multiple_blocks(page: Page):
-    """Dragging a rubber-band on the empty canvas selects every block it
-    intersects; the panel shows the count and the list/canvas highlight."""
+    """Dragging a rubber-band on the empty canvas selects every block fully
+    inside it; the panel shows the count and the list/canvas highlight."""
     layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
 
     metrics = _canvas_metrics(page, a_id, 10, 4)
-    _marquee_select(page, metrics, 1, 1, 22, 5)
+    _marquee_select(page, metrics, 1, 1, 26, 8)
 
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
@@ -639,6 +639,19 @@ def test_marquee_selects_multiple_blocks(page: Page):
     expect(page.locator(".block-preview--selected")).to_have_count(2)
     # The selection frame is the group's bounding box (spans both blocks)
     expect(page.locator(".block-selection")).to_be_visible()
+
+
+def test_marquee_partial_overlap_not_selected(page: Page):
+    """A block that the rubber-band only partially covers is NOT selected —
+    the block must be fully inside the marquee."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    metrics = _canvas_metrics(page, a_id, 10, 4)
+    # Marquee (1,1)→(5,5) overlaps A (2..12 × 2..6) but does not contain it
+    _marquee_select(page, metrics, 1, 1, 5, 5)
+
+    expect(page.locator(".block-item--selected")).to_have_count(0)
+    expect(page.locator(".block-preview--selected")).to_have_count(0)
 
 
 def test_shift_click_toggles_selection(page: Page):
@@ -672,7 +685,7 @@ def test_group_move_drag_moves_all_selected(page: Page):
     layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
 
     metrics = _canvas_metrics(page, a_id, 10, 4)
-    _marquee_select(page, metrics, 1, 1, 22, 5)
+    _marquee_select(page, metrics, 1, 1, 26, 8)
     expect(page.locator(".block-item--selected")).to_have_count(2)
 
     # Drag block A by +5 cells right, +2 cells down
@@ -706,7 +719,7 @@ def test_delete_hotkey_deletes_group(page: Page):
     layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
 
     metrics = _canvas_metrics(page, a_id, 10, 4)
-    _marquee_select(page, metrics, 1, 1, 22, 5)
+    _marquee_select(page, metrics, 1, 1, 26, 8)
     expect(page.locator(".block-item--selected")).to_have_count(2)
 
     page.on("dialog", lambda dialog: dialog.accept())
@@ -731,7 +744,7 @@ def test_panel_style_applies_to_all_selected(page: Page):
     layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
 
     metrics = _canvas_metrics(page, a_id, 10, 4)
-    _marquee_select(page, metrics, 1, 1, 22, 5)
+    _marquee_select(page, metrics, 1, 1, 26, 8)
     expect(page.locator(".block-props__type")).to_have_text("2 selected")
 
     panel = page.locator(".block-props")
@@ -759,7 +772,7 @@ def test_group_duplicate_copies_all_selected(page: Page):
     layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
 
     metrics = _canvas_metrics(page, a_id, 10, 4)
-    _marquee_select(page, metrics, 1, 1, 22, 5)
+    _marquee_select(page, metrics, 1, 1, 26, 8)
     expect(page.locator(".block-item--selected")).to_have_count(2)
 
     page.locator(".block-props .action-btn", has_text="Duplicate").click()

@@ -351,12 +351,13 @@ function editorApp() {
             return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
         },
 
-        // Blocks whose area intersects the marquee rectangle.
+        // Blocks fully inside the marquee rectangle (partial overlap
+        // does not select).
         _marqueeHits() {
             const r = this._marqueeGridRect();
             return this.blocks.filter(bl =>
-                bl.x < r.x2 && bl.x + bl.width > r.x1 &&
-                bl.y < r.y2 && bl.y + bl.height > r.y1
+                bl.x >= r.x1 && bl.y >= r.y1 &&
+                bl.x + bl.width <= r.x2 && bl.y + bl.height <= r.y2
             );
         },
 
