@@ -79,8 +79,9 @@
                 <div class="element-list">
                     <template x-for="(block, idx) in blocks" :key="block.id">
                         <div class="block-item"
-                             :class="{ 'block-item--selected': block.id === selectedBlockId }"
-                             @click="selectBlock(block.id)">
+                             :class="{ 'block-item--selected': selectedIds.includes(block.id) }"
+                             @click="onListItemClick($event, block.id)"
+                             title="Shift/Ctrl+click — add to selection">
                             <span class="block-item__info">
                                 <strong x-text="block.block_type"></strong>
                                 <span class="block-item__pos" x-text="' @(' + block.x + ',' + block.y + ')'"></span>
@@ -100,7 +101,7 @@
         <!-- Content: canvas preview -->
         <section class="editor-content">
             <div class="canvas-container"
-                 title="Click a block to select it, double-click to edit its text"
+                 title="Click a block to select it, drag on empty canvas to select several (Shift — add), double-click to edit its text"
                  @dragover.prevent="onCanvasDragOver($event)"
                  @dragleave="onCanvasDragLeave($event)"
                  @drop="onCanvasDrop($event)"
@@ -108,36 +109,39 @@
                  @dblclick="onCanvasDblClick($event)">
                 <div class="canvas-drag-overlay"></div>
                 <div x-html="htmlPreview"></div>
-                <!-- Selection frame (single-click selection) with a resize
-                     handle; block actions live in the properties panel -->
+                <!-- Selection frame with a resize handle: the block itself
+                     for a single selection, the group's bounding box for a
+                     multi-selection; block actions live in the properties
+                     panel -->
                 <div class="block-selection" x-show="selectedBlock && !editingBlock" x-cloak
                      :style="selectionStyle">
                     <div class="block-selection__frame"></div>
                     <div class="sel-resize" @mousedown="onSelectionResizeMouseDown($event)"
                          title="Drag to resize"></div>
                 </div>
-                <!-- Block properties panel (floats next to the selected block) -->
+                <!-- Block properties panel (floats next to the selection;
+                     with several blocks selected the values apply to all) -->
                 <div class="block-props" x-show="selectedBlock && !editingBlock" x-cloak
                      :style="propsPanelStyle">
                     <div class="block-props__head">
-                        <span class="block-props__type" x-text="selectedBlock.block_type"></span>
-                        <button class="block-props__close" @click="selectedBlockId = null"
-                                title="Deselect">×</button>
+                        <span class="block-props__type" x-text="panelTitle"></span>
+                        <button class="block-props__close" @click="clearSelection()"
+                                title="Deselect (Esc)">×</button>
                     </div>
                     <div class="block-props__grid">
                         <div class="block-props__actions">
                             <button class="action-btn" @click="duplicateBlock()"
-                                    title="Duplicate block">⧉ Duplicate</button>
+                                    title="Duplicate selected block(s) (Ctrl+D)">⧉ Duplicate</button>
                             <button class="action-btn action-btn--danger"
-                                    @click="deleteBlock(selectedBlock.id)"
-                                    title="Delete block">✕ Delete</button>
+                                    @click="deleteSelection()"
+                                    title="Delete selected block(s) (Del)">✕ Delete</button>
                         </div>
                         <div class="prop prop--wide">
                             <span>Line Style</span>
                             <div class="style-btns">
                                 <template x-for="s in borderStyles" :key="s">
                                     <button type="button" class="style-btn"
-                                            :class="{ 'style-btn--active': s === selectedBlock.border_style }"
+                                            :class="{ 'style-btn--active': styleActive(s) }"
                                             @click="updateSelectedBlock({ border_style: s })"
                                             :title="s" x-text="styleIcon(s)"></button>
                                 </template>
@@ -165,7 +169,7 @@
                                        @change="updateSelectedWH($event)">
                             </label>
                         </div>
-                        <label class="prop prop--wide">
+                        <label class="prop prop--wide" x-show="!isMultiSelect" x-cloak>
                             <span>Order</span>
                             <input type="number" min="0" :value="selectedBlock.order"
                                    @change="updateSelectedOrder($event)">

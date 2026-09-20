@@ -67,6 +67,36 @@ function makeFetchLike(serverState) {
             serverState.blocks = serverState.blocks.filter((b) => b.id !== id);
             return Promise.resolve({ ok: true });
         },
+        batchBlocks: function (payload) {
+            payload = payload || {};
+            const created = [];
+            const updated = [];
+            const deleted = [];
+            (payload.delete || []).forEach((id) => {
+                const idx = serverState.blocks.findIndex((b) => b.id === id);
+                if (idx !== -1) {
+                    serverState.blocks.splice(idx, 1);
+                    deleted.push(id);
+                }
+            });
+            (payload.create || []).forEach((data) => {
+                const b = Object.assign(
+                    { id: "id-" + Math.random().toString(36).slice(2), border_style: "solid", meta: {}, order: 1 },
+                    data
+                );
+                serverState.blocks.push(b);
+                created.push(Object.assign({}, b));
+            });
+            (payload.update || []).forEach((data) => {
+                const b = serverState.blocks.find((x) => x.id === data.id);
+                if (!b) return;
+                Object.keys(data).forEach((k) => {
+                    if (k !== "id" && data[k] != null) b[k] = data[k];
+                });
+                updated.push(Object.assign({}, b));
+            });
+            return Promise.resolve({ created: created, updated: updated, deleted: deleted });
+        },
         clear: function () {
             serverState.blocks = [];
             return Promise.resolve({ ok: true });
@@ -479,4 +509,79 @@ test("onChange fires when the buffer is restored on load", async () => {
     );
     await s2.load();
     assert.deepEqual(calls, [{ undoCount: 1, redoCount: 0 }]);
+});
+
+// ── batchBlocks (multi-selection edits) ──────────────────
+
+test("batchBlocks is a single undo step", async () => {
+    const store = makeStore();
+    const a = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 10, height: 3 });
+    const b = await store.createBlock({ block_type: "box", x: 12, y: 0, width: 10, height: 3 });
+    assert.equal(store.undoCount, 2);
+
+    await store.batchBlocks({
+        create: [{ block_type: "button", x: 0, y: 5, width: 8, height: 1 }],
+        update: [{ id: a.id, x: 4 }, { id: b.id, border_style: "dashed" }],
+        delete: [b.id],
+    });
+    // The whole batch is one history entry
+    assert.equal(store.undoCount, 3);
+
+    await store.undo();
+    let list = await blocks(store);
+    assert.equal(list.length, 2); // the batch is fully reverted
+    assert.equal(blockById(list, a.id).x, 0);
+    assert.equal(blockById(list, b.id).border_style, "solid");
+
+    await store.redo();
+    list = await blocks(store);
+    assert.equal(list.length, 2);
+    assert.equal(blockById(list, a.id).x, 4);
+    assert.ok(!blockById(list, b.id));
+});
+
+test("batchBlocks with the same coalescing key is one undo step (nudge burst)", async () => {
+    const store = makeStore();
+    const a = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 10, height: 3 });
+    const b = await store.createBlock({ block_type: "box", x: 12, y: 0, width: 10, height: 3 });
+
+    // A burst of nudges (arrow keys) under the same key
+    await store.batchBlocks({ update: [{ id: a.id, x: 1 }, { id: b.id, x: 13 }] }, "nudge");
+    await store.batchBlocks({ update: [{ id: a.id, x: 2 }, { id: b.id, x: 14 }] }, "nudge");
+    await store.batchBlocks({ update: [{ id: a.id, x: 3 }, { id: b.id, x: 15 }] }, "nudge");
+    // 2 creations + one coalesced burst
+    assert.equal(store.undoCount, 3);
+
+    await store.undo();
+    const list = await blocks(store);
+    assert.equal(blockById(list, a.id).x, 0);
+    assert.equal(blockById(list, b.id).x, 12);
+});
+
+test("a batch without a coalescing key is always a new entry", async () => {
+    const store = makeStore();
+    const a = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 10, height: 3 });
+
+    await store.batchBlocks({ update: [{ id: a.id, x: 1 }] });
+    await store.batchBlocks({ update: [{ id: a.id, x: 2 }] });
+    assert.equal(store.undoCount, 3); // create + two separate batches
+});
+
+test("fetch-like store: batchBlocks mutates the server state, undo restores it", async () => {
+    const serverState = { width: null, height: null, blocks: [] };
+    const store = withHistory(makeFetchLike(serverState));
+    await store.load();
+    const a = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 10, height: 3 });
+
+    const result = await store.batchBlocks({
+        update: [{ id: a.id, x: 5 }],
+        create: [{ block_type: "button", x: 0, y: 5, width: 8, height: 1 }],
+    });
+    assert.equal(result.updated.length, 1);
+    assert.equal(result.created.length, 1);
+    assert.equal(serverState.blocks.length, 2);
+
+    await store.undo();
+    assert.equal(serverState.blocks.length, 1);
+    assert.equal(serverState.blocks[0].x, 0);
 });

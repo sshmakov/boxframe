@@ -10,6 +10,7 @@
  *   createBlock(data)    → block
  *   updateBlock(id, p)   → block
  *   deleteBlock(id)      → { ok }
+ *   batchBlocks(payload) → { created, updated, deleted }   (all stores)
  *   replaceState(state)  → { ok }   (all stores)
  *   export()             → { json, markdown, ascii }
  *   clear()              → { ok }   (all stores)
@@ -100,6 +101,17 @@
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ blocks: blocks }),
+                });
+            },
+
+            // Batch of block operations in one request (multi-selection
+            // edits): { create: [...], update: [{id, ...props}], delete: [ids] }
+            // → { created: [...], updated: [...], deleted: [ids] }
+            batchBlocks: function (payload) {
+                return api("/api/layouts/" + layoutId + "/blocks/batch", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload || {}),
                 });
             },
 
@@ -263,6 +275,63 @@
                 layout.blocks.splice(idx, 1);
                 mutate();
                 return Promise.resolve({ ok: true });
+            },
+
+            // Batch of block operations in one mutation (multi-selection
+            // edits): { create: [...], update: [{id, ...props}], delete: [ids] }
+            // → { created: [...], updated: [...], deleted: [ids] }
+            batchBlocks: function (payload) {
+                payload = payload || {};
+                var created = [];
+                var updated = [];
+                var deleted = [];
+
+                (payload.delete || []).forEach(function (blockId) {
+                    var idx = layout.blocks.findIndex(function (b) { return b.id === blockId; });
+                    if (idx !== -1) {
+                        layout.blocks.splice(idx, 1);
+                        deleted.push(blockId);
+                    }
+                });
+
+                var nextOrder = maxOrder() + 1;
+                (payload.create || []).forEach(function (data) {
+                    var block = {
+                        id: newId(),
+                        block_type: data.block_type || "box",
+                        x: data.x != null ? data.x : 0,
+                        y: data.y != null ? data.y : 0,
+                        width: data.width != null ? data.width : 20,
+                        height: data.height != null ? data.height : 3,
+                        content: data.content != null ? data.content : "",
+                        border_style: data.border_style || "solid",
+                        parent_id: data.parent_id || null,
+                        meta: data.meta || {},
+                        order: data.order ? data.order : nextOrder++,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                    };
+                    normalizeLine(block);
+                    layout.blocks.push(block);
+                    created.push(Object.assign({}, block));
+                });
+
+                (payload.update || []).forEach(function (data) {
+                    var block = layout.blocks.find(function (b) { return b.id === data.id; });
+                    if (!block) return;
+                    Object.keys(data).forEach(function (key) {
+                        var value = data[key];
+                        if (key !== "id" && value !== null && value !== undefined) {
+                            block[key] = value;
+                        }
+                    });
+                    normalizeLine(block);
+                    block.updated_at = new Date().toISOString();
+                    updated.push(Object.assign({}, block));
+                });
+
+                mutate();
+                return Promise.resolve({ created: created, updated: updated, deleted: deleted });
             },
 
             clear: function () {

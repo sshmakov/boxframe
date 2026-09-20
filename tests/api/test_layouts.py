@@ -746,3 +746,143 @@ def test_replace_layout_blocks_normalizes_lines(client: TestClient):
     assert by_type["hline"]["width"] == 15
     assert by_type["vline"]["width"] == 1
     assert by_type["vline"]["height"] == 10
+
+
+# ── Batch operations tests (multi-selection support) ─────
+
+
+def test_batch_blocks_create_update_delete(client: TestClient):
+    """POST /api/layouts/{id}/blocks/batch applies create/update/delete
+    in a single request (backs the editor's multi-selection edits)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 3,
+    })
+    a_id = r.json()["id"]
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 12, "y": 0, "width": 10, "height": 3,
+    })
+    b_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "create": [
+            {"block_type": "button", "x": 0, "y": 8, "width": 8, "height": 1,
+             "content": "Go"},
+        ],
+        "update": [
+            {"id": a_id, "x": 5},
+            {"id": b_id, "border_style": "dashed"},
+        ],
+        "delete": [b_id],
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data["created"]) == 1
+    assert data["created"][0]["block_type"] == "button"
+    assert len(data["updated"]) == 1
+    assert data["updated"][0]["id"] == a_id
+    assert data["updated"][0]["x"] == 5
+    assert data["deleted"] == [b_id]
+
+    # The layout reflects all three operations
+    r = client.get(f"/api/layouts/{layout_id}")
+    blocks = r.json()["blocks"]
+    assert len(blocks) == 2
+    by_id = {b["id"]: b for b in blocks}
+    assert by_id[a_id]["x"] == 5
+    assert b_id not in by_id
+    created = [b for b in blocks if b["block_type"] == "button"][0]
+    assert created["content"] == "Go"
+
+
+def test_batch_blocks_auto_order(client: TestClient):
+    """Created blocks without an explicit order get sequential orders
+    after the current maximum."""
+    _, layout_id = _create_project_with_layout(client)
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 3,
+    })
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "create": [
+            {"block_type": "box", "x": 0, "y": 5, "width": 10, "height": 3},
+            {"block_type": "box", "x": 12, "y": 5, "width": 10, "height": 3},
+        ],
+    })
+    assert r.status_code == 200
+    orders = sorted(b["order"] for b in r.json()["created"])
+    assert orders == [2, 3]
+
+
+def test_batch_blocks_normalizes_lines(client: TestClient):
+    """hline/vline keep their 1-cell thickness in batch create/update."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "hline", "x": 0, "y": 0, "width": 20, "height": 1,
+    })
+    line_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "create": [
+            {"block_type": "vline", "x": 0, "y": 0, "width": 4, "height": 10},
+        ],
+        "update": [
+            {"id": line_id, "height": 5, "width": 30},
+        ],
+    })
+    assert r.status_code == 200
+    created = r.json()["created"][0]
+    assert created["width"] == 1
+    assert created["height"] == 10
+    updated = r.json()["updated"][0]
+    assert updated["height"] == 1
+    assert updated["width"] == 30
+
+
+def test_batch_blocks_ignores_unknown_ids(client: TestClient):
+    """Unknown ids in update/delete are skipped, not an error."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 3,
+    })
+    block_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [
+            {"id": "no-such-block", "x": 99},
+            {"id": block_id, "x": 7},
+        ],
+        "delete": ["no-such-block"],
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data["updated"]) == 1
+    assert data["updated"][0]["id"] == block_id
+    assert data["updated"][0]["x"] == 7
+    assert data["deleted"] == []
+
+
+def test_batch_blocks_empty_payload(client: TestClient):
+    """An empty payload is a no-op."""
+    _, layout_id = _create_project_with_layout(client)
+    client.post(f"/api/layouts/{layout_id}/blocks", json={"block_type": "box"})
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["created"] == []
+    assert data["updated"] == []
+    assert data["deleted"] == []
+
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert len(r.json()["blocks"]) == 1
+
+
+def test_batch_blocks_not_found(client: TestClient):
+    """Batch operations on a non-existent layout return 404."""
+    r = client.post(
+        "/api/layouts/00000000-0000-0000-0000-000000000000/blocks/batch",
+        json={"delete": []},
+    )
+    assert r.status_code == 404

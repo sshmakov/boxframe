@@ -508,6 +508,286 @@ def test_properties_panel_section_order(page: Page):
     assert all(b > a for a, b in zip(tops, tops[1:]))
 
 
+# ── Multi-selection (marquee + group operations) ──────────
+#
+# Two boxes side by side, used by the multi-selection tests:
+# A at (2,2) 10×4, B at (14,2) 10×4 (a 2-cell gap between them).
+TWO_BOXES = [
+    {"block_type": "box", "x": 2, "y": 2, "width": 10, "height": 4},
+    {"block_type": "box", "x": 14, "y": 2, "width": 10, "height": 4},
+]
+
+
+def _create_project_with_blocks(page: Page, specs: list[dict]) -> tuple[str, list[str]]:
+    """Create a project and layout via the UI, add blocks via the API.
+
+    specs: list of {block_type, x, y, width, height, content?, border_style?}.
+    Returns (layout_id, [block_ids]).
+    """
+    page.goto(BASE_URL)
+    page.get_by_role("button", name="+ New Project").click()
+    page.get_by_placeholder("Project name...").fill("E2E: Multi-Select Test")
+    page.get_by_role("button", name="Create").click()
+    expect(page).to_have_title("E2E: Multi-Select Test — boxframe")
+
+    page.get_by_role("button", name="+ New Layout").click()
+    page.get_by_placeholder("Layout name...").fill("Multi-Select Layout")
+    page.get_by_role("button", name="Create").click()
+    expect(page).to_have_url(re.compile(f"{BASE_URL}/layout/[0-9a-f-]+"))
+    layout_id = re.search(r"/layout/([0-9a-f-]+)", page.url).group(1)
+
+    block_ids = []
+    for spec in specs:
+        payload = {
+            "block_type": spec["block_type"],
+            "x": spec["x"], "y": spec["y"],
+            "width": spec["width"], "height": spec["height"],
+        }
+        if "content" in spec:
+            payload["content"] = spec["content"]
+        if "border_style" in spec:
+            payload["border_style"] = spec["border_style"]
+        r = requests.post(
+            f"{BASE_URL}/api/layouts/{layout_id}/blocks",
+            json=payload, timeout=5,
+        )
+        assert r.status_code == 200
+        block_ids.append(r.json()["id"])
+
+    # Reload so the editor renders the new blocks
+    page.reload()
+    for bid in block_ids:
+        expect(page.locator(f'.block-preview[data-block-id="{bid}"]')).to_be_visible()
+    return layout_id, block_ids
+
+
+def _canvas_metrics(page: Page, block_id: str, block_w: int, block_h: int) -> dict:
+    """Measure the canvas geometry: the container origin and the char cell size.
+
+    Polls until the canvas container and the given block are both laid out
+    (the editor re-renders once after measuring the real character size),
+    capturing everything atomically in one evaluate so the values come from
+    the same DOM generation.
+
+    Returns {container: {x, y}, cw, ch}.
+    """
+    metrics = None
+    for _ in range(20):
+        metrics = page.evaluate(
+            """(args) => {
+                const [blockId, bw, bh] = args;
+                const c = document.querySelector('.canvas-container');
+                const b = document.querySelector('.block-preview[data-block-id="' + blockId + '"]');
+                if (!c || !b) return null;
+                const cr = c.getBoundingClientRect();
+                const br = b.getBoundingClientRect();
+                if (br.width === 0 || br.height === 0) return null;
+                return {
+                    container: {x: cr.x, y: cr.y},
+                    cw: br.width / bw,
+                    ch: br.height / bh,
+                };
+            }""",
+            [block_id, block_w, block_h],
+        )
+        if metrics:
+            break
+        page.wait_for_timeout(100)
+    assert metrics is not None
+    return metrics
+
+
+def _grid_point(metrics: dict, gx: float, gy: float) -> tuple[float, float]:
+    """Grid cell (gx, gy) → client (x, y) pixel coordinates.
+
+    The grid origin sits 16px inside the canvas container (the
+    .render-wrapper padding).
+    """
+    return (
+        metrics["container"]["x"] + 16 + gx * metrics["cw"],
+        metrics["container"]["y"] + 16 + gy * metrics["ch"],
+    )
+
+
+def _marquee_select(page: Page, metrics: dict, x1: float, y1: float,
+                    x2: float, y2: float) -> None:
+    """Rubber-band select on the canvas from grid (x1,y1) to (x2,y2).
+
+    The start point must be on empty canvas (no block under it) or the
+    editor starts a block drag instead of a marquee.
+    """
+    sx, sy = _grid_point(metrics, x1, y1)
+    ex, ey = _grid_point(metrics, x2, y2)
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move(ex, ey, steps=10)
+    page.mouse.up()
+
+
+def test_marquee_selects_multiple_blocks(page: Page):
+    """Dragging a rubber-band on the empty canvas selects every block it
+    intersects; the panel shows the count and the list/canvas highlight."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    metrics = _canvas_metrics(page, a_id, 10, 4)
+    _marquee_select(page, metrics, 1, 1, 22, 5)
+
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+    expect(panel.locator(".block-props__type")).to_have_text("2 selected")
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+    expect(page.locator(".block-preview--selected")).to_have_count(2)
+    # The selection frame is the group's bounding box (spans both blocks)
+    expect(page.locator(".block-selection")).to_be_visible()
+
+
+def test_shift_click_toggles_selection(page: Page):
+    """Shift/Ctrl+click on a block toggles it in the selection without
+    starting a drag.
+
+    The rightmost block (B) is selected first so the floating properties
+    panel opens to its right and does not cover the other block.
+    """
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    # Click B → selects it alone
+    page.locator(f'.block-preview[data-block-id="{b_id}"]').click()
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    expect(page.locator(".block-props__type")).to_have_text("box")
+
+    # Shift+click A → adds it to the selection
+    page.locator(f'.block-preview[data-block-id="{a_id}"]').click(modifiers=["Shift"])
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+    expect(page.locator(".block-props__type")).to_have_text("2 selected")
+
+    # Shift+click B again → removes it from the selection
+    page.locator(f'.block-preview[data-block-id="{b_id}"]').click(modifiers=["Shift"])
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    expect(page.locator(".block-props__type")).to_have_text("box")
+
+
+def test_group_move_drag_moves_all_selected(page: Page):
+    """Dragging one block of a multi-selection moves the whole selection by
+    the same delta (one batch update)."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    metrics = _canvas_metrics(page, a_id, 10, 4)
+    _marquee_select(page, metrics, 1, 1, 22, 5)
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    # Drag block A by +5 cells right, +2 cells down
+    a_box = page.locator(f'.block-preview[data-block-id="{a_id}"]').bounding_box()
+    start_x = a_box["x"] + a_box["width"] / 2
+    start_y = a_box["y"] + a_box["height"] / 2
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x + 5 * metrics["cw"], start_y + 2 * metrics["ch"], steps=10)
+    page.mouse.up()
+
+    # Poll: the browser's batch request may still be in flight
+    blocks = {}
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = {b["id"]: b for b in r.json()["blocks"]}
+        a = blocks.get(a_id)
+        if a and (a["x"], a["y"]) != (2, 2):
+            break
+        page.wait_for_timeout(100)
+    a, b = blocks[a_id], blocks[b_id]
+    # Both blocks moved by the same delta (rigid group move)
+    assert a["x"] - 2 == b["x"] - 14
+    assert a["y"] - 2 == b["y"] - 2
+    assert a["x"] > 2 and a["y"] > 2  # a real move in the intended direction
+    assert b["x"] - a["x"] == 12  # the 12-cell gap is preserved
+
+
+def test_delete_hotkey_deletes_group(page: Page):
+    """The Delete key removes the whole multi-selection (one batch delete)."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    metrics = _canvas_metrics(page, a_id, 10, 4)
+    _marquee_select(page, metrics, 1, 1, 22, 5)
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    page.on("dialog", lambda dialog: dialog.accept())
+    page.keyboard.press("Delete")
+
+    # Poll: the browser's batch request may still be in flight
+    blocks = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if blocks == []:
+            break
+        page.wait_for_timeout(100)
+    assert blocks == []
+    expect(page.locator(".block-preview")).to_have_count(0)
+    expect(page.locator(".block-item")).to_have_count(0)
+
+
+def test_panel_style_applies_to_all_selected(page: Page):
+    """Changing the Line Style with a multi-selection applies it to every
+    selected block (one batch update)."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    metrics = _canvas_metrics(page, a_id, 10, 4)
+    _marquee_select(page, metrics, 1, 1, 22, 5)
+    expect(page.locator(".block-props__type")).to_have_text("2 selected")
+
+    panel = page.locator(".block-props")
+    panel.locator(".style-btn[title='dotted']").click()
+
+    # Poll: the browser's batch request may still be in flight
+    blocks = {}
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = {b["id"]: b for b in r.json()["blocks"]}
+        a, b = blocks.get(a_id), blocks.get(b_id)
+        if a and b and a["border_style"] == "dotted" and b["border_style"] == "dotted":
+            break
+        page.wait_for_timeout(100)
+    assert blocks[a_id]["border_style"] == "dotted"
+    assert blocks[b_id]["border_style"] == "dotted"
+    # The active style button reflects the shared style
+    expect(panel.locator(".style-btn--active")).to_have_count(1)
+    expect(panel.locator(".style-btn--active")).to_have_attribute("title", "dotted")
+
+
+def test_group_duplicate_copies_all_selected(page: Page):
+    """The Duplicate action copies every selected block with a one-cell
+    offset; the copies become the new selection."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    metrics = _canvas_metrics(page, a_id, 10, 4)
+    _marquee_select(page, metrics, 1, 1, 22, 5)
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    page.locator(".block-props .action-btn", has_text="Duplicate").click()
+
+    # Poll: the browser's batch request may still be in flight
+    blocks = []
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if len(blocks) == 4:
+            break
+        page.wait_for_timeout(100)
+    assert len(blocks) == 4
+    orig_a = next(b for b in blocks if b["id"] == a_id)
+    orig_b = next(b for b in blocks if b["id"] == b_id)
+    copies = [b for b in blocks if b["id"] not in (a_id, b_id)]
+    assert len(copies) == 2
+    # Each copy is offset by one cell from its original, same size
+    for orig in (orig_a, orig_b):
+        copy = next(
+            c for c in copies
+            if (c["x"], c["y"]) == (orig["x"] + 1, orig["y"] + 1)
+        )
+        assert (copy["width"], copy["height"]) == (orig["width"], orig["height"])
+    # The copies become the selected elements
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+
 # ── Static editor (no backend, in-memory store) ───────────
 
 

@@ -115,6 +115,45 @@ class BlocksReplace(BaseModel):
     blocks: list[BlockIn]
 
 
+class BatchBlockCreate(BaseModel):
+    block_type: str = "box"
+    x: int = 0
+    y: int = 0
+    width: int = 20
+    height: int = 3
+    content: str = ""
+    border_style: str = "solid"
+    parent_id: str | None = None
+    meta: dict = {}
+    order: int = 0
+
+
+class BatchBlockUpdate(BaseModel):
+    id: str
+    block_type: str | None = None
+    x: int | None = None
+    y: int | None = None
+    width: int | None = None
+    height: int | None = None
+    content: str | None = None
+    border_style: str | None = None
+    parent_id: str | None = None
+    meta: dict | None = None
+    order: int | None = None
+
+
+class BlocksBatch(BaseModel):
+    create: list[BatchBlockCreate] = []
+    update: list[BatchBlockUpdate] = []
+    delete: list[str] = []
+
+
+class BlocksBatchOut(BaseModel):
+    created: list[BlockOut] = []
+    updated: list[BlockOut] = []
+    deleted: list[str] = []
+
+
 class RenderOut(BaseModel):
     ascii: str
     html: str | None = None
@@ -224,6 +263,27 @@ async def replace_layout_blocks(layout_id: str, data: BlocksReplace, db: AsyncSe
         raise HTTPException(status_code=404, detail="Layout not found")
     updated = await service.replace_blocks(layout_id, [b.model_dump() for b in data.blocks])
     return updated
+
+
+@router.post("/{layout_id}/blocks/batch", response_model=BlocksBatchOut)
+async def batch_blocks(layout_id: str, data: BlocksBatch, db: AsyncSession = Depends(get_db)):
+    """Apply a batch of block operations in a single request.
+
+    Backs the editor's multi-selection operations: group move, group
+    property edit, group delete, group duplicate. One request instead of
+    N, so the client records a single undo step.
+    """
+    service = LayoutService(db)
+    _, created, updated, deleted = await service.batch_blocks(
+        layout_id,
+        create=[b.model_dump() for b in data.create],
+        update=[b.model_dump(exclude_none=True) for b in data.update],
+        delete=data.delete,
+    )
+    layout = await service.get_layout(layout_id)
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout not found")
+    return BlocksBatchOut(created=created, updated=updated, deleted=deleted)
 
 
 # ── Rendering ─────────────────────────────────────────────

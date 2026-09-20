@@ -399,6 +399,21 @@
 
 .sel-resize:hover { background-color: #ff6b81; }
 
+/* ── Marquee (rubber-band) selection rectangle ─────────── */
+.marquee {
+    position: absolute;
+    border: 1px dashed rgba(233, 69, 96, 0.9);
+    background: rgba(233, 69, 96, 0.08);
+    pointer-events: none;
+    z-index: 90;
+}
+
+/* Highlight of the blocks inside a multi-selection (the selection
+   frame covers the group's bounding box, this marks each member) */
+.block-preview--selected {
+    outline: 1px solid rgba(233, 69, 96, 0.55);
+}
+
 /* ── Block properties panel (floats next to selected block) ─ */
 .block-props {
     position: absolute;

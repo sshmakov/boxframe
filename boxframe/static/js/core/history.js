@@ -10,8 +10,9 @@
  *
  * How it works:
  *   - Before each mutation (createBlock / updateBlock / deleteBlock /
- *     clear / replaceState) the current state is snapshotted and pushed
- *     onto the undo stack; the redo stack is cleared.
+ *     batchBlocks / clear / replaceState) the current state is snapshotted
+ *     and pushed onto the undo stack; the redo stack is cleared. A
+ *     batchBlocks call (multi-selection edit) is always one entry.
  *   - undo() pushes the current state onto the redo stack, pops the undo
  *     stack, and restores that snapshot through the inner store
  *     (replaceState for local stores, the batch replaceBlocks endpoint
@@ -324,6 +325,37 @@
                     history._state.blocks = history._state.blocks.filter(
                         function (b) { return b.id !== blockId; }
                     );
+                    history._persist();
+                    return result;
+                });
+            });
+        };
+
+        // Batch of block operations (multi-selection edits) — one snapshot,
+        // so the whole batch is a single undo/redo step. key — optional
+        // coalescing key (e.g. "nudge" for arrow-key bursts).
+        history.batchBlocks = function (payload, key) {
+            return history._record(key || null).then(function () {
+                return store.batchBlocks(payload).then(function (result) {
+                    (result.created || []).forEach(function (block) {
+                        history._state.blocks.push(deepCopy(block));
+                    });
+                    (result.updated || []).forEach(function (block) {
+                        var idx = -1;
+                        for (var i = 0; i < history._state.blocks.length; i++) {
+                            if (history._state.blocks[i].id === block.id) {
+                                idx = i;
+                                break;
+                            }
+                        }
+                        if (idx !== -1) history._state.blocks[idx] = deepCopy(block);
+                        else history._state.blocks.push(deepCopy(block));
+                    });
+                    (result.deleted || []).forEach(function (blockId) {
+                        history._state.blocks = history._state.blocks.filter(
+                            function (b) { return b.id !== blockId; }
+                        );
+                    });
                     history._persist();
                     return result;
                 });

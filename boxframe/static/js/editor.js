@@ -24,14 +24,26 @@ function editorApp() {
         editingBlock: null,    // block being edited (null = editor closed)
         editText: '',          // textarea content while editing
 
-        // ── Selection state (single click) ─────────────────────
-        selectedBlockId: null, // id of the block selected by a single click
+        // ── Selection state ─────────────────────────────────────
+        // Multi-selection: the list of selected block ids. The first id is
+        // the "primary" block — the properties panel anchors to it and its
+        // values seed the panel inputs.
+        selectedIds: [],
         pendingBlock: null,    // block under cursor on mousedown (click vs drag)
+        pendingToggle: false,  // shift/ctrl+click on a block → toggle on mouseup
+
+        // ── Marquee (rubber-band) selection state ──────────────
+        marquee: null,         // { startX, startY, curX, curY, add } in content px
+        marqueeEl: null,
 
         // ── Drag state ──────────────────────────────────────────
-        dragMode: null,          // 'palette' | 'pending' | 'move' | 'resize' | null
+        dragMode: null,          // 'palette' | 'pending' | 'move' | 'resize' | 'marquee' | null
         dragType: null,          // block type string (palette drag)
         dragBlock: null,         // block object (move / resize drag)
+        dragGroup: false,        // move drag of a whole multi-selection
+        dragGroupOriginal: null, // [{id, x, y}] of the selected blocks at drag start
+        dragGroupDx: 0,          // committed group delta (grid cells)
+        dragGroupDy: 0,
         dragStartX: 0,
         dragStartY: 0,
         dragOffsetX: 0,
@@ -40,12 +52,16 @@ function editorApp() {
         dragGridY: -1,
 
         // ── Resize state ───────────────────────────────────────
-        resizeStartW: 0,         // block width at resize start (grid cells)
-        resizeStartH: 0,         // block height at resize start (grid cells)
+        resizeStartW: 0,         // block (or group bbox) width at resize start
+        resizeStartH: 0,         // block (or group bbox) height at resize start
         resizeStartClientX: 0,   // mouse X at resize start (client coords)
         resizeStartClientY: 0,   // mouse Y at resize start (client coords)
         resizePreviewW: 0,       // preview width during drag (grid cells)
         resizePreviewH: 0,       // preview height during drag (grid cells)
+        resizeGroup: false,      // resize drag of a whole multi-selection
+        resizeOriginal: null,    // [{id, width, height}] of the selected blocks
+        resizePreviewX: 0,       // preview origin (grid cells)
+        resizePreviewY: 0,
 
         previewEl: null,
         charWidth: 0,
@@ -90,30 +106,65 @@ function editorApp() {
 
             this._bindGlobalMouseUp();
             this._bindGlobalMouseMove();
-            this._bindUndoRedoKeys();
+            this._bindKeys();
             // Defer binding until Alpine.js has updated the DOM via x-html
             this.$nextTick(() => this._bindResizeHandles());
             this.loading = false;
         },
 
-        // ── Undo/redo ─────────────────────────────────────────
+        // ── Keyboard shortcuts ─────────────────────────────────
 
-        // Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) — global shortcuts. Skipped
-        // while a text field has focus so native input undo keeps working
-        // (inline content editor, properties panel inputs).
-        _bindUndoRedoKeys() {
+        // Global shortcuts. Skipped while a text field has focus so native
+        // input editing keeps working (inline content editor, properties
+        // panel inputs):
+        //   Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y — undo / redo
+        //   Ctrl+D                          — duplicate the selection
+        //   Delete / Backspace              — delete the selection
+        //   Escape                          — clear the selection
+        //   Arrow keys (Shift = ×10)        — nudge the selection
+        _bindKeys() {
             document.addEventListener('keydown', (e) => {
-                if (!(e.ctrlKey || e.metaKey)) return;
-                const key = e.key.toLowerCase();
-                if (key !== 'z' && key !== 'y') return;
                 const t = e.target;
-                if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
-                          t.tagName === 'SELECT' || t.isContentEditable)) return;
-                e.preventDefault();
-                if (key === 'z' && !e.shiftKey) {
-                    this.undo();
-                } else {
-                    this.redo();
+                const inField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+                                      t.tagName === 'SELECT' || t.isContentEditable);
+
+                if ((e.ctrlKey || e.metaKey) && !inField) {
+                    const key = e.key.toLowerCase();
+                    if (key === 'z') {
+                        e.preventDefault();
+                        if (e.shiftKey) this.redo();
+                        else this.undo();
+                        return;
+                    }
+                    if (key === 'y') {
+                        e.preventDefault();
+                        this.redo();
+                        return;
+                    }
+                    if (key === 'd') {
+                        e.preventDefault();
+                        this.duplicateBlock();
+                        return;
+                    }
+                }
+
+                if (inField) return;
+
+                if (e.key === 'Escape') {
+                    this.clearSelection();
+                } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                    if (this.selectedIds.length) {
+                        e.preventDefault();
+                        this.deleteSelection();
+                    }
+                } else if (this.selectedIds.length && e.key.startsWith('Arrow')) {
+                    e.preventDefault();
+                    const step = e.shiftKey ? 10 : 1;
+                    const dx = e.key === 'ArrowLeft' ? -step
+                        : e.key === 'ArrowRight' ? step : 0;
+                    const dy = e.key === 'ArrowUp' ? -step
+                        : e.key === 'ArrowDown' ? step : 0;
+                    this._nudgeSelection(dx, dy);
                 }
             });
         },
@@ -139,9 +190,9 @@ function editorApp() {
             this.layoutWidth = data.width != null ? data.width : null;
             this.layoutHeight = data.height != null ? data.height : null;
             this._reorderBlocks();
-            if (this.selectedBlockId && !this.blocks.some(b => b.id === this.selectedBlockId)) {
-                this.selectedBlockId = null;
-            }
+            // Drop selected ids of blocks that no longer exist
+            this.selectedIds = this.selectedIds.filter(id =>
+                this.blocks.some(b => b.id === id));
             if (this.editingBlock && !this.blocks.some(b => b.id === this.editingBlock.id)) {
                 this.editingBlock = null;
             }
@@ -172,20 +223,40 @@ function editorApp() {
         // ── Pixel → grid conversion ─────────────────────────────
         // Coordinate origin: top-left of .render-wrapper content area.
         // Offset = wrapper padding only (container has no padding now).
+        // "Content px" — coordinates in the scrollable canvas content
+        // (they scroll with the art, like the block overlays).
 
-        _pixelToGrid(px, py) {
+        _clientToContent(clientX, clientY) {
             const container = document.querySelector('.canvas-container');
-            if (!container || !this.charWidth) return { x: 0, y: 0 };
+            if (!container) return { x: 0, y: 0 };
             const rect = container.getBoundingClientRect();
-            const pad = 16; // wrapper padding only
             // The canvas may be scrolled — account for the scroll offset so
             // the mapping stays correct when the art is scrolled under the
             // cursor (or the cursor is outside the visible area).
-            const gx = Math.max(0, (px - rect.left + container.scrollLeft - pad) / this.charWidth);
-            const gy = Math.max(0, (py - rect.top + container.scrollTop - pad) / this.charHeight);
+            return {
+                x: clientX - rect.left + container.scrollLeft,
+                y: clientY - rect.top + container.scrollTop,
+            };
+        },
+
+        _pixelToGrid(px, py) {
+            if (!this.charWidth) return { x: 0, y: 0 };
+            const c = this._clientToContent(px, py);
+            const pad = 16; // wrapper padding only
+            const gx = Math.max(0, (c.x - pad) / this.charWidth);
+            const gy = Math.max(0, (c.y - pad) / this.charHeight);
             // Blocks may be placed outside the layout bounds — the canvas
             // origin (0,0) is the only hard limit; there is no upper limit.
             return { x: Math.floor(gx), y: Math.floor(gy) };
+        },
+
+        _contentToGrid(cx, cy) {
+            if (!this.charWidth) return { x: 0, y: 0 };
+            const pad = 16;
+            return {
+                x: Math.max(0, (cx - pad) / this.charWidth),
+                y: Math.max(0, (cy - pad) / this.charHeight),
+            };
         },
 
         // ── Preview overlay ─────────────────────────────────────
@@ -239,6 +310,54 @@ function editorApp() {
                 this.previewEl.style.border = '2px dashed #e94560';
                 this.previewEl.style.background = 'rgba(233, 69, 96, 0.15)';
             }
+        },
+
+        // ── Marquee (rubber-band) selection ─────────────────────
+
+        _ensureMarqueeEl() {
+            if (this.marqueeEl) return this.marqueeEl;
+            const overlay = document.querySelector('.canvas-container .canvas-drag-overlay');
+            if (!overlay) return null;
+            const el = document.createElement('div');
+            el.className = 'marquee';
+            el.style.display = 'none';
+            overlay.appendChild(el);
+            this.marqueeEl = el;
+            return el;
+        },
+
+        _updateMarquee() {
+            const m = this.marquee;
+            const el = this.marqueeEl;
+            if (!m || !el) return;
+            el.style.left = Math.min(m.startX, m.curX) + 'px';
+            el.style.top = Math.min(m.startY, m.curY) + 'px';
+            el.style.width = Math.abs(m.curX - m.startX) + 'px';
+            el.style.height = Math.abs(m.curY - m.startY) + 'px';
+            el.style.display = 'block';
+        },
+
+        _hideMarquee() {
+            if (this.marqueeEl) {
+                this.marqueeEl.style.display = 'none';
+            }
+        },
+
+        // The marquee rectangle in (fractional) grid coordinates.
+        _marqueeGridRect() {
+            const m = this.marquee;
+            const a = this._contentToGrid(Math.min(m.startX, m.curX), Math.min(m.startY, m.curY));
+            const b = this._contentToGrid(Math.max(m.startX, m.curX), Math.max(m.startY, m.curY));
+            return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+        },
+
+        // Blocks whose area intersects the marquee rectangle.
+        _marqueeHits() {
+            const r = this._marqueeGridRect();
+            return this.blocks.filter(bl =>
+                bl.x < r.x2 && bl.x + bl.width > r.x1 &&
+                bl.y < r.y2 && bl.y + bl.height > r.y1
+            );
         },
 
         // ── Global mouse-up (catches drops outside canvas) ──────
@@ -295,14 +414,49 @@ function editorApp() {
 
             if (this.dragMode === 'pending') {
                 // Mouse didn't move past the threshold: it's a click, not a drag.
-                // Click on a block → select it, click on empty canvas → deselect.
-                this.selectedBlockId = this.pendingBlock ? this.pendingBlock.id : null;
+                if (this.pendingToggle && this.pendingBlock) {
+                    // Shift/Ctrl+click on a block → toggle it in the selection
+                    this.toggleSelect(this.pendingBlock.id);
+                } else if (this.pendingBlock) {
+                    // Plain click on a block → select it alone
+                    this.selectBlock(this.pendingBlock.id);
+                } else {
+                    this.clearSelection();
+                }
                 this._clearDragState();
                 return;
             }
 
-            if (this.dragMode === 'move' && this.dragBlock && this.dragGridX >= 0) {
-                this._commitBlockMove();
+            if (this.dragMode === 'marquee' && this.marquee) {
+                const m = this.marquee;
+                const moved = Math.hypot(m.curX - m.startX, m.curY - m.startY) > 3;
+                if (moved) {
+                    const hits = this._marqueeHits().map(b => b.id);
+                    if (m.add) {
+                        // Shift+marquee: add to the current selection
+                        const merged = this.selectedIds.slice();
+                        for (const id of hits) {
+                            if (!merged.includes(id)) merged.push(id);
+                        }
+                        this.selectedIds = merged;
+                    } else {
+                        this.selectedIds = hits;
+                    }
+                    this._markSelectedPreviews();
+                } else if (!m.add) {
+                    // A plain click on empty canvas clears the selection
+                    this.clearSelection();
+                }
+                this._clearDragState();
+                return;
+            }
+
+            if (this.dragMode === 'move' && this.dragBlock) {
+                if (this.dragGroup) {
+                    this._commitGroupMove();
+                } else if (this.dragGridX >= 0) {
+                    this._commitBlockMove();
+                }
             }
 
             if (this.dragMode === 'resize' && this.dragBlock) {
@@ -316,9 +470,18 @@ function editorApp() {
             this.dragMode = null;
             this.dragType = null;
             this.dragBlock = null;
+            this.dragGroup = false;
+            this.dragGroupOriginal = null;
+            this.dragGroupDx = 0;
+            this.dragGroupDy = 0;
+            this.resizeGroup = false;
+            this.resizeOriginal = null;
             this.pendingBlock = null;
+            this.pendingToggle = false;
+            this.marquee = null;
             this._hidePreview();
             this.previewEl = null;
+            this._hideMarquee();
         },
 
         // ── Resize handle binding ───────────────────────────────
@@ -341,7 +504,7 @@ function editorApp() {
                 // A selected block shows the selection frame's own handle,
                 // so suppress the hover handle to avoid a double icon.
                 preview.addEventListener('mouseenter', () => {
-                    if (preview.dataset.blockId === this.selectedBlockId) return;
+                    if (this.selectedIds.includes(preview.dataset.blockId)) return;
                     newHandle.classList.add('visible');
                 });
                 preview.addEventListener('mouseleave', () => {
@@ -359,29 +522,51 @@ function editorApp() {
             const block = this.blocks.find(b => b.id === blockPreview.dataset.blockId);
             if (!block) return;
 
-            this._startResizeDrag(block, e);
+            // Hover-resize selects the block first — the selection frame
+            // takes over the handle from here on.
+            this.selectBlock(block.id);
+            this._startResizeDrag(e);
         },
 
         // Resize handle on the selection frame (visible while a block is
-        // selected, no hover needed)
+        // selected, no hover needed). For a multi-selection the frame is
+        // the group's bounding box — the handle resizes the whole group.
         onSelectionResizeMouseDown(e) {
             if (e.button !== 0) return;
 
-            const block = this.selectedBlock;
-            if (!block) return;
+            if (!this.selectedBlock) return;
 
-            this._startResizeDrag(block, e);
+            this._startResizeDrag(e);
         },
 
-        _startResizeDrag(block, e) {
+        _startResizeDrag(e) {
+            const sel = this.selectedBlocks;
+            if (!sel.length) return;
+            const block = sel[0];
+
             this.dragMode = 'resize';
             this.dragBlock = block;
-            this.resizeStartW = block.width;
-            this.resizeStartH = block.height;
+            this.resizeGroup = sel.length > 1;
+            if (this.resizeGroup) {
+                // Group bbox: the preview tracks the bounding box, each
+                // block is resized by the same delta on commit.
+                this.resizeOriginal = sel.map(b => ({ id: b.id, width: b.width, height: b.height }));
+                const minX = Math.min(...sel.map(b => b.x));
+                const minY = Math.min(...sel.map(b => b.y));
+                this.resizePreviewX = minX;
+                this.resizePreviewY = minY;
+                this.resizeStartW = Math.max(...sel.map(b => b.x + b.width)) - minX;
+                this.resizeStartH = Math.max(...sel.map(b => b.y + b.height)) - minY;
+            } else {
+                this.resizePreviewX = block.x;
+                this.resizePreviewY = block.y;
+                this.resizeStartW = block.width;
+                this.resizeStartH = block.height;
+            }
             this.resizeStartClientX = e.clientX;
             this.resizeStartClientY = e.clientY;
-            this.resizePreviewW = block.width;
-            this.resizePreviewH = block.height;
+            this.resizePreviewW = this.resizeStartW;
+            this.resizePreviewH = this.resizeStartH;
 
             if (!this.charWidth) {
                 this._measureCharSize();
@@ -389,11 +574,11 @@ function editorApp() {
 
             const preview = this._ensurePreviewEl();
             if (preview) {
-                preview.style.width = (block.width * this.charWidth) + 'px';
-                preview.style.height = (block.height * this.charHeight) + 'px';
+                preview.style.width = (this.resizeStartW * this.charWidth) + 'px';
+                preview.style.height = (this.resizeStartH * this.charHeight) + 'px';
                 preview.style.display = 'block';
                 this._setPreviewMode('resize');
-                this._showPreview(block.x, block.y);
+                this._showPreview(this.resizePreviewX, this.resizePreviewY);
             }
 
             e.preventDefault();
@@ -486,44 +671,77 @@ function editorApp() {
             // Ignore clicks inside the floating properties panel
             if (e.target.closest('.block-props')) return;
 
-            // Find the block whose area contains the cursor
+            // Find the topmost block whose area contains the cursor
+            // (this.blocks is sorted by order descending)
             const pos = this._pixelToGrid(e.clientX, e.clientY);
             const block = this.blocks.find(b =>
                 pos.x >= b.x && pos.y >= b.y &&
                 pos.x < b.x + b.width && pos.y < b.y + b.height
             );
 
-            // Pending: becomes a move-drag if the mouse moves past a
-            // threshold, or a select/deselect click if it doesn't.
-            this.dragMode = 'pending';
-            this.pendingBlock = block;
-            this.dragStartX = e.clientX;
-            this.dragStartY = e.clientY;
-            this.dragOffsetX = pos.x - (block ? block.x : 0);
-            this.dragOffsetY = pos.y - (block ? block.y : 0);
-            this.dragGridX = block ? block.x : -1;
-            this.dragGridY = block ? block.y : -1;
-
             if (block) {
+                // Pending: becomes a move-drag if the mouse moves past a
+                // threshold, or a select/toggle click if it doesn't.
+                this.dragMode = 'pending';
+                this.pendingBlock = block;
+                this.pendingToggle = e.shiftKey || e.ctrlKey || e.metaKey;
+                this.dragStartX = e.clientX;
+                this.dragStartY = e.clientY;
+                this.dragOffsetX = pos.x - block.x;
+                this.dragOffsetY = pos.y - block.y;
+                this.dragGridX = block.x;
+                this.dragGridY = block.y;
                 e.preventDefault();
+                return;
             }
+
+            // Empty canvas: marquee (rubber-band) selection.
+            // Shift = add to the current selection.
+            const c = this._clientToContent(e.clientX, e.clientY);
+            this.dragMode = 'marquee';
+            this.marquee = { startX: c.x, startY: c.y, curX: c.x, curY: c.y, add: e.shiftKey };
+            this._ensureMarqueeEl();
+            e.preventDefault();
         },
 
         onCanvasMouseMove(e) {
+            if (this.dragMode === 'marquee' && this.marquee) {
+                const c = this._clientToContent(e.clientX, e.clientY);
+                this.marquee.curX = c.x;
+                this.marquee.curY = c.y;
+                if (Math.hypot(c.x - this.marquee.startX, c.y - this.marquee.startY) > 3) {
+                    this._updateMarquee();
+                }
+                e.preventDefault();
+                return;
+            }
+
             if (this.dragMode === 'pending') {
                 const dx = e.clientX - this.dragStartX;
                 const dy = e.clientY - this.dragStartY;
-                if (this.pendingBlock && Math.hypot(dx, dy) > 3) {
+                if (this.pendingBlock && !this.pendingToggle && Math.hypot(dx, dy) > 3) {
                     // Mouse moved past the click threshold: start the move-drag
                     this.dragMode = 'move';
                     this.dragBlock = this.pendingBlock;
 
-                    const preview = this._ensurePreviewEl();
-                    if (preview) {
-                        preview.style.width = (this.dragBlock.width * this.charWidth) + 'px';
-                        preview.style.height = (this.dragBlock.height * this.charHeight) + 'px';
-                        preview.style.display = 'block';
-                        this._showPreview(this.dragBlock.x, this.dragBlock.y);
+                    // Dragging a block that is part of a multi-selection
+                    // moves the whole selection (relative offsets kept).
+                    this.dragGroup = this.selectedIds.length > 1 &&
+                        this.selectedIds.includes(this.dragBlock.id);
+                    if (this.dragGroup) {
+                        this.dragGroupOriginal = this.selectedBlocks.map(b => ({
+                            id: b.id, x: b.x, y: b.y,
+                        }));
+                    } else {
+                        // Selecting a single block on drag start
+                        this.selectBlock(this.dragBlock.id);
+                        const preview = this._ensurePreviewEl();
+                        if (preview) {
+                            preview.style.width = (this.dragBlock.width * this.charWidth) + 'px';
+                            preview.style.height = (this.dragBlock.height * this.charHeight) + 'px';
+                            preview.style.display = 'block';
+                            this._showPreview(this.dragBlock.x, this.dragBlock.y);
+                        }
                     }
                 }
                 return;
@@ -535,8 +753,25 @@ function editorApp() {
                 // the layout; only the canvas origin (0,0) is a hard limit.
                 const gx = Math.max(0, pos.x - this.dragOffsetX);
                 const gy = Math.max(0, pos.y - this.dragOffsetY);
+                this.dragGridX = gx;
+                this.dragGridY = gy;
 
-                this._showPreview(gx, gy);
+                if (this.dragGroup) {
+                    // Group move: shift every selected block by the same
+                    // delta, clamped so no block crosses the canvas origin.
+                    const orig = this.dragGroupOriginal.find(o => o.id === this.dragBlock.id);
+                    let dx = gx - orig.x;
+                    let dy = gy - orig.y;
+                    const minX = Math.min(...this.dragGroupOriginal.map(o => o.x));
+                    const minY = Math.min(...this.dragGroupOriginal.map(o => o.y));
+                    dx = Math.max(dx, -minX);
+                    dy = Math.max(dy, -minY);
+                    this.dragGroupDx = dx;
+                    this.dragGroupDy = dy;
+                    this._applyGroupTransform(dx, dy);
+                } else {
+                    this._showPreview(gx, gy);
+                }
                 e.preventDefault();
                 return;
             }
@@ -554,28 +789,48 @@ function editorApp() {
                 newW = Math.round(newW * 2) / 2;
                 newH = Math.round(newH * 2) / 2;
 
-                // Lines are always 1 cell thick — the thin dimension is fixed
-                if (this.dragBlock.block_type === 'hline') newH = 1;
-                if (this.dragBlock.block_type === 'vline') newW = 1;
+                if (this.resizeGroup) {
+                    // Group resize: the bounding box grows; per-block
+                    // minimums and line thickness are applied on commit.
+                    this.resizePreviewW = Math.max(1, newW);
+                    this.resizePreviewH = Math.max(1, newH);
+                } else {
+                    // Lines are always 1 cell thick — the thin dimension is fixed
+                    if (this.dragBlock.block_type === 'hline') newH = 1;
+                    if (this.dragBlock.block_type === 'vline') newW = 1;
 
-                // Clamp to minimum size only — blocks may extend beyond
-                // the layout bounds. Buttons support height 1 ([label]).
-                const minW = this.dragBlock.block_type === 'vline' ? 1 : 2;
-                const minH = (this.dragBlock.block_type === 'hline' || this.dragBlock.block_type === 'button') ? 1 : 2;
-                newW = Math.max(minW, newW);
-                newH = Math.max(minH, newH);
-
-                this.resizePreviewW = newW;
-                this.resizePreviewH = newH;
+                    // Clamp to minimum size only — blocks may extend beyond
+                    // the layout bounds. Buttons support height 1 ([label]).
+                    const minW = this.dragBlock.block_type === 'vline' ? 1 : 2;
+                    const minH = (this.dragBlock.block_type === 'hline' || this.dragBlock.block_type === 'button') ? 1 : 2;
+                    newW = Math.max(minW, newW);
+                    newH = Math.max(minH, newH);
+                    this.resizePreviewW = newW;
+                    this.resizePreviewH = newH;
+                }
 
                 // Update preview dimensions
                 if (this.previewEl) {
-                    this.previewEl.style.width = (newW * this.charWidth) + 'px';
-                    this.previewEl.style.height = (newH * this.charHeight) + 'px';
+                    this.previewEl.style.width = (this.resizePreviewW * this.charWidth) + 'px';
+                    this.previewEl.style.height = (this.resizePreviewH * this.charHeight) + 'px';
                 }
 
                 e.preventDefault();
                 e.stopPropagation();
+            }
+        },
+
+        // Live group-move feedback: shift the selected blocks' DOM overlays
+        // by the drag delta (the real move is committed on mouseup).
+        _applyGroupTransform(dx, dy) {
+            const canvas = document.querySelector('.canvas-container');
+            if (!canvas) return;
+            const t = (dx === 0 && dy === 0)
+                ? ''
+                : 'translate(' + (dx * this.charWidth) + 'px, ' + (dy * this.charHeight) + 'px)';
+            for (const id of this.selectedIds) {
+                const el = canvas.querySelector('.block-preview[data-block-id="' + id + '"]');
+                if (el) el.style.transform = t;
             }
         },
 
@@ -669,11 +924,10 @@ function editorApp() {
             const oldY = block.y;
 
             try {
-                await this.store.updateBlock(block.id, {
+                const updated = await this.store.updateBlock(block.id, {
                     x: this.dragGridX, y: this.dragGridY
                 });
-                block.x = this.dragGridX;
-                block.y = this.dragGridY;
+                Object.assign(block, updated);
                 await this.refreshRender();
             } catch (err) {
                 // Rollback on error
@@ -683,15 +937,82 @@ function editorApp() {
             }
         },
 
+        // Commit a group move: one batch update for all selected blocks,
+        // so the whole move is a single undo step.
+        async _commitGroupMove() {
+            const dx = this.dragGroupDx;
+            const dy = this.dragGroupDy;
+            if (!this.dragGroupOriginal || (dx === 0 && dy === 0)) return;
+
+            const updates = this.dragGroupOriginal.map(o => ({
+                id: o.id, x: o.x + dx, y: o.y + dy,
+            }));
+            try {
+                const result = await this.store.batchBlocks({ update: updates });
+                this._applyBatchResult(result);
+                await this.refreshRender();
+            } catch (err) {
+                // The local state was not modified — drop the visual offset
+                this._applyGroupTransform(0, 0);
+                console.error('Failed to move blocks:', err);
+            }
+        },
+
+        // Merge a batchBlocks result into the local block list.
+        _applyBatchResult(result) {
+            const byId = {};
+            for (const b of (result.updated || [])) byId[b.id] = b;
+            for (const b of this.blocks) {
+                if (byId[b.id]) Object.assign(b, byId[b.id]);
+            }
+            for (const b of (result.created || [])) {
+                this.blocks.push(b);
+            }
+        },
+
         async _commitBlockResize() {
             if (!this.dragBlock) return;
-            const block = this.dragBlock;
-            const oldW = block.width;
-            const oldH = block.height;
 
             // Calculate new dimensions from preview
             const newW = Math.round(this.resizePreviewW);
             const newH = Math.round(this.resizePreviewH);
+
+            if (this.resizeGroup) {
+                // Group resize: every selected block grows by the same
+                // delta, clamped to its own minimums (lines stay 1 cell
+                // thick). One batch update = one undo step.
+                const dw = newW - this.resizeStartW;
+                const dh = newH - this.resizeStartH;
+                if (dw === 0 && dh === 0) return;
+
+                const updates = [];
+                for (const o of this.resizeOriginal) {
+                    const b = this.blocks.find(bl => bl.id === o.id);
+                    if (!b) continue;
+                    const minW = b.block_type === 'vline' ? 1 : 2;
+                    const minH = (b.block_type === 'hline' || b.block_type === 'button') ? 1 : 2;
+                    let w = Math.max(minW, o.width + dw);
+                    let h = Math.max(minH, o.height + dh);
+                    if (b.block_type === 'hline') h = 1;
+                    if (b.block_type === 'vline') w = 1;
+                    if (w === o.width && h === o.height) continue;
+                    updates.push({ id: o.id, width: w, height: h });
+                }
+                if (!updates.length) return;
+
+                try {
+                    const result = await this.store.batchBlocks({ update: updates });
+                    this._applyBatchResult(result);
+                    await this.refreshRender();
+                } catch (err) {
+                    console.error('Failed to resize blocks:', err);
+                }
+                return;
+            }
+
+            const block = this.dragBlock;
+            const oldW = block.width;
+            const oldH = block.height;
 
             // Minimum size: 2x2; lines are always 1 cell thick;
             // buttons support height 1 ([label])
@@ -707,11 +1028,10 @@ function editorApp() {
             }
 
             try {
-                await this.store.updateBlock(block.id, {
+                const updated = await this.store.updateBlock(block.id, {
                     width: clampedW, height: clampedH
                 });
-                block.width = clampedW;
-                block.height = clampedH;
+                Object.assign(block, updated);
                 await this.refreshRender();
             } catch (err) {
                 block.width = oldW;
@@ -798,57 +1118,128 @@ function editorApp() {
             }
         },
 
-        // ── Selection (single click) ───────────────────────────
+        // ── Selection (single + multi) ─────────────────────────
 
         selectBlock(blockId) {
-            this.selectedBlockId = blockId;
+            this.selectedIds = [blockId];
+            this._markSelectedPreviews();
+        },
+
+        toggleSelect(blockId) {
+            const i = this.selectedIds.indexOf(blockId);
+            if (i === -1) this.selectedIds.push(blockId);
+            else this.selectedIds.splice(i, 1);
+            this._markSelectedPreviews();
+        },
+
+        clearSelection() {
+            this.selectedIds = [];
+            this._markSelectedPreviews();
+        },
+
+        // Sidebar list item click: plain = select alone,
+        // shift/ctrl = toggle in the multi-selection.
+        onListItemClick(e, blockId) {
+            if (e.shiftKey || e.ctrlKey || e.metaKey) this.toggleSelect(blockId);
+            else this.selectBlock(blockId);
+        },
+
+        get selectedBlocks() {
+            const sel = [];
+            for (const id of this.selectedIds) {
+                const b = this.blocks.find(bl => bl.id === id);
+                if (b) sel.push(b);
+            }
+            return sel;
         },
 
         get selectedBlock() {
-            if (!this.selectedBlockId) return null;
-            return this.blocks.find(b => b.id === this.selectedBlockId) || null;
+            return this.selectedBlocks[0] || null;
         },
 
+        get isMultiSelect() {
+            return this.selectedIds.length > 1;
+        },
+
+        // Panel header: the block type for a single selection,
+        // the count for a multi-selection.
+        get panelTitle() {
+            const sel = this.selectedBlocks;
+            if (sel.length === 1) return sel[0].block_type;
+            if (sel.length > 1) return sel.length + ' selected';
+            return '';
+        },
+
+        // Line Style button state: active when every selected block
+        // already has that style.
+        styleActive(style) {
+            const sel = this.selectedBlocks;
+            return sel.length > 0 && sel.every(b => b.border_style === style);
+        },
+
+        // The selection frame: the block itself for a single selection,
+        // the bounding box of all selected blocks for a multi-selection.
         get selectionStyle() {
-            const b = this.selectedBlock;
-            if (!b) return 'display:none';
+            const sel = this.selectedBlocks;
+            if (!sel.length) return 'display:none';
             const pad = 16; // matches .render-wrapper padding
+            let x, y, w, h;
+            if (sel.length === 1) {
+                const b = sel[0];
+                x = b.x; y = b.y; w = b.width; h = b.height;
+            } else {
+                x = Math.min(...sel.map(b => b.x));
+                y = Math.min(...sel.map(b => b.y));
+                w = Math.max(...sel.map(b => b.x + b.width)) - x;
+                h = Math.max(...sel.map(b => b.y + b.height)) - y;
+            }
             return (
-                `left:${pad + b.x * this.charWidth}px;` +
-                `top:${pad + b.y * this.charHeight}px;` +
-                `width:${b.width * this.charWidth}px;` +
-                `height:${b.height * this.charHeight}px;`
+                `left:${pad + x * this.charWidth}px;` +
+                `top:${pad + y * this.charHeight}px;` +
+                `width:${w * this.charWidth}px;` +
+                `height:${h * this.charHeight}px;`
             );
         },
 
-        // Position of the floating properties panel: next to the selected
-        // block (right side preferred, left as fallback, below as last resort)
+        // Position of the floating properties panel: next to the selection
+        // (right side preferred, left as fallback, below as last resort)
         get propsPanelStyle() {
-            const b = this.selectedBlock;
-            if (!b) return 'display:none';
+            const sel = this.selectedBlocks;
+            if (!sel.length) return 'display:none';
             const pad = 16; // matches .render-wrapper padding
             const container = document.querySelector('.canvas-container');
             const panelW = 264;
             const panelH = 300; // approximate height, for vertical clamping
 
-            const bx = pad + b.x * this.charWidth;
-            const by = pad + b.y * this.charHeight;
-            const bw = b.width * this.charWidth;
-            const bh = b.height * this.charHeight;
+            let bx, by, bw, bh;
+            if (sel.length === 1) {
+                const b = sel[0];
+                bx = b.x; by = b.y; bw = b.width; bh = b.height;
+            } else {
+                bx = Math.min(...sel.map(b => b.x));
+                by = Math.min(...sel.map(b => b.y));
+                bw = Math.max(...sel.map(b => b.x + b.width)) - bx;
+                bh = Math.max(...sel.map(b => b.y + b.height)) - by;
+            }
+
+            const bxPx = pad + bx * this.charWidth;
+            const byPx = pad + by * this.charHeight;
+            const bwPx = bw * this.charWidth;
+            const bhPx = bh * this.charHeight;
 
             let left, top;
             const rightSpace = container
-                ? container.clientWidth + container.scrollLeft - (bx + bw)
+                ? container.clientWidth + container.scrollLeft - (bxPx + bwPx)
                 : Infinity;
             if (rightSpace >= panelW + 16) {
-                left = bx + bw + 12;
-                top = by;
-            } else if (bx - panelW - 12 >= 8) {
-                left = bx - panelW - 12;
-                top = by;
+                left = bxPx + bwPx + 12;
+                top = byPx;
+            } else if (bxPx - panelW - 12 >= 8) {
+                left = bxPx - panelW - 12;
+                top = byPx;
             } else {
-                left = Math.max(8, bx);
-                top = by + bh + 12;
+                left = Math.max(8, bxPx);
+                top = byPx + bhPx + 12;
             }
 
             // Keep the panel inside the visible canvas area
@@ -860,28 +1251,68 @@ function editorApp() {
             return `left:${left}px; top:${top}px; width:${panelW}px;`;
         },
 
+        // Duplicate the selection: every selected block is copied with a
+        // one-cell offset (one batch create = one undo step). The copies
+        // become the new selection.
         async duplicateBlock() {
-            const b = this.selectedBlock;
-            if (!b) return;
+            const sel = this.selectedBlocks;
+            if (!sel.length) return;
 
-            // Offset the copy by one cell (no layout-bounds clamping)
-            const x = Math.max(0, b.x + 1);
-            const y = Math.max(0, b.y + 1);
-
-            const block = await this.store.createBlock({
+            const maxOrder = this.maxOrder;
+            const creates = sel.map((b, i) => ({
                 block_type: b.block_type,
-                x,
-                y,
+                x: Math.max(0, b.x + 1),
+                y: Math.max(0, b.y + 1),
                 width: b.width,
                 height: b.height,
                 content: b.content,
                 border_style: b.border_style,
-                order: this.maxOrder + 1
-            });
-            this.blocks.push(block);
+                order: maxOrder + 1 + i,
+            }));
+
+            const result = await this.store.batchBlocks({ create: creates });
+            const created = result.created || [];
+            this.blocks.push(...created);
             this._reorderBlocks();
-            this.selectedBlockId = block.id;
+            this.selectedIds = created.map(b => b.id);
             await this.refreshRender();
+        },
+
+        // Delete the selection (one batch delete = one undo step).
+        async deleteSelection() {
+            const sel = this.selectedBlocks;
+            if (!sel.length) return;
+            const n = sel.length;
+            if (!confirm(n > 1 ? 'Delete ' + n + ' blocks?' : 'Delete this block?')) return;
+
+            const ids = sel.map(b => b.id);
+            await this.store.batchBlocks({ delete: ids });
+            this.blocks = this.blocks.filter(b => !ids.includes(b.id));
+            this.selectedIds = [];
+            this._reorderBlocks();
+            await this.refreshRender();
+        },
+
+        // Nudge the selection by (dx, dy) grid cells (arrow keys).
+        async _nudgeSelection(dx, dy) {
+            const sel = this.selectedBlocks;
+            if (!sel.length) return;
+            // No block may cross the canvas origin (0,0)
+            const minX = Math.min(...sel.map(b => b.x));
+            const minY = Math.min(...sel.map(b => b.y));
+            dx = Math.max(dx, -minX);
+            dy = Math.max(dy, -minY);
+            if (dx === 0 && dy === 0) return;
+
+            const updates = sel.map(b => ({ id: b.id, x: b.x + dx, y: b.y + dy }));
+            try {
+                // Coalescing key: a burst of nudges is one undo step
+                const result = await this.store.batchBlocks({ update: updates }, 'nudge');
+                this._applyBatchResult(result);
+                await this.refreshRender();
+            } catch (err) {
+                console.error('Failed to move blocks:', err);
+            }
         },
 
         // ── Properties panel (floating, next to selected block) ──
@@ -893,20 +1324,42 @@ function editorApp() {
             return icons[style] || style;
         },
 
+        // Apply property values to the selection. Single selection → one
+        // block update; multi-selection → the same values for every
+        // selected block in one batch update (one undo step). Lines keep
+        // their 1-cell thickness (normalized by the store).
         async updateSelectedBlock(props) {
-            const b = this.selectedBlock;
-            if (!b) return;
+            const sel = this.selectedBlocks;
+            if (!sel.length) return;
 
-            const old = {};
-            for (const key of Object.keys(props)) old[key] = b[key];
+            if (sel.length === 1) {
+                const b = sel[0];
+                const old = {};
+                for (const key of Object.keys(props)) old[key] = b[key];
 
+                try {
+                    const updated = await this.store.updateBlock(b.id, props);
+                    Object.assign(b, updated);
+                    await this.refreshRender();
+                } catch (err) {
+                    Object.assign(b, old);
+                    console.error('Failed to update block:', err);
+                }
+                return;
+            }
+
+            const updates = sel.map(b => {
+                const u = Object.assign({ id: b.id }, props);
+                if (u.width != null) u.width = Math.max(1, u.width);
+                if (u.height != null) u.height = Math.max(1, u.height);
+                return u;
+            });
             try {
-                await this.store.updateBlock(b.id, props);
-                Object.assign(b, props);
+                const result = await this.store.batchBlocks({ update: updates });
+                this._applyBatchResult(result);
                 await this.refreshRender();
             } catch (err) {
-                Object.assign(b, old);
-                console.error('Failed to update block:', err);
+                console.error('Failed to update blocks:', err);
             }
         },
 
@@ -946,12 +1399,9 @@ function editorApp() {
                 inputs[3].value = b.height;
                 return;
             }
-            // Minimum size only — blocks may extend beyond the layout bounds
-            let newW = Math.max(1, w);
-            let newH = Math.max(1, h);
-            if (b.block_type === 'hline') newH = 1;
-            if (b.block_type === 'vline') newW = 1;
-            this.updateSelectedBlock({ width: newW, height: newH });
+            // Minimum size only — blocks may extend beyond the layout
+            // bounds; line thickness is normalized by the store
+            this.updateSelectedBlock({ width: Math.max(1, w), height: Math.max(1, h) });
         },
 
         updateSelectedOrder(e) {
@@ -982,8 +1432,26 @@ function editorApp() {
             const data = await this.store.render(cw, ch);
             this.rawText = data.ascii;
             this.htmlPreview = data.html;
-            // Re-bind resize handle listeners after Alpine.js updates the DOM
-            this.$nextTick(() => this._bindResizeHandles());
+            // Re-bind resize handle listeners and the multi-selection
+            // highlight after Alpine.js updates the DOM
+            this.$nextTick(() => {
+                this._bindResizeHandles();
+                this._markSelectedPreviews();
+            });
+        },
+
+        // Highlight the blocks that are part of the current selection
+        // (the selection frame itself covers the group's bounding box).
+        _markSelectedPreviews() {
+            const canvas = document.querySelector('.canvas-container');
+            if (!canvas) return;
+            canvas.querySelectorAll('.block-preview').forEach(el => {
+                el.classList.remove('block-preview--selected');
+            });
+            for (const id of this.selectedIds) {
+                const el = canvas.querySelector('.block-preview[data-block-id="' + id + '"]');
+                if (el) el.classList.add('block-preview--selected');
+            }
         },
 
         async addBlock(type) {
@@ -1009,9 +1477,7 @@ function editorApp() {
             if (!confirm('Delete this block?')) return;
             await this.store.deleteBlock(blockId);
             this.blocks = this.blocks.filter(b => b.id !== blockId);
-            if (this.selectedBlockId === blockId) {
-                this.selectedBlockId = null;
-            }
+            this.selectedIds = this.selectedIds.filter(id => id !== blockId);
             this._reorderBlocks();
             await this.refreshRender();
         },
@@ -1024,7 +1490,7 @@ function editorApp() {
             if (!confirm('Clear the entire layout? All blocks will be removed.')) return;
             await this.store.clear();
             this.blocks = [];
-            this.selectedBlockId = null;
+            this.selectedIds = [];
             this.editingBlock = null;
             await this.refreshRender();
         },

@@ -240,6 +240,94 @@ class LayoutService:
     async def get_block(self, block_id: str) -> Block | None:
         return await self.db.get(Block, block_id)
 
+    async def batch_blocks(
+        self,
+        layout_id: str,
+        create: list[dict[str, Any]] | None = None,
+        update: list[dict[str, Any]] | None = None,
+        delete: list[str] | None = None,
+    ) -> tuple[Layout | None, list[Block], list[Block], list[str]]:
+        """Apply a batch of block operations in a single transaction.
+
+        Backs the editor's multi-selection operations (group move, group
+        property edit, group delete, group duplicate): one request instead
+        of N, and a single undo step on the client. Returns the layout
+        (None when not found), created blocks, updated blocks, and the
+        ids actually deleted.
+        """
+        layout = await self.get_layout(layout_id)
+        if not layout:
+            return None, [], [], []
+
+        created: list[Block] = []
+        updated: list[Block] = []
+        deleted: list[str] = []
+
+        for block_id in delete or []:
+            block = await self.db.get(Block, block_id)
+            if block and block.layout_id == layout_id:
+                await self.db.delete(block)
+                deleted.append(block_id)
+
+        if create:
+            result = await self.db.execute(
+                select(func.coalesce(func.max(Block.order), 0)).where(
+                    Block.layout_id == layout_id
+                )
+            )
+            next_order = (result.scalar() or 0) + 1
+            for data in create:
+                block_type = data.get("block_type", "box")
+                width = data.get("width", 20)
+                height = data.get("height", 3)
+                # Lines are always 1 cell thick — the thin dimension is fixed
+                if block_type == "hline":
+                    height = 1
+                elif block_type == "vline":
+                    width = 1
+                order = data.get("order") or 0
+                if order == 0:
+                    order = next_order
+                    next_order += 1
+                block = Block(
+                    layout_id=layout_id,
+                    parent_id=data.get("parent_id"),
+                    block_type=block_type,
+                    x=data.get("x", 0),
+                    y=data.get("y", 0),
+                    width=width,
+                    height=height,
+                    content=data.get("content", ""),
+                    border_style=data.get("border_style", "solid"),
+                    meta=data.get("meta") or {},
+                    order=order,
+                )
+                self.db.add(block)
+                created.append(block)
+
+        for data in update or []:
+            block = await self.db.get(Block, data.get("id"))
+            if not block or block.layout_id != layout_id:
+                continue
+            for key, value in data.items():
+                if key == "id" or value is None:
+                    continue
+                if hasattr(block, key):
+                    setattr(block, key, value)
+            # Lines are always 1 cell thick (also when block_type changes)
+            if block.block_type == "hline":
+                block.height = 1
+            elif block.block_type == "vline":
+                block.width = 1
+            updated.append(block)
+
+        await self.db.commit()
+        for block in created + updated:
+            await self.db.refresh(block)
+        self.db.expire_all()
+        layout = await self.get_layout(layout_id)
+        return layout, created, updated, deleted
+
     # ── Rendering ─────────────────────────────────────────────
 
     async def render_layout(self, layout_id: str) -> str | None:
