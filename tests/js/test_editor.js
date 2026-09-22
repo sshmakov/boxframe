@@ -342,6 +342,176 @@ test("_startResizeDrag: a block from a multi-selection resizes the group bbox", 
     assert.equal(app.resizeStartH, 4);
 });
 
+// ── _blockAt (topmost hit-test for click / drag / dblclick) ──
+
+test("_blockAt: the highest-order block under the point wins", () => {
+    const app = appWith([
+        block("low", "box", 0, 0, 20, 10),
+        block("high", "box", 5, 2, 10, 6),
+    ]);
+    app.blocks[1].order = 1;
+    assert.equal(app._blockAt(8, 4).id, "high");
+    assert.equal(app._blockAt(2, 2).id, "low");
+    assert.equal(app._blockAt(50, 50), null);
+});
+
+test("_blockAt: right and bottom edges are not inside (half-open rect)", () => {
+    const app = appWith([block("b", "box", 0, 0, 10, 4)]);
+    assert.equal(app._blockAt(9, 3).id, "b");
+    assert.equal(app._blockAt(10, 3), null);
+    assert.equal(app._blockAt(9, 4), null);
+});
+
+test("_blockAt: ties in order — the later block in document order wins", () => {
+    const app = appWith([
+        block("first", "box", 0, 0, 10, 4),
+        block("second", "box", 2, 1, 10, 4),
+    ]);
+    // Stamp the document order (as _flattenBlocks does on load)
+    app.blocks = app._flattenBlocks(app.blocks);
+    assert.equal(app._blockAt(4, 2).id, "second");
+});
+
+test("_blockAt: a child is on top of its own container (even with lower order)", () => {
+    const app = appWith([
+        block("parent", "box", 0, 0, 20, 10),
+        block("child", "text", 2, 2, 8, 3, "parent"),
+    ]);
+    app.blocks[0].order = 5;
+    // child abs = (0+1+2, 0+1+2) = (3, 3), 8x3
+    assert.equal(app._blockAt(5, 4).id, "child");
+    // On the container's border the container is on top
+    assert.equal(app._blockAt(0, 4).id, "parent");
+    assert.equal(app._blockAt(19, 4).id, "parent");
+});
+
+test("_blockAt: a child of a high-order container beats a lower-order root", () => {
+    const app = appWith([
+        block("mid", "box", 0, 0, 30, 10),
+        block("cont", "box", 0, 0, 30, 10),
+        block("kid", "text", 1, 1, 28, 8, "cont"),
+    ]);
+    app.blocks[0].order = 3;
+    app.blocks[1].order = 5;
+    app.blocks[2].order = 1;
+    // kid abs = (2, 2) 28x8 — covers (5, 5); it is drawn inside "cont"
+    // (order 5), which is drawn after "mid" (order 3)
+    assert.equal(app._blockAt(5, 5).id, "kid");
+});
+
+test("_blockAt: children of a borderless container are not drawn", () => {
+    const app = appWith([
+        block("p", "box", 0, 0, 20, 10),
+        block("c", "text", 2, 2, 8, 3, "p"),
+    ]);
+    app.blocks[0].border_style = "none";
+    assert.equal(app._blockAt(5, 4).id, "p");
+});
+
+test("_blockAt: buttons never render their children", () => {
+    const app = appWith([
+        block("btn", "button", 0, 0, 20, 3),
+        block("c", "text", 1, 1, 5, 1, "btn"),
+    ]);
+    assert.equal(app._blockAt(3, 1).id, "btn");
+});
+
+test("_blockAt: a grandchild is reached through nested containers", () => {
+    const app = appWith([
+        block("a", "box", 0, 0, 40, 20),
+        block("b", "box", 2, 2, 20, 10, "a"),
+        block("c", "text", 1, 1, 5, 2, "b"),
+    ]);
+    app.blocks[0].order = 10;
+    // c abs = (5, 5) 5x2
+    assert.equal(app._blockAt(6, 6).id, "c");
+    // (3, 3) is inside b but outside c
+    assert.equal(app._blockAt(3, 3).id, "b");
+});
+
+test("_blockAt: a child clipped past the container border is not picked there", () => {
+    const app = appWith([
+        block("p", "box", 0, 0, 10, 10),
+        block("c", "text", 8, 8, 8, 2, "p"),
+    ]);
+    // c abs = (9, 9) 8x2 — its whole area is clipped away by the
+    // container's inner area (x < 9); the container is on top at (9, 9)
+    assert.equal(app._blockAt(9, 9).id, "p");
+});
+
+test("updateSelectedBlock: an order change re-sorts the block list", async () => {
+    const app = appWith([
+        block("a", "box", 0, 0, 10, 4),
+        block("b", "box", 0, 0, 10, 4),
+    ]);
+    app.blocks[1].order = 1;
+    app._reorderBlocks();
+    const calls = stubStore(app);
+    app.selectedIds = ["a"];
+    await app.updateSelectedBlock({ order: 5 });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].id, "a");
+    // "a" is the top layer now — the list leads with it
+    assert.equal(app.blocks[0].id, "a");
+    assert.equal(app.blocks[0].order, 5);
+});
+
+// Simulates a mousedown on the canvas (the "pending" state).
+function canvasMouseDown(app, gridPos) {
+    const e = {
+        button: 0, shiftKey: false, ctrlKey: false, metaKey: false,
+        clientX: 0, clientY: 0,
+        target: { closest: () => null },
+        preventDefault() {},
+    };
+    app._pixelToGrid = () => gridPos;
+    app.onCanvasMouseDown(e);
+    return e;
+}
+
+test("mousedown: a non-selected topmost block wins over the selection bbox", () => {
+    const app = appWith([
+        block("sel", "box", 0, 0, 20, 10),
+        block("top", "box", 5, 2, 10, 6),
+    ]);
+    app.blocks[1].order = 1;
+    app.selectedIds = ["sel"];
+    app._reorderBlocks();
+
+    canvasMouseDown(app, { x: 8, y: 4 }); // on "top" (inside "sel"'s bbox)
+
+    assert.equal(app.dragMode, "pending");
+    assert.equal(app.dragSelection, false);
+    assert.equal(app.pendingBlock.id, "top");
+});
+
+test("mousedown: empty canvas inside the selection bbox still drags the selection", () => {
+    const app = appWith([
+        block("a", "box", 0, 0, 10, 4),
+        block("b", "box", 30, 0, 10, 4),
+    ]);
+    app.selectedIds = ["a", "b"];
+
+    canvasMouseDown(app, { x: 20, y: 2 }); // empty, inside the group bbox
+
+    assert.equal(app.dragMode, "pending");
+    assert.equal(app.dragSelection, true);
+});
+
+test("mousedown: a press on a selected block drags the selection", () => {
+    const app = appWith([
+        block("a", "box", 0, 0, 10, 4),
+        block("b", "box", 30, 0, 10, 4),
+    ]);
+    app.selectedIds = ["a", "b"];
+
+    canvasMouseDown(app, { x: 5, y: 2 }); // on "a" (selected)
+
+    assert.equal(app.dragMode, "pending");
+    assert.equal(app.dragSelection, true);
+});
+
 // ── selectionToAscii (Copy button → clipboard) ───────────
 
 function sbox(id, x, y, w, h, extra = {}) {

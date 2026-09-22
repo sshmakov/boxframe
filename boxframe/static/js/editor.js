@@ -149,6 +149,7 @@ function editorApp() {
     return {
         layoutId: null,
         blocks: [],
+        _seqCounter: 0,    // monotonic document-order stamp (z-order tie-break)
         blockTypes: [],
         borderStyles: [],
         rawText: '',
@@ -1029,13 +1030,19 @@ function editorApp() {
             if (e.target.closest('.block-props')) return;
 
             const pos = this._pixelToGrid(e.clientX, e.clientY);
+            // The topmost visible block under the cursor (mirrors the
+            // renderer's draw order — see _blockAt)
+            const topmost = this._blockAt(pos.x, pos.y);
 
-            // An active selection captures the press: if the cursor lands
-            // inside the selection's bounding box (no modifier key), the
-            // whole selection is dragged — even when the cursor is on empty
-            // canvas or a non-selected block within the box.
+            // An active selection captures the press when the cursor lands
+            // on empty canvas or on one of the selected blocks (inside the
+            // selection's bounding box, no modifier key): the whole
+            // selection is dragged. A press on a non-selected topmost block
+            // selects and drags that block instead — the topmost element
+            // under the cursor always wins.
             if (this.selectedIds.length &&
-                !(e.shiftKey || e.ctrlKey || e.metaKey)) {
+                !(e.shiftKey || e.ctrlKey || e.metaKey) &&
+                (!topmost || this.selectedIds.includes(topmost.id))) {
                 const bbox = this._selectionBBox();
                 if (bbox && pos.x >= bbox.x && pos.y >= bbox.y &&
                     pos.x < bbox.x + bbox.width && pos.y < bbox.y + bbox.height) {
@@ -1056,21 +1063,12 @@ function editorApp() {
                 }
             }
 
-            // Find the topmost block whose ABSOLUTE area contains the cursor
-            // (this.blocks is sorted by order descending; children carry
-            // relative coords, so hit-test in canvas coordinates)
-            const block = this.blocks.find(b => {
-                const r = this._absoluteRect(b);
-                return pos.x >= r.x && pos.y >= r.y &&
-                    pos.x < r.x + r.width && pos.y < r.y + r.height;
-            });
-
-            if (block) {
+            if (topmost) {
                 // Pending: becomes a move-drag if the mouse moves past a
                 // threshold, or a select/toggle click if it doesn't.
-                const r = this._absoluteRect(block);
+                const r = this._absoluteRect(topmost);
                 this.dragMode = 'pending';
-                this.pendingBlock = block;
+                this.pendingBlock = topmost;
                 this.pendingToggle = e.shiftKey || e.ctrlKey || e.metaKey;
                 this.dragStartX = e.clientX;
                 this.dragStartY = e.clientY;
@@ -1261,11 +1259,9 @@ function editorApp() {
             }
 
             const pos = this._pixelToGrid(e.clientX, e.clientY);
-            const block = this.blocks.find(b => {
-                const r = this._absoluteRect(b);
-                return pos.x >= r.x && pos.y >= r.y &&
-                    pos.x < r.x + r.width && pos.y < r.y + r.height;
-            });
+            // The topmost visible block under the cursor (same rule as
+            // the click selection — see _blockAt)
+            const block = this._blockAt(pos.x, pos.y);
             if (!block) return;
 
             // Clear move-drag state left over from the preceding mousedowns
@@ -1426,8 +1422,11 @@ function editorApp() {
                 if (byId[b.id]) Object.assign(b, byId[b.id]);
             }
             for (const b of (result.created || [])) {
+                b._seq = ++this._seqCounter;
                 this.blocks.push(b);
             }
+            // A batch may change `order` — restore the z-order list
+            this._reorderBlocks();
         },
 
         async _commitBlockResize() {
@@ -1524,19 +1523,89 @@ function editorApp() {
         },
 
         _flattenBlocks(blocks) {
+            // Pre-order traversal (parents before children). Every block
+            // gets a monotonic _seq stamp — the document order the
+            // renderer uses to break `order` ties (later in document
+            // order renders on top).
             const flat = [];
-            for (const b of blocks) {
-                flat.push(b);
-                if (b.children) {
-                    flat.push(...this._flattenBlocks(b.children));
+            const walk = (list) => {
+                for (const b of list) {
+                    b._seq = ++this._seqCounter;
+                    flat.push(b);
+                    if (b.children) walk(b.children);
                 }
-            }
+            };
+            walk(blocks);
             return flat;
         },
 
         _reorderBlocks() {
-            // Sort blocks by order descending — highest order (top layer) first
-            this.blocks.sort((a, b) => b.order - a.order);
+            // Sort blocks by order descending — highest order (top layer)
+            // first. Ties: later in document order (_seq) first — the
+            // renderer draws ties in document order (stable ascending
+            // sort), so the last one is on top.
+            this.blocks.sort((a, b) =>
+                (b.order - a.order) || ((b._seq || 0) - (a._seq || 0)));
+        },
+
+        // Whether the renderer draws a block's children: only bordered
+        // blocks (border_style != none, at least 2x2) render their
+        // children, and lines/buttons never do — a child is clipped to
+        // the parent's inner area. Mirrors
+        // PseudoGraphicRenderer._render_block / _render_children_in_container.
+        _childrenRendered(b) {
+            if (b.block_type === 'hline' || b.block_type === 'vline' ||
+                b.block_type === 'button') return false;
+            return b.border_style !== 'none' && b.width >= 2 && b.height >= 2;
+        },
+
+        // The topmost VISIBLE block at grid point (x, y) — or null.
+        // Mirrors the renderer's draw order: root blocks are drawn in
+        // ascending `order` and a child is drawn inside its parent (after
+        // the parent's own content, clipped to the parent's inner area),
+        // so a child is always on top of its ancestor and on top of every
+        // root drawn below the ancestor. Ties in `order` resolve to the
+        // later block in document order (_seq) — the renderer's stable
+        // sort rule.
+        _blockAt(x, y) {
+            const covers = (b) => {
+                const r = this._absoluteRect(b);
+                return x >= r.x && y >= r.y &&
+                    x < r.x + r.width && y < r.y + r.height;
+            };
+            const topmostOf = (list) => {
+                let best = null;
+                for (const b of list) {
+                    if (!covers(b)) continue;
+                    if (!best) { best = b; continue; }
+                    if (b.order > best.order ||
+                        (b.order === best.order &&
+                         (b._seq || 0) > (best._seq || 0))) {
+                        best = b;
+                    }
+                }
+                return best;
+            };
+
+            const byId = new Set(this.blocks.map(b => b.id));
+            let cur = topmostOf(this.blocks.filter(
+                b => !b.parent_id || !byId.has(b.parent_id)));
+            if (!cur) return null;
+
+            // Descend while the point is inside the current block's inner
+            // area and a child covers it — the child is drawn on top.
+            for (;;) {
+                if (!this._childrenRendered(cur)) break;
+                const r = this._absoluteRect(cur);
+                const inInner = x >= r.x + 1 && y >= r.y + 1 &&
+                    x < r.x + cur.width - 1 && y < r.y + cur.height - 1;
+                if (!inInner) break;
+                const child = topmostOf(
+                    this.blocks.filter(b => b.parent_id === cur.id));
+                if (!child) break;
+                cur = child;
+            }
+            return cur;
         },
 
         get maxOrder() {
@@ -1726,6 +1795,7 @@ function editorApp() {
                 this.blocks, this.selectedIds, this._newBlockId, this.maxOrder);
             if (!copies.length) return;
 
+            for (const c of copies) c._seq = ++this._seqCounter;
             const blocks = this.blocks.concat(copies);
             await this.store.replaceState({
                 width: this.layoutWidth,
@@ -1821,6 +1891,9 @@ function editorApp() {
                 try {
                     const updated = await this.store.updateBlock(b.id, props);
                     Object.assign(b, updated);
+                    // The update may change `order` — restore the z-order
+                    // list (sidebar order + hit-test tie-breaks)
+                    this._reorderBlocks();
                     await this.refreshRender();
                 } catch (err) {
                     Object.assign(b, old);
@@ -1949,6 +2022,7 @@ function editorApp() {
                 content: defaults.content,
                 order: maxOrder + 1
             });
+            block._seq = ++this._seqCounter;
             this.blocks.push(block);
             this._reorderBlocks();
             await this.refreshRender();
