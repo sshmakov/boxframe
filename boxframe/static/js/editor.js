@@ -75,6 +75,76 @@ function selectionToAscii(blocks, selectedIds) {
     return PGRenderer.render(out, null, null);
 }
 
+/**
+ * Build the copies for duplicating a selection: every selected block is
+ * copied with its whole subtree. A selected block that is a descendant of
+ * another selected block is already covered by the ancestor's subtree and
+ * is not copied twice.
+ *
+ * The root of each copied tree gets a one-cell offset (clamped at the
+ * canvas origin for top-level blocks); descendants keep their relative
+ * coordinates and are re-parented to the copy of their original parent.
+ *
+ * Pure function (no editor state) — unit-testable in Node.
+ * nextId() — client-side id generator for the copies.
+ * baseOrder — copies get orders baseOrder+1, baseOrder+2, ... (pass
+ * MAX(order) so the copies land above every existing block).
+ */
+function buildDuplicates(blocks, selectedIds, nextId, baseOrder) {
+    if (!blocks || !selectedIds || !selectedIds.length) return [];
+
+    var byId = {};
+    blocks.forEach(function (b) { byId[b.id] = b; });
+
+    // Roots of the copied trees: selected blocks that are not a
+    // descendant of another selected block.
+    var roots = selectedIds.filter(function (id) {
+        if (!byId[id]) return false;
+        return !selectedIds.some(function (other) {
+            if (other === id) return false;
+            var pid = byId[id].parent_id;
+            while (pid && byId[pid]) {
+                if (pid === other) return true;
+                pid = byId[pid].parent_id;
+            }
+            return false;
+        });
+    });
+
+    var idMap = {}; // original id → copy id
+    var copies = [];
+    var nextOrder = (baseOrder || 0) + 1;
+    roots.forEach(function (rootId) {
+        // BFS: parents before children, so idMap is ready for descendants
+        var queue = [rootId];
+        while (queue.length) {
+            var id = queue.shift();
+            var src = byId[id];
+            if (!src) continue;
+            var isRoot = id === rootId;
+            var copy = {
+                id: nextId(),
+                block_type: src.block_type,
+                x: isRoot ? (src.parent_id ? src.x + 1 : Math.max(0, src.x + 1)) : src.x,
+                y: isRoot ? (src.parent_id ? src.y + 1 : Math.max(0, src.y + 1)) : src.y,
+                width: src.width,
+                height: src.height,
+                content: src.content,
+                border_style: src.border_style,
+                parent_id: isRoot ? src.parent_id : (idMap[src.parent_id] || null),
+                meta: src.meta || {},
+                order: nextOrder++,
+            };
+            idMap[id] = copy.id;
+            copies.push(copy);
+            blocks.forEach(function (b) {
+                if (b.parent_id === id) queue.push(b.id);
+            });
+        }
+    });
+    return copies;
+}
+
 function editorApp() {
     return {
         layoutId: null,
@@ -1633,33 +1703,38 @@ function editorApp() {
             return `left:${left}px; top:${top}px; width:${panelW}px;`;
         },
 
-        // Duplicate the selection: every selected block is copied with a
-        // one-cell offset (one batch create = one undo step). The copies
-        // become the new selection.
+        // Client-side block id for copies created before the store sees
+        // them (full-state replace keeps client ids).
+        _newBlockId() {
+            if (typeof crypto !== "undefined" && crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            return "blk-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+        },
+
+        // Duplicate the selection: every selected block is copied with its
+        // whole subtree (one-cell offset for the root of each tree). The
+        // copies get client-generated ids and the operation goes through
+        // replaceState — one undo step, and it works in both web and static
+        // modes (batch create cannot reference ids of blocks created in the
+        // same request). The copies become the new selection.
         async duplicateBlock() {
             const sel = this.selectedBlocks;
             if (!sel.length) return;
 
-            const maxOrder = this.maxOrder;
-            // A duplicated child keeps its parent (the copy is a sibling with
-            // a one-cell offset inside the same container).
-            const creates = sel.map((b, i) => ({
-                block_type: b.block_type,
-                x: b.parent_id ? b.x + 1 : Math.max(0, b.x + 1),
-                y: b.parent_id ? b.y + 1 : Math.max(0, b.y + 1),
-                width: b.width,
-                height: b.height,
-                content: b.content,
-                border_style: b.border_style,
-                parent_id: b.parent_id || null,
-                order: maxOrder + 1 + i,
-            }));
+            const copies = buildDuplicates(
+                this.blocks, this.selectedIds, this._newBlockId, this.maxOrder);
+            if (!copies.length) return;
 
-            const result = await this.store.batchBlocks({ create: creates });
-            const created = result.created || [];
-            this.blocks.push(...created);
+            const blocks = this.blocks.concat(copies);
+            await this.store.replaceState({
+                width: this.layoutWidth,
+                height: this.layoutHeight,
+                blocks,
+            });
+            this.blocks = blocks;
             this._reorderBlocks();
-            this.selectedIds = created.map(b => b.id);
+            this.selectedIds = copies.map(b => b.id);
             await this.refreshRender();
         },
 
@@ -2038,5 +2113,9 @@ function editorApp() {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { editorApp: editorApp, selectionToAscii: selectionToAscii };
+    module.exports = {
+        editorApp: editorApp,
+        selectionToAscii: selectionToAscii,
+        buildDuplicates: buildDuplicates,
+    };
 }

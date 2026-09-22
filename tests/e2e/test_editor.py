@@ -219,6 +219,72 @@ def test_panel_duplicate_creates_block_copy(page: Page):
     expect(page.locator(".block-item--selected")).to_have_count(1)
 
 
+# Container C at (2,2) 20×8 with two children: A at relative (1,1) 8×2
+# and B at relative (1,4) 8×2.
+DUPLICATE_NESTED = [
+    {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 8,
+     "content": "Container"},
+    {"block_type": "box", "x": 1, "y": 1, "width": 8, "height": 2,
+     "content": "Child A", "parent_index": 0},
+    {"block_type": "box", "x": 1, "y": 4, "width": 8, "height": 2,
+     "content": "Child B", "parent_index": 0},
+]
+
+
+def test_duplicate_container_copies_children(page: Page):
+    """Duplicating a container copies its whole subtree: the container
+    copy is offset by one cell and the children keep their relative
+    positions, re-parented to the copy."""
+    layout_id, (c_id, a_id, b_id) = _create_project_with_blocks(
+        page, DUPLICATE_NESTED)
+
+    # Click the container at a point not covered by a child
+    metrics = _canvas_metrics(page, c_id, 20, 8)
+    px, py = _grid_point(metrics, 15, 4)
+    page.mouse.click(px, py)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+    page.locator(".block-props .action-btn", has_text="Duplicate").click()
+
+    # Poll: the browser's replace request may still be in flight
+    blocks = []
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if len(blocks) == 6:
+            break
+        page.wait_for_timeout(100)
+    assert len(blocks) == 6
+
+    by_id = {b["id"]: b for b in blocks}
+    originals = {c_id, a_id, b_id}
+    copies = [b for b in blocks if b["id"] not in originals]
+    assert len(copies) == 3
+
+    c_copy = next(c for c in copies if c["content"] == "Container")
+    # The container copy is offset by one cell, same size
+    assert c_copy["parent_id"] is None
+    assert (c_copy["x"], c_copy["y"]) == (3, 3)
+    assert (c_copy["width"], c_copy["height"]) == (20, 8)
+
+    # The children copies keep their relative coordinates and are
+    # re-parented to the container copy
+    for orig_id, content in ((a_id, "Child A"), (b_id, "Child B")):
+        orig = by_id[orig_id]
+        copy = next(c for c in copies if c["content"] == content)
+        assert copy["parent_id"] == c_copy["id"]
+        assert (copy["x"], copy["y"]) == (orig["x"], orig["y"])
+        assert (copy["width"], copy["height"]) == (orig["width"], orig["height"])
+
+    # The originals are untouched
+    assert by_id[c_id]["parent_id"] is None
+    assert by_id[a_id]["parent_id"] == c_id
+    assert by_id[b_id]["parent_id"] == c_id
+
+    # The copies become the selected elements
+    expect(page.locator(".block-item--selected")).to_have_count(3)
+
+
 def test_panel_delete_removes_block(page: Page):
     """The Delete action in the properties panel deletes the selected block."""
     layout_id, block_id = _create_project_with_block(page)

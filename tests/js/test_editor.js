@@ -17,7 +17,11 @@ const { test } = require("node:test");
 const assert = require("node:assert");
 // renderer.js sets global.PGRenderer, which selectionToAscii uses
 require("../../boxframe/static/js/core/renderer.js");
-const { editorApp, selectionToAscii } = require("../../boxframe/static/js/editor.js");
+const {
+    editorApp,
+    selectionToAscii,
+    buildDuplicates,
+} = require("../../boxframe/static/js/editor.js");
 
 function block(id, block_type, x, y, width, height, parent_id) {
     return {
@@ -443,5 +447,140 @@ test("selectionToAscii: unknown selected ids are ignored", () => {
     assert.equal(
         selectionToAscii(blocks, ["nope", "b1"]),
         selectionToAscii(blocks, ["b1"]),
+    );
+});
+
+// ── buildDuplicates (Duplicate button → copies) ──────────
+
+function idGen(prefix) {
+    let n = 0;
+    return () => prefix + "-" + ++n;
+}
+
+test("buildDuplicates: a single root block is copied with a one-cell offset", () => {
+    const blocks = [sbox("b1", 7, 4, 10, 4, { content: "Hi", order: 3 })];
+    const copies = buildDuplicates(blocks, ["b1"], idGen("c"), 3);
+    assert.equal(copies.length, 1);
+    assert.deepEqual(copies[0], {
+        id: "c-1",
+        block_type: "box",
+        x: 8, y: 5,
+        width: 10, height: 4,
+        content: "Hi",
+        border_style: "solid",
+        parent_id: null,
+        meta: {},
+        order: 4,
+    });
+});
+
+test("buildDuplicates: a container is copied with its whole subtree", () => {
+    const blocks = [
+        sbox("p", 2, 2, 20, 8, { content: "C", order: 1 }),
+        sbox("a", 1, 1, 8, 2, { parent_id: "p", content: "A", order: 2 }),
+        sbox("b", 1, 4, 8, 2, { parent_id: "p", content: "B", order: 3 }),
+    ];
+    const copies = buildDuplicates(blocks, ["p"], idGen("c"), 3);
+    assert.equal(copies.length, 3);
+    const [pCopy, aCopy, bCopy] = copies;
+    // The container copy is offset by one cell, same size
+    assert.equal(pCopy.id, "c-1");
+    assert.equal(pCopy.parent_id, null);
+    assert.deepEqual([pCopy.x, pCopy.y, pCopy.width, pCopy.height], [3, 3, 20, 8]);
+    // The children copies keep their relative coordinates and are
+    // re-parented to the container copy
+    assert.equal(aCopy.parent_id, "c-1");
+    assert.deepEqual([aCopy.x, aCopy.y, aCopy.width, aCopy.height], [1, 1, 8, 2]);
+    assert.equal(aCopy.content, "A");
+    assert.equal(bCopy.parent_id, "c-1");
+    assert.deepEqual([bCopy.x, bCopy.y, bCopy.width, bCopy.height], [1, 4, 8, 2]);
+    // Orders continue above the existing max
+    assert.deepEqual(copies.map(c => c.order), [4, 5, 6]);
+});
+
+test("buildDuplicates: deep nesting copies grandchildren too", () => {
+    const blocks = [
+        sbox("r", 1, 1, 16, 8, { order: 1 }),
+        sbox("m", 1, 1, 10, 5, { parent_id: "r", order: 2 }),
+        sbox("g", 1, 1, 4, 2, { parent_id: "m", order: 3 }),
+    ];
+    const copies = buildDuplicates(blocks, ["r"], idGen("c"), 3);
+    assert.equal(copies.length, 3);
+    const [rCopy, mCopy, gCopy] = copies;
+    assert.equal(rCopy.parent_id, null);
+    assert.deepEqual([rCopy.x, rCopy.y], [2, 2]);
+    assert.equal(mCopy.parent_id, rCopy.id);
+    assert.deepEqual([mCopy.x, mCopy.y], [1, 1]);
+    assert.equal(gCopy.parent_id, mCopy.id);
+    assert.deepEqual([gCopy.x, gCopy.y], [1, 1]);
+});
+
+test("buildDuplicates: a selected child of a selected parent is not copied twice", () => {
+    const blocks = [
+        sbox("p", 0, 0, 12, 5, { order: 1 }),
+        sbox("c", 2, 1, 6, 2, { parent_id: "p", order: 2 }),
+    ];
+    const copies = buildDuplicates(blocks, ["p", "c"], idGen("c"), 2);
+    // The child's copy is nested inside the parent's copy
+    assert.equal(copies.length, 2);
+    assert.equal(copies[1].parent_id, copies[0].id);
+});
+
+test("buildDuplicates: a selected grandchild of a selected parent is not copied twice", () => {
+    const blocks = [
+        sbox("r", 1, 1, 16, 8, { order: 1 }),
+        sbox("m", 1, 1, 10, 5, { parent_id: "r", order: 2 }),
+        sbox("g", 1, 1, 4, 2, { parent_id: "m", order: 3 }),
+    ];
+    const copies = buildDuplicates(blocks, ["r", "g"], idGen("c"), 3);
+    assert.equal(copies.length, 3);
+});
+
+test("buildDuplicates: a child selected alone keeps its original parent", () => {
+    const blocks = [
+        sbox("p", 2, 2, 20, 8, { order: 1 }),
+        sbox("c", 1, 1, 8, 2, { parent_id: "p", content: "C", order: 2 }),
+    ];
+    const copies = buildDuplicates(blocks, ["c"], idGen("c"), 2);
+    assert.equal(copies.length, 1);
+    // The copy is a sibling of the original inside the same container
+    assert.equal(copies[0].parent_id, "p");
+    assert.deepEqual([copies[0].x, copies[0].y], [2, 2]);
+});
+
+test("buildDuplicates: multi-selection copies every independent tree", () => {
+    const blocks = [
+        sbox("a", 2, 2, 10, 4, { order: 1 }),
+        sbox("b", 14, 2, 10, 4, { order: 2 }),
+        sbox("c", 1, 1, 4, 2, { parent_id: "b", order: 3 }),
+    ];
+    const copies = buildDuplicates(blocks, ["a", "b"], idGen("c"), 3);
+    assert.equal(copies.length, 3);
+    const aCopy = copies.find(c => c.id === "c-1");
+    const bCopy = copies.find(c => c.id === "c-2");
+    const cCopy = copies.find(c => c.id === "c-3");
+    assert.deepEqual([aCopy.x, aCopy.y], [3, 3]);
+    assert.deepEqual([bCopy.x, bCopy.y], [15, 3]);
+    assert.equal(cCopy.parent_id, bCopy.id);
+    assert.deepEqual([cCopy.x, cCopy.y], [1, 1]);
+});
+
+test("buildDuplicates: meta and border style are preserved", () => {
+    const blocks = [
+        sbox("b1", 0, 0, 5, 2, {
+            border_style: "dashed", meta: { k: "v" }, order: 1,
+        }),
+    ];
+    const copies = buildDuplicates(blocks, ["b1"], idGen("c"), 1);
+    assert.equal(copies[0].border_style, "dashed");
+    assert.deepEqual(copies[0].meta, { k: "v" });
+});
+
+test("buildDuplicates: unknown selected ids are ignored", () => {
+    const blocks = [sbox("b1", 0, 0, 5, 2)];
+    assert.deepEqual(buildDuplicates(blocks, ["nope"], idGen("c"), 0), []);
+    assert.equal(
+        buildDuplicates(blocks, ["nope", "b1"], idGen("c"), 0).length,
+        1,
     );
 });
