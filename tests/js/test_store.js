@@ -142,6 +142,22 @@ test("memory store: updateBlock with a parent_id re-parents", async () => {
     assert.equal(updated.x, 2);
 });
 
+test("memory store: export() nests children at arbitrary depth", async () => {
+    const store = createMemoryStore();
+    const a = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 30, height: 10 });
+    const b = await store.createBlock({ block_type: "box", x: 1, y: 1, width: 20, height: 6, parent_id: a.id });
+    const c = await store.createBlock({ block_type: "text", x: 1, y: 1, width: 8, height: 2, parent_id: b.id });
+
+    const { json } = await store.export();
+    assert.equal(json.blocks.length, 1);
+    const root = json.blocks[0];
+    assert.equal(root.id, a.id);
+    assert.equal(root.children.length, 1);
+    assert.equal(root.children[0].id, b.id);
+    assert.equal(root.children[0].children.length, 1);
+    assert.equal(root.children[0].children[0].id, c.id);
+});
+
 // ── LocalStorageStore ─────────────────────────────────────
 
 test("local store: persists mutations to storage", async () => {

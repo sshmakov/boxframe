@@ -135,44 +135,35 @@
     }
 
     function buildExportJson(layout) {
-        // Mirrors LayoutService.export_json: root blocks + their direct children
+        // Mirrors LayoutService.export_json: nested tree, arbitrary depth
+        var childrenByParent = {};
+        layout.blocks.forEach(function (b) {
+            var key = b.parent_id || "root";
+            (childrenByParent[key] = childrenByParent[key] || []).push(b);
+        });
+
+        function toDict(b) {
+            return {
+                id: b.id,
+                type: b.block_type,
+                x: b.x,
+                y: b.y,
+                width: b.width,
+                height: b.height,
+                content: b.content,
+                border_style: b.border_style,
+                metadata: b.meta,
+                order: b.order,
+                children: (childrenByParent[b.id] || []).map(toDict),
+            };
+        }
+
         return {
             id: layout.id,
             name: layout.name,
             width: layout.width,
             height: layout.height,
-            blocks: layout.blocks
-                .filter(function (b) { return !b.parent_id; })
-                .map(function (b) {
-                    return {
-                        id: b.id,
-                        type: b.block_type,
-                        x: b.x,
-                        y: b.y,
-                        width: b.width,
-                        height: b.height,
-                        content: b.content,
-                        border_style: b.border_style,
-                        metadata: b.meta,
-                        order: b.order,
-                        children: layout.blocks
-                            .filter(function (c) { return c.parent_id === b.id; })
-                            .map(function (c) {
-                                return {
-                                    id: c.id,
-                                    type: c.block_type,
-                                    x: c.x,
-                                    y: c.y,
-                                    width: c.width,
-                                    height: c.height,
-                                    content: c.content,
-                                    border_style: c.border_style,
-                                    metadata: c.meta,
-                                    order: c.order,
-                                };
-                            }),
-                    };
-                }),
+            blocks: (childrenByParent["root"] || []).map(toDict),
         };
     }
 

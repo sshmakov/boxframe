@@ -361,6 +361,22 @@ def test_export_layout(client: TestClient):
     assert data["layout_json"]["name"] == "Test Layout"
 
 
+def test_export_nested_three_levels(client: TestClient):
+    """Export nests children at arbitrary depth — a grandchild is not lost."""
+    _, layout_id = _create_project_with_layout(client)
+    parent_id, child_id, grandchild_id = _create_nested(client, layout_id)
+
+    r = client.get(f"/api/layouts/{layout_id}/export")
+    assert r.status_code == 200
+    data = r.json()["layout_json"]
+
+    assert len(data["blocks"]) == 1
+    root = data["blocks"][0]
+    assert root["id"] == parent_id
+    assert [c["id"] for c in root["children"]] == [child_id]
+    assert [c["id"] for c in root["children"][0]["children"]] == [grandchild_id]
+
+
 def test_export_has_no_trailing_empty_lines(client: TestClient):
     """Exported text has no trailing empty lines (layout 40×12, box ends at row 2)."""
     _, layout_id = _create_project_with_layout(client)

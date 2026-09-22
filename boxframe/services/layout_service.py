@@ -435,42 +435,34 @@ class LayoutService:
         if not layout:
             return None
 
+        # Build the tree from the flat block list — arbitrary depth, and no
+        # lazy loading of the ORM `children` relationship (only two levels
+        # are eager-loaded).
+        children_by_parent: dict[str | None, list[Block]] = {}
+        for b in layout.blocks:
+            children_by_parent.setdefault(b.parent_id, []).append(b)
+
+        def to_dict(b: Block) -> dict[str, Any]:
+            return {
+                "id": b.id,
+                "type": b.block_type,
+                "x": b.x,
+                "y": b.y,
+                "width": b.width,
+                "height": b.height,
+                "content": b.content,
+                "border_style": b.border_style,
+                "metadata": b.meta,
+                "order": b.order,
+                "children": [to_dict(c) for c in children_by_parent.get(b.id, [])],
+            }
+
         return {
             "id": layout.id,
             "name": layout.name,
             "width": layout.width,
             "height": layout.height,
-            "blocks": [
-                {
-                    "id": b.id,
-                    "type": b.block_type,
-                    "x": b.x,
-                    "y": b.y,
-                    "width": b.width,
-                    "height": b.height,
-                    "content": b.content,
-                    "border_style": b.border_style,
-                    "metadata": b.meta,
-                    "order": b.order,
-                    "children": [
-                        {
-                            "id": c.id,
-                            "type": c.block_type,
-                            "x": c.x,
-                            "y": c.y,
-                            "width": c.width,
-                            "height": c.height,
-                            "content": c.content,
-                            "border_style": c.border_style,
-                            "metadata": c.meta,
-                            "order": c.order,
-                        }
-                        for c in b.children
-                    ],
-                }
-                for b in layout.blocks
-                if not b.parent_id
-            ],
+            "blocks": [to_dict(b) for b in children_by_parent.get(None, [])],
         }
 
     async def export_markdown(self, layout_id: str) -> str | None:
