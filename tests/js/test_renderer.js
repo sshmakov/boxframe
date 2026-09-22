@@ -551,6 +551,60 @@ test("render default order zero (stable sort)", () => {
     assert.ok(ls[2].includes("B"));
 });
 
+test("render children sorted by order", () => {
+    // Children inside a container render by order, not insertion order.
+    // HIGH is inserted first but has the higher order — it must win.
+    const result = render([
+        {
+            id: "p", block_type: "box",
+            x: 0, y: 0, width: 20, height: 6,
+            content: "", border_style: "solid", order: 0,
+        },
+        {
+            id: "high", block_type: "text",
+            x: 2, y: 1, width: 8, height: 2,
+            content: "HIGH", border_style: "none", parent_id: "p", order: 10,
+        },
+        {
+            id: "low", block_type: "text",
+            x: 2, y: 1, width: 8, height: 2,
+            content: "LOW", border_style: "none", parent_id: "p", order: 0,
+        },
+    ]);
+    const ls = lines(result);
+    // Both children at the same position: HIGH (order=10) overwrites LOW
+    assert.ok(ls[2].includes("HIGH"));
+    assert.ok(!ls[2].includes("LOW"));
+});
+
+test("render children order beats position", () => {
+    // A higher-order child renders on top even when positioned above
+    // (smaller y) a lower-order sibling — z-index, not position, decides.
+    const result = render([
+        {
+            id: "p", block_type: "box",
+            x: 0, y: 0, width: 20, height: 8,
+            content: "", border_style: "solid", order: 0,
+        },
+        {
+            id: "high", block_type: "box",
+            x: 2, y: 1, width: 10, height: 3,
+            content: "HIGH", border_style: "solid", parent_id: "p", order: 10,
+        },
+        {
+            id: "low", block_type: "box",
+            x: 2, y: 2, width: 10, height: 3,
+            content: "LOW", border_style: "solid", parent_id: "p", order: 0,
+        },
+    ]);
+    const ls = lines(result);
+    // Overlap cell (3,3): HIGH's left border wins over LOW's top-left
+    // corner — if position decided, LOW (drawn last) would leave "┌" here.
+    assert.equal(ls[3][3], "│");
+    // HIGH's content survives the overlap (drawn on top of LOW's border)
+    assert.ok(ls[3].includes("HIGH"));
+});
+
 // ── HTML preview tests ────────────────────────────────────
 
 test("toHtmlPreview positions and z-index", () => {

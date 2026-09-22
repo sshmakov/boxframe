@@ -534,7 +534,9 @@ class PseudoGraphicRenderer:
         prev_clip = self._clip
         self._clip = inner
         try:
-            for child in sorted(parent.children, key=lambda c: (c.y, c.x)):
+            # Sort by order (ascending) — higher order renders on top,
+            # same z-index rule as root blocks in render().
+            for child in sorted(parent.children, key=lambda c: c.order):
                 child.x = parent.x + pad_x + child.x
                 child.y = parent.y + pad_y + child.y
                 self._render_block(child)

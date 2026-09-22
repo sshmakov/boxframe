@@ -861,6 +861,56 @@ def test_render_default_order_zero():
     assert "B" in lines[2]
 
 
+def test_render_children_sorted_by_order():
+    """Children inside a container render by order, not insertion order."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 20, "height": 6,
+        "content": "",
+        "border_style": "solid",
+        "order": 0,
+        "children": [
+            # Inserted first but higher order — must render on top
+            {"block_type": "text", "x": 2, "y": 1, "width": 8, "height": 2,
+             "content": "HIGH", "border_style": "none", "order": 10},
+            {"block_type": "text", "x": 2, "y": 1, "width": 8, "height": 2,
+             "content": "LOW", "border_style": "none", "order": 0},
+        ],
+    }])
+    lines = result.split("\n")
+    # Both children at the same position: HIGH (order=10) overwrites LOW
+    assert "HIGH" in lines[2]
+    assert "LOW" not in lines[2]
+
+
+def test_render_children_order_beats_position():
+    """A higher-order child renders on top even when positioned above
+    (smaller y) a lower-order sibling — z-index, not position, decides."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 20, "height": 8,
+        "content": "",
+        "border_style": "solid",
+        "order": 0,
+        "children": [
+            # Higher order, positioned higher (smaller y)
+            {"block_type": "box", "x": 2, "y": 1, "width": 10, "height": 3,
+             "content": "HIGH", "border_style": "solid", "order": 10},
+            # Lower order, positioned lower (larger y), overlaps HIGH
+            {"block_type": "box", "x": 2, "y": 2, "width": 10, "height": 3,
+             "content": "LOW", "border_style": "solid", "order": 0},
+        ],
+    }])
+    lines = result.split("\n")
+    # Overlap cell (3,3): HIGH's left border wins over LOW's top-left
+    # corner — if position decided, LOW (drawn last) would leave "┌" here.
+    assert lines[3][3] == "│"
+    # HIGH's content survives the overlap (drawn on top of LOW's border)
+    assert "HIGH" in lines[3]
+
+
 def test_render_block_html_preview_z_index():
     """to_html_preview emits z-index based on order."""
     rb = RenderBlock(

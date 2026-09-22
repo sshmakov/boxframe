@@ -261,9 +261,12 @@
     // PseudoGraphicRenderer._render_children_in_container.
     function renderChildrenInContainer(parent, style, grid, gw, gh, allBlocks, clip) {
         var padX = 1, padY = 1;
+        // Sort by order (ascending) — higher order renders on top, same
+        // z-index rule as root blocks in render(). Stable: ties keep the
+        // store's insertion order.
         var children = allBlocks
             .filter(function (b) { return b.parent_id === parent.id; })
-            .sort(function (a, b) { return (a.y - b.y) || (a.x - b.x); });
+            .sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
 
         // Inner area of the parent (half-open), in absolute grid coordinates
         var inner = [

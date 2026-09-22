@@ -141,6 +141,39 @@ def test_parity_order_overlap():
     assert render_js(blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8)
 
 
+def test_parity_children_order_overlap():
+    """Children inside a container render by order (z-index), not position:
+    the higher-order child overwrites the lower one at the overlap, in both
+    renderers, even when the higher-order child is positioned above."""
+    js_blocks = [
+        {"id": "p", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 8,
+         "content": "", "border_style": "solid", "order": 0},
+        {"id": "high", "block_type": "box", "x": 2, "y": 1, "width": 10, "height": 3,
+         "content": "HIGH", "border_style": "solid", "parent_id": "p", "order": 10},
+        {"id": "low", "block_type": "box", "x": 2, "y": 2, "width": 10, "height": 3,
+         "content": "LOW", "border_style": "solid", "parent_id": "p", "order": 0},
+        {"id": "t_high", "block_type": "text", "x": 12, "y": 1, "width": 6, "height": 2,
+         "content": "TOP", "border_style": "none", "parent_id": "p", "order": 5},
+        {"id": "t_low", "block_type": "text", "x": 12, "y": 1, "width": 6, "height": 2,
+         "content": "BOT", "border_style": "none", "parent_id": "p", "order": 1},
+    ]
+    py_blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 8,
+        "content": "", "border_style": "solid", "order": 0,
+        "children": [
+            {"block_type": "box", "x": 2, "y": 1, "width": 10, "height": 3,
+             "content": "HIGH", "border_style": "solid", "order": 10},
+            {"block_type": "box", "x": 2, "y": 2, "width": 10, "height": 3,
+             "content": "LOW", "border_style": "solid", "order": 0},
+            {"block_type": "text", "x": 12, "y": 1, "width": 6, "height": 2,
+             "content": "TOP", "border_style": "none", "order": 5},
+            {"block_type": "text", "x": 12, "y": 1, "width": 6, "height": 2,
+             "content": "BOT", "border_style": "none", "order": 1},
+        ],
+    }]
+    assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
+
+
 def test_parity_nested_blocks():
     """Nested children: JS takes a flat list with parent_id, Python takes children inline."""
     js_blocks = [
