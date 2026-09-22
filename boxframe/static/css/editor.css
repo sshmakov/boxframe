@@ -414,6 +414,16 @@
     outline: 1px solid rgba(233, 69, 96, 0.55);
 }
 
+/* Drop-target highlight: the box that will become the parent of the
+   dragged block(s) on mouseup (mirrors the re-parenting on commit) */
+.block-preview--drop-target {
+    outline: 2px solid #2ecc71;
+}
+
+.block-preview--drop-target .block-inner {
+    background: rgba(46, 204, 113, 0.12);
+}
+
 /* ── Block properties panel (floats next to selected block) ─ */
 .block-props {
     position: absolute;

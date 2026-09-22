@@ -613,6 +613,16 @@ def _canvas_metrics(page: Page, block_id: str, block_w: int, block_h: int) -> di
                 const cr = c.getBoundingClientRect();
                 const br = b.getBoundingClientRect();
                 if (br.width === 0 || br.height === 0) return null;
+                // The editor re-renders once after measuring the real
+                // character size — wait until the overlay matches the app's
+                // measured size, otherwise the metrics come from the first
+                // (default-size) render and canvas drags miss their targets.
+                let app = null;
+                for (const el of document.querySelectorAll('[x-data]')) {
+                    const a = el._x_dataStack ? el._x_dataStack[0] : null;
+                    if (a && Array.isArray(a.blocks) && a.charWidth > 0) app = a;
+                }
+                if (app && Math.abs(br.width - app.charWidth * bw) > 0.5) return null;
                 return {
                     container: {x: cr.x, y: cr.y},
                     cw: br.width / bw,
@@ -1310,6 +1320,161 @@ def test_drag_child_out_of_box_unparents(page: Page):
     )
     assert block["parent_id"] is None
     assert (block["x"], block["y"]) == (40, 20)
+
+
+# ── Drop-target highlight (the box that will become the parent) ──
+
+
+def test_drag_block_highlights_drop_target(page: Page):
+    """While dragging a block over a box that will become its parent, the
+    box is highlighted; the highlight is removed on mouseup."""
+    specs = [
+        {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
+        {"block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+         "content": "Go"},
+    ]
+    layout_id, (box_id, free_id) = _create_project_with_blocks(page, specs)
+    metrics = _canvas_metrics(page, box_id, 30, 10)
+
+    # Grab the free block at its center (45, 21) and drag it so its top-left
+    # lands at grid (5, 3): center (10, 4) is inside the box.
+    start = _grid_point(metrics, 45, 21)
+    end = _grid_point(metrics, 10, 4)
+    page.mouse.move(*start)
+    page.mouse.down()
+    page.mouse.move(*end, steps=12)
+
+    # Mid-drag: the container box is highlighted as the drop target
+    expect(page.locator(f'.block-preview[data-block-id="{box_id}"]')) \
+        .to_have_class(re.compile(r"block-preview--drop-target"))
+    expect(page.locator(".block-preview--drop-target")).to_have_count(1)
+
+    page.mouse.up()
+
+    # The highlight is cleared after the drop...
+    expect(page.locator(".block-preview--drop-target")).to_have_count(0)
+    # ...and the block became the box's child
+    block = _wait_block(
+        page, layout_id, free_id,
+        lambda b: b["parent_id"] == box_id,
+    )
+    assert block["parent_id"] == box_id
+
+
+def test_drag_block_no_highlight_outside_box(page: Page):
+    """Dragging a block over the empty canvas (no box under its center)
+    shows no drop-target highlight."""
+    specs = [
+        {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},
+        {"block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+         "content": "Go"},
+    ]
+    layout_id, (box_id, free_id) = _create_project_with_blocks(page, specs)
+    metrics = _canvas_metrics(page, box_id, 30, 10)
+
+    # Drag the free block further away from the box
+    start = _grid_point(metrics, 45, 21)
+    end = _grid_point(metrics, 55, 21)
+    page.mouse.move(*start)
+    page.mouse.down()
+    page.mouse.move(*end, steps=12)
+
+    expect(page.locator(".block-preview--drop-target")).to_have_count(0)
+
+    page.mouse.up()
+    expect(page.locator(".block-preview--drop-target")).to_have_count(0)
+
+
+def test_group_drag_highlights_drop_target(page: Page):
+    """While dragging a multi-selection over a box that will become the
+    blocks' parent, the box is highlighted; cleared on mouseup."""
+    layout_id, (c_id, a_id, b_id) = _create_project_with_blocks(
+        page, GROUP_REPARENT
+    )
+
+    metrics = _canvas_metrics(page, a_id, 6, 3)
+    _marquee_select(page, metrics, 29, 3, 37, 13)
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    # Drag A 15 cells left — the group lands inside C
+    a_box = page.locator(f'.block-preview[data-block-id="{a_id}"]').bounding_box()
+    start_x = a_box["x"] + a_box["width"] / 2
+    start_y = a_box["y"] + a_box["height"] / 2
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x - 15 * metrics["cw"], start_y, steps=10)
+
+    # Mid-drag: C is highlighted as the drop target for the group
+    expect(page.locator(f'.block-preview[data-block-id="{c_id}"]')) \
+        .to_have_class(re.compile(r"block-preview--drop-target"))
+    expect(page.locator(".block-preview--drop-target")).to_have_count(1)
+
+    page.mouse.up()
+    expect(page.locator(".block-preview--drop-target")).to_have_count(0)
+
+    # Poll: the browser's batch request may still be in flight
+    blocks = {}
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = {b["id"]: b for b in r.json()["blocks"]}
+        if blocks.get(a_id, {}).get("parent_id") == c_id:
+            break
+        page.wait_for_timeout(100)
+    assert blocks[a_id]["parent_id"] == c_id
+
+
+def test_static_palette_drag_highlights_drop_target(page: Page):
+    """Dragging a palette button over a box highlights the box that will
+    become the new block's parent (synthetic HTML5 drag events)."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="box").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+
+    box_id = page.locator(".block-preview").get_attribute("data-block-id")
+    metrics = _canvas_metrics(page, box_id, 20, 3)
+    # The box is at (1,1) 20×3; a button (16×1) dropped at grid (5,2) has
+    # its center (13, 2.5) inside the box.
+    x, y = _grid_point(metrics, 5.5, 2.5)
+
+    page.evaluate(
+        """(args) => {
+            const [x, y] = args;
+            const dt = new DataTransfer();
+            const btn =
+                document.querySelector('.palette-btn[data-block-type="button"]');
+            btn.dispatchEvent(new DragEvent('dragstart', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+            }));
+            const canvas = document.querySelector('.canvas-container');
+            canvas.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: x, clientY: y,
+            }));
+        }""",
+        [x, y],
+    )
+
+    expect(page.locator(f'.block-preview[data-block-id="{box_id}"]')) \
+        .to_have_class(re.compile(r"block-preview--drop-target"))
+    expect(page.locator(".block-preview--drop-target")).to_have_count(1)
+
+    # Leaving the canvas clears the highlight
+    page.evaluate(
+        """() => {
+            const canvas = document.querySelector('.canvas-container');
+            canvas.dispatchEvent(new DragEvent('dragleave', {bubbles: true}));
+        }"""
+    )
+    expect(page.locator(".block-preview--drop-target")).to_have_count(0)
+
+    # End the synthetic drag to reset the editor's drag state
+    page.evaluate(
+        """() => {
+            const btn =
+                document.querySelector('.palette-btn[data-block-type="button"]');
+            btn.dispatchEvent(new DragEvent('dragend', {bubbles: true}));
+        }"""
+    )
 
 
 # ── Copy selection to the clipboard ───────────────────────

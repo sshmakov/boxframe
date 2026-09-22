@@ -138,6 +138,7 @@ function editorApp() {
         resizePreviewY: 0,
 
         previewEl: null,
+        dropTargetIds: [],    // box ids highlighted as the drop parent during a drag
         charWidth: 0,
         charHeight: 0,
 
@@ -420,6 +421,70 @@ function editorApp() {
             return best;
         },
 
+        // Boxes that will become the parent of the dragged block(s) on
+        // mouseup — the live drop-target highlight. Mirrors the commit
+        // rules exactly (single: _commitBlockMove, group: _commitGroupMove),
+        // so the highlight always matches the actual re-parenting.
+        _moveDropTargets() {
+            const targets = new Set();
+            if (this.dragMode !== 'move') return targets;
+
+            if (this.dragGroup && this.dragGroupOriginal) {
+                const dx = this.dragGroupDx;
+                const dy = this.dragGroupDy;
+                if (dx === 0 && dy === 0) return targets;
+                const exclude = [...new Set(
+                    this.dragGroupOriginal.flatMap(o => this._subtreeIds(o.id))
+                )];
+                const inGroup = new Set(this.dragGroupOriginal.map(o => o.id));
+                for (const o of this.dragGroupOriginal) {
+                    const b = this.blocks.find(bl => bl.id === o.id);
+                    if (!b) continue;
+                    if (b.parent_id && inGroup.has(b.parent_id)) continue;
+                    const r = this._absoluteRect(b);
+                    const container = this._findDropContainer(
+                        r.x + dx + b.width / 2, r.y + dy + b.height / 2, exclude
+                    );
+                    if (container && !this._isInSubtree(b, container.id)) {
+                        targets.add(container.id);
+                    }
+                }
+            } else if (this.dragBlock && this.dragGridX >= 0) {
+                const b = this.dragBlock;
+                const container = this._findDropContainer(
+                    this.dragGridX + b.width / 2, this.dragGridY + b.height / 2,
+                    this._subtreeIds(b.id)
+                );
+                if (container) targets.add(container.id);
+            }
+            return targets;
+        },
+
+        // Sync the .block-preview--drop-target class with the given box ids
+        // (no argument = the live move-drag targets).
+        _updateDropTargetHighlight(ids) {
+            const targets = ids === undefined
+                ? this._moveDropTargets()
+                : (ids instanceof Set ? ids : new Set(ids));
+            const canvas = document.querySelector('.canvas-container');
+            if (!canvas) return;
+            for (const id of this.dropTargetIds) {
+                if (targets.has(id)) continue;
+                const el = canvas.querySelector('.block-preview[data-block-id="' + id + '"]');
+                if (el) el.classList.remove('block-preview--drop-target');
+            }
+            for (const id of targets) {
+                if (this.dropTargetIds.includes(id)) continue;
+                const el = canvas.querySelector('.block-preview[data-block-id="' + id + '"]');
+                if (el) el.classList.add('block-preview--drop-target');
+            }
+            this.dropTargetIds = [...targets];
+        },
+
+        _clearDropTargetHighlight() {
+            this._updateDropTargetHighlight([]);
+        },
+
         // ── Preview overlay ─────────────────────────────────────
 
         _showPreview(gx, gy) {
@@ -646,6 +711,7 @@ function editorApp() {
             this.marquee = null;
             this._hidePreview();
             this.previewEl = null;
+            this._clearDropTargetHighlight();
             this._hideMarquee();
         },
 
@@ -785,11 +851,23 @@ function editorApp() {
         onCanvasDragOver(e) {
             if (this.dragMode === 'palette') {
                 e.currentTarget.classList.add('drag-over');
+                // Live drop-target highlight: the innermost box that will
+                // become the new block's parent (same rule as onCanvasDrop).
+                const pos = this._pixelToGrid(e.clientX, e.clientY);
+                const d = this._blockDefaults(this.dragType);
+                const container = this._findDropContainer(
+                    pos.x + d.width / 2, pos.y + d.height / 2, null
+                );
+                this._updateDropTargetHighlight(container ? [container.id] : []);
             }
         },
 
         onCanvasDragLeave(e) {
+            // Moving onto a child (a block preview) fires dragleave on the
+            // canvas — ignore it so the drag-over state does not flicker.
+            if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget)) return;
             e.currentTarget.classList.remove('drag-over');
+            this._clearDropTargetHighlight();
         },
 
         // ── Canvas drop (palette → new block) ───────────────────
@@ -969,6 +1047,7 @@ function editorApp() {
                 } else {
                     this._showPreview(gx, gy);
                 }
+                this._updateDropTargetHighlight();
                 e.preventDefault();
                 return;
             }
