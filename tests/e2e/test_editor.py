@@ -832,6 +832,148 @@ def test_group_duplicate_copies_all_selected(page: Page):
     expect(page.locator(".block-item--selected")).to_have_count(2)
 
 
+# ── Group drag ↔ container (re-parenting) ─────────────────
+#
+# Container C at (2,2) 24×12 and two blocks to its right:
+# A at (30,4) 6×3, B at (30,9) 6×3.
+GROUP_REPARENT = [
+    {"block_type": "box", "x": 2, "y": 2, "width": 24, "height": 12},
+    {"block_type": "box", "x": 30, "y": 4, "width": 6, "height": 3},
+    {"block_type": "box", "x": 30, "y": 9, "width": 6, "height": 3},
+]
+
+
+def test_group_drag_into_box_reparents(page: Page):
+    """Dragging a multi-selection into a box makes every block a child of
+    the box (relative coordinates, one batch update)."""
+    layout_id, (c_id, a_id, b_id) = _create_project_with_blocks(
+        page, GROUP_REPARENT
+    )
+
+    metrics = _canvas_metrics(page, a_id, 6, 3)
+    # Marquee over A and B only (C is to the left, outside the band)
+    _marquee_select(page, metrics, 29, 3, 37, 13)
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    # Drag A 15 cells left — the group lands inside C
+    a_box = page.locator(f'.block-preview[data-block-id="{a_id}"]').bounding_box()
+    start_x = a_box["x"] + a_box["width"] / 2
+    start_y = a_box["y"] + a_box["height"] / 2
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x - 15 * metrics["cw"], start_y, steps=10)
+    page.mouse.up()
+
+    # Poll: the browser's batch request may still be in flight
+    blocks = {}
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = {b["id"]: b for b in r.json()["blocks"]}
+        if blocks.get(a_id, {}).get("parent_id") == c_id:
+            break
+        page.wait_for_timeout(100)
+    a, b = blocks[a_id], blocks[b_id]
+    # Both blocks became children of the box
+    assert a["parent_id"] == c_id
+    assert b["parent_id"] == c_id
+    # Relative to C's interior (C at (2,2) + 1-cell padding): A ≈ (12,1), B ≈ (12,6)
+    assert abs(a["x"] - 12) <= 1 and abs(a["y"] - 1) <= 1
+    assert abs(b["x"] - 12) <= 1 and abs(b["y"] - 6) <= 1
+    # The rigid offset between the blocks is preserved
+    assert b["x"] - a["x"] == 0
+    assert b["y"] - a["y"] == 5
+
+
+def test_group_drag_out_of_box_unparents(page: Page):
+    """Dragging a multi-selection out of its container back onto the canvas
+    un-parents every block (absolute coordinates, one batch update)."""
+    layout_id, (c_id, a_id, b_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 2, "y": 2, "width": 24, "height": 12},
+        {"block_type": "box", "x": 4, "y": 2, "width": 6, "height": 3, "parent_index": 0},
+        {"block_type": "box", "x": 4, "y": 7, "width": 6, "height": 3, "parent_index": 0},
+    ])
+
+    # A and B are inside C — a marquee cannot start on them (the cursor
+    # would hit C), so select with click + shift+click
+    page.locator(f'.block-preview[data-block-id="{a_id}"]').click()
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    page.locator(f'.block-preview[data-block-id="{b_id}"]').click(modifiers=["Shift"])
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    metrics = _canvas_metrics(page, a_id, 6, 3)
+    # Drag A 20 cells right — the group lands outside C
+    a_box = page.locator(f'.block-preview[data-block-id="{a_id}"]').bounding_box()
+    start_x = a_box["x"] + a_box["width"] / 2
+    start_y = a_box["y"] + a_box["height"] / 2
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x + 20 * metrics["cw"], start_y, steps=10)
+    page.mouse.up()
+
+    # Poll: the browser's batch request may still be in flight
+    blocks = {}
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = {b["id"]: b for b in r.json()["blocks"]}
+        a = blocks.get(a_id, {})
+        if a.get("parent_id") is None and a.get("x", 0) > 20:
+            break
+        page.wait_for_timeout(100)
+    a, b = blocks[a_id], blocks[b_id]
+    # Both blocks are back on the canvas (absolute coordinates)
+    assert a["parent_id"] is None
+    assert b["parent_id"] is None
+    assert abs(a["x"] - 27) <= 1 and abs(a["y"] - 5) <= 1
+    assert abs(b["x"] - 27) <= 1 and abs(b["y"] - 10) <= 1
+    assert b["x"] - a["x"] == 0
+    assert b["y"] - a["y"] == 5
+
+
+def test_group_move_with_nested_block_keeps_delta(page: Page):
+    """Dragging a multi-selection that includes a block nested in a box
+    moves the whole group by the mouse delta (regression: the delta was
+    computed against the nested block's RELATIVE coordinates, so the group
+    overshot by the container's offset)."""
+    layout_id, (c_id, a_id, d_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 2, "y": 2, "width": 24, "height": 12},
+        {"block_type": "box", "x": 4, "y": 2, "width": 6, "height": 3, "parent_index": 0},
+        {"block_type": "box", "x": 30, "y": 5, "width": 6, "height": 3},
+    ])
+
+    # Click D (the rightmost block) first so the floating properties panel
+    # opens to its right and does not cover A
+    page.locator(f'.block-preview[data-block-id="{d_id}"]').click()
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    page.locator(f'.block-preview[data-block-id="{a_id}"]').click(modifiers=["Shift"])
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    metrics = _canvas_metrics(page, a_id, 6, 3)
+    # Drag A 10 cells right — A stays inside C, D stays on the canvas
+    a_box = page.locator(f'.block-preview[data-block-id="{a_id}"]').bounding_box()
+    start_x = a_box["x"] + a_box["width"] / 2
+    start_y = a_box["y"] + a_box["height"] / 2
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x + 10 * metrics["cw"], start_y, steps=10)
+    page.mouse.up()
+
+    # Poll: the browser's batch request may still be in flight
+    blocks = {}
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = {b["id"]: b for b in r.json()["blocks"]}
+        if blocks.get(d_id, {}).get("x", 0) > 35:
+            break
+        page.wait_for_timeout(100)
+    a, d = blocks[a_id], blocks[d_id]
+    # A moved by the mouse delta (10 cells) and stayed a child of C
+    assert a["parent_id"] == c_id
+    assert abs(a["x"] - 14) <= 1 and abs(a["y"] - 2) <= 1
+    # D moved by the same delta on the canvas
+    assert d["parent_id"] is None
+    assert abs(d["x"] - 40) <= 1 and abs(d["y"] - 5) <= 1
+
+
 # ── Static editor (no backend, in-memory store) ───────────
 
 

@@ -115,6 +115,7 @@ function editorApp() {
         dragBlock: null,         // block object (move / resize drag)
         dragGroup: false,        // move drag of a whole multi-selection
         dragGroupOriginal: null, // [{id, x, y}] of the selected blocks at drag start
+        dragGroupAnchor: null,   // absolute rect of the dragged block at drag start
         dragGroupDx: 0,          // committed group delta (grid cells)
         dragGroupDy: 0,
         dragStartX: 0,
@@ -374,6 +375,17 @@ function editorApp() {
             return ids;
         },
 
+        // True if the block is a descendant of the given ancestor
+        // (walks up the parent chain).
+        _isInSubtree(block, ancestorId) {
+            let pid = block.parent_id;
+            while (pid) {
+                if (pid === ancestorId) return true;
+                pid = (this.blocks.find(b => b.id === pid) || {}).parent_id;
+            }
+            return false;
+        },
+
         // Number of ancestors of a block (root = 0).
         _depth(blockId) {
             let d = 0;
@@ -624,6 +636,7 @@ function editorApp() {
             this.dragBlock = null;
             this.dragGroup = false;
             this.dragGroupOriginal = null;
+            this.dragGroupAnchor = null;
             this.dragGroupDx = 0;
             this.dragGroupDy = 0;
             this.resizeGroup = false;
@@ -909,6 +922,10 @@ function editorApp() {
                         this.dragGroupOriginal = this.selectedBlocks.map(b => ({
                             id: b.id, x: b.x, y: b.y,
                         }));
+                        // Absolute origin of the dragged block — the group
+                        // delta is measured against it (the stored x/y may
+                        // be relative to a container).
+                        this.dragGroupAnchor = this._absoluteRect(this.dragBlock);
                     } else {
                         // A plain drag does not select the block — the
                         // selection (and the properties panel) only changes
@@ -937,12 +954,13 @@ function editorApp() {
 
                 if (this.dragGroup) {
                     // Group move: shift every selected block by the same
-                    // delta, clamped so no block crosses the canvas origin.
-                    const orig = this.dragGroupOriginal.find(o => o.id === this.dragBlock.id);
-                    let dx = gx - orig.x;
-                    let dy = gy - orig.y;
-                    const minX = Math.min(...this.dragGroupOriginal.map(o => o.x));
-                    const minY = Math.min(...this.dragGroupOriginal.map(o => o.y));
+                    // ABSOLUTE delta (measured against the drag anchor),
+                    // clamped so no block crosses the canvas origin.
+                    let dx = gx - this.dragGroupAnchor.x;
+                    let dy = gy - this.dragGroupAnchor.y;
+                    const rects = this.selectedBlocks.map(b => this._absoluteRect(b));
+                    const minX = Math.min(...rects.map(r => r.x));
+                    const minY = Math.min(...rects.map(r => r.y));
                     dx = Math.max(dx, -minX);
                     dy = Math.max(dy, -minY);
                     this.dragGroupDx = dx;
@@ -1137,15 +1155,55 @@ function editorApp() {
         },
 
         // Commit a group move: one batch update for all selected blocks,
-        // so the whole move is a single undo step.
+        // so the whole move is a single undo step. Each block is judged by
+        // its own center after the move (the single-block rule): dropped
+        // into a box it becomes the box's child (relative coordinates),
+        // dragged out of a container back onto the canvas it is un-parented.
         async _commitGroupMove() {
             const dx = this.dragGroupDx;
             const dy = this.dragGroupDy;
             if (!this.dragGroupOriginal || (dx === 0 && dy === 0)) return;
 
-            const updates = this.dragGroupOriginal.map(o => ({
-                id: o.id, x: o.x + dx, y: o.y + dy,
-            }));
+            // New ABSOLUTE top-left of every selected block after the move.
+            const moved = this.dragGroupOriginal.map(o => {
+                const b = this.blocks.find(bl => bl.id === o.id);
+                const r = this._absoluteRect(b);
+                return { id: o.id, block: b, absX: r.x + dx, absY: r.y + dy };
+            });
+
+            // Exclude every selected block's subtree so a box in the group
+            // cannot be dropped into itself or its descendants (a cycle).
+            const exclude = [...new Set(
+                this.dragGroupOriginal.flatMap(o => this._subtreeIds(o.id))
+            )];
+
+            const inGroup = new Set(this.dragGroupOriginal.map(o => o.id));
+            const updates = [];
+            for (const m of moved) {
+                const b = m.block;
+                const parentInGroup = b.parent_id && inGroup.has(b.parent_id);
+                if (parentInGroup) {
+                    // The parent moves with the group and carries the block
+                    // — its relative offset is unchanged, no update needed.
+                    continue;
+                }
+                const container = this._findDropContainer(
+                    m.absX + b.width / 2, m.absY + b.height / 2, exclude
+                );
+                if (container && !this._isInSubtree(b, container.id)) {
+                    // (Re-)parent into the box: relative coordinates
+                    const rel = this._absToRel(m.absX, m.absY, container);
+                    updates.push({ id: m.id, x: rel.x, y: rel.y, parent_id: container.id });
+                } else if (!container && b.parent_id) {
+                    // Dragged out of its container onto the canvas → root
+                    updates.push({ id: m.id, x: m.absX, y: m.absY, parent_id: null });
+                } else {
+                    // Same parent (or already inside the target box): a pure
+                    // translation keeps the relative offset
+                    updates.push({ id: m.id, x: b.x + dx, y: b.y + dy });
+                }
+            }
+
             try {
                 const result = await this.store.batchBlocks({ update: updates });
                 this._applyBatchResult(result);
