@@ -755,6 +755,59 @@ def test_group_move_drag_moves_all_selected(page: Page):
     assert b["x"] - a["x"] == 12  # the 12-cell gap is preserved
 
 
+def test_press_inside_selection_bbox_drags_group(page: Page):
+    """Pressing inside the selection's bounding box — even on empty canvas
+    between the blocks — drags the whole selection, not the block under the
+    cursor (there is none in the gap)."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    metrics = _canvas_metrics(page, a_id, 10, 4)
+    _marquee_select(page, metrics, 1, 1, 26, 8)
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    # Press in the gap between A (ends at x=12) and B (starts at x=14):
+    # grid (13,4) is inside the selection bbox but on empty canvas.
+    sx, sy = _grid_point(metrics, 13, 4)
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move(sx + 5 * metrics["cw"], sy + 2 * metrics["ch"], steps=10)
+    page.mouse.up()
+
+    # Poll: the browser's batch request may still be in flight
+    blocks = {}
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = {b["id"]: b for b in r.json()["blocks"]}
+        a = blocks.get(a_id)
+        if a and (a["x"], a["y"]) != (2, 2):
+            break
+        page.wait_for_timeout(100)
+    a, b = blocks[a_id], blocks[b_id]
+    # Both blocks moved by the same delta (rigid group move)
+    assert a["x"] - 2 == b["x"] - 14
+    assert a["y"] - 2 == b["y"] - 2
+    assert a["x"] > 2 and a["y"] > 2  # a real move in the intended direction
+    assert b["x"] - a["x"] == 12  # the 12-cell gap is preserved
+
+
+def test_click_inside_selection_bbox_keeps_group(page: Page):
+    """A plain click inside the selection's bounding box (no drag) keeps the
+    whole selection — it does not collapse to a single block."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    metrics = _canvas_metrics(page, a_id, 10, 4)
+    _marquee_select(page, metrics, 1, 1, 26, 8)
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    # Click in the gap between the blocks (inside the bbox, empty canvas)
+    sx, sy = _grid_point(metrics, 13, 4)
+    page.mouse.click(sx, sy)
+
+    # The selection is unchanged (both blocks still selected)
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+    expect(page.locator(".block-props__type")).to_have_text("2 selected")
+
+
 def test_delete_hotkey_deletes_group(page: Page):
     """The Delete key removes the whole multi-selection (one batch delete)."""
     layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)

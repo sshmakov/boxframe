@@ -114,6 +114,7 @@ function editorApp() {
         dragType: null,          // block type string (palette drag)
         dragBlock: null,         // block object (move / resize drag)
         dragGroup: false,        // move drag of a whole multi-selection
+        dragSelection: false,    // mousedown inside an active selection → drag it
         dragGroupOriginal: null, // [{id, x, y}] of the selected blocks at drag start
         dragGroupAnchor: null,   // absolute rect of the dragged block at drag start
         dragGroupDx: 0,          // committed group delta (grid cells)
@@ -398,6 +399,23 @@ function editorApp() {
             return d;
         },
 
+        // The selection's bounding box in absolute (canvas) grid coords —
+        // the block's own rect for a single selection, the union of all
+        // selected blocks' rects for a multi-selection. Null when nothing
+        // is selected.
+        _selectionBBox() {
+            const sel = this.selectedBlocks;
+            if (!sel.length) return null;
+            const rects = sel.map(b => this._absoluteRect(b));
+            const x = Math.min(...rects.map(r => r.x));
+            const y = Math.min(...rects.map(r => r.y));
+            return {
+                x, y,
+                width: Math.max(...rects.map(r => r.x + r.width)) - x,
+                height: Math.max(...rects.map(r => r.y + r.height)) - y,
+            };
+        },
+
         // The container (box) that a point falls into: the innermost box
         // whose absolute area contains the point. excludeIds — block ids to
         // ignore (the dragged block's own subtree, so a box cannot be
@@ -643,7 +661,10 @@ function editorApp() {
 
             if (this.dragMode === 'pending') {
                 // Mouse didn't move past the threshold: it's a click, not a drag.
-                if (this.pendingToggle && this.pendingBlock) {
+                if (this.dragSelection) {
+                    // Pressed inside the existing selection and released
+                    // without moving — keep the selection as-is.
+                } else if (this.pendingToggle && this.pendingBlock) {
                     // Shift/Ctrl+click on a block → toggle it in the selection
                     this.toggleSelect(this.pendingBlock.id);
                 } else if (this.pendingBlock) {
@@ -700,6 +721,7 @@ function editorApp() {
             this.dragType = null;
             this.dragBlock = null;
             this.dragGroup = false;
+            this.dragSelection = false;
             this.dragGroupOriginal = null;
             this.dragGroupAnchor = null;
             this.dragGroupDx = 0;
@@ -936,10 +958,37 @@ function editorApp() {
             // Ignore clicks inside the floating properties panel
             if (e.target.closest('.block-props')) return;
 
+            const pos = this._pixelToGrid(e.clientX, e.clientY);
+
+            // An active selection captures the press: if the cursor lands
+            // inside the selection's bounding box (no modifier key), the
+            // whole selection is dragged — even when the cursor is on empty
+            // canvas or a non-selected block within the box.
+            if (this.selectedIds.length &&
+                !(e.shiftKey || e.ctrlKey || e.metaKey)) {
+                const bbox = this._selectionBBox();
+                if (bbox && pos.x >= bbox.x && pos.y >= bbox.y &&
+                    pos.x < bbox.x + bbox.width && pos.y < bbox.y + bbox.height) {
+                    this.dragMode = 'pending';
+                    this.pendingBlock = this.selectedBlock;
+                    this.pendingToggle = false;
+                    this.dragSelection = true;
+                    this.dragStartX = e.clientX;
+                    this.dragStartY = e.clientY;
+                    // Anchor at the selection's top-left so the move delta is
+                    // measured against the bbox (single and multi alike).
+                    this.dragOffsetX = pos.x - bbox.x;
+                    this.dragOffsetY = pos.y - bbox.y;
+                    this.dragGridX = bbox.x;
+                    this.dragGridY = bbox.y;
+                    e.preventDefault();
+                    return;
+                }
+            }
+
             // Find the topmost block whose ABSOLUTE area contains the cursor
             // (this.blocks is sorted by order descending; children carry
             // relative coords, so hit-test in canvas coordinates)
-            const pos = this._pixelToGrid(e.clientX, e.clientY);
             const block = this.blocks.find(b => {
                 const r = this._absoluteRect(b);
                 return pos.x >= r.x && pos.y >= r.y &&
@@ -992,18 +1041,23 @@ function editorApp() {
                     this.dragMode = 'move';
                     this.dragBlock = this.pendingBlock;
 
-                    // Dragging a block that is part of a multi-selection
-                    // moves the whole selection (relative offsets kept).
-                    this.dragGroup = this.selectedIds.length > 1 &&
-                        this.selectedIds.includes(this.dragBlock.id);
+                    // A press captured inside an active selection drags the
+                    // whole selection; otherwise dragging a block that is part
+                    // of a multi-selection moves the whole selection.
+                    this.dragGroup = this.dragSelection ||
+                        (this.selectedIds.length > 1 &&
+                         this.selectedIds.includes(this.dragBlock.id));
                     if (this.dragGroup) {
                         this.dragGroupOriginal = this.selectedBlocks.map(b => ({
                             id: b.id, x: b.x, y: b.y,
                         }));
-                        // Absolute origin of the dragged block — the group
-                        // delta is measured against it (the stored x/y may
-                        // be relative to a container).
-                        this.dragGroupAnchor = this._absoluteRect(this.dragBlock);
+                        // The group delta is measured against the selection's
+                        // bounding box when the press was captured inside it,
+                        // otherwise against the dragged block's absolute rect
+                        // (the stored x/y may be relative to a container).
+                        this.dragGroupAnchor = this.dragSelection
+                            ? this._selectionBBox()
+                            : this._absoluteRect(this.dragBlock);
                     } else {
                         // A plain drag does not select the block — the
                         // selection (and the properties panel) only changes
