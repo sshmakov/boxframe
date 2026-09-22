@@ -125,6 +125,8 @@
                         <div class="block-props__actions">
                             <button class="action-btn" @click="duplicateBlock()"
                                     title="Duplicate selected block(s) (Ctrl+D)">⧉ Duplicate</button>
+                            <button class="action-btn copy-selection-btn" @click="copySelection()"
+                                    title="Copy selected block(s) with their children to the clipboard as pseudo-graphic text">📋 Copy</button>
                             <button class="action-btn action-btn--danger"
                                     @click="deleteSelection()"
                                     title="Delete selected block(s) (Del)">✕ Delete</button>

@@ -909,7 +909,7 @@ def test_static_editor_panel_matches_web_layout(page: Page):
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
-    expect(panel.locator(".block-props__actions .action-btn")).to_have_count(2)
+    expect(panel.locator(".block-props__actions .action-btn")).to_have_count(3)
     expect(panel.locator(".style-btn")).to_have_count(5)
 
     boxes = [
@@ -1168,3 +1168,46 @@ def test_drag_child_out_of_box_unparents(page: Page):
     )
     assert block["parent_id"] is None
     assert (block["x"], block["y"]) == (40, 20)
+
+
+# ── Copy selection to the clipboard ───────────────────────
+
+
+def test_panel_copy_selection_to_clipboard(page: Page):
+    """The Copy action in the properties panel copies the selected block(s)
+    with their children to the clipboard as pseudo-graphic text anchored at
+    (0,0) — the child is not selected but comes along with its parent."""
+    specs = [
+        {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 4,
+         "content": "Old"},
+        {"block_type": "button", "x": 2, "y": 1, "width": 10, "height": 1,
+         "content": "Go", "border_style": "dashed", "parent_index": 0},
+    ]
+    layout_id, (box_id, child_id) = _create_project_with_blocks(page, specs)
+
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+
+    # Select the box: click its top border row (grid (3, 2.5)) — inside the
+    # box but outside the child button (absolute (5, 4)), so the hit-test
+    # picks the box, not the child.
+    metrics = _canvas_metrics(page, box_id, 20, 4)
+    x, y = _grid_point(metrics, 3, 2.5)
+    page.mouse.click(x, y)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+    page.locator(".block-props .action-btn", has_text="Copy").click()
+    expect(page.locator(".copy-selection-btn")).to_have_text("Copied!")
+
+    # Poll: the clipboard write may still be in flight
+    text = ""
+    for _ in range(20):
+        text = page.evaluate("navigator.clipboard.readText()")
+        if text:
+            break
+        page.wait_for_timeout(100)
+    assert text == (
+        "┌──────────────────┐\n"
+        "│Old               │\n"
+        "│  [Go      ]      │\n"
+        "└──────────────────┘"
+    )

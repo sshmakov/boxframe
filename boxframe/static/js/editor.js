@@ -2,6 +2,79 @@
  * Editor app: manages block state, rendering, and export.
  */
 
+/**
+ * Render the selection — every selected block with all of its descendants —
+ * into a standalone pseudo-graphic string anchored at (0,0) (the top-left of
+ * the selection's bounding box), so the text can be pasted anywhere.
+ *
+ * A selected block whose parent is also selected keeps its relative
+ * coordinates and parent link (the hierarchy is preserved). A selected
+ * block whose parent is NOT selected becomes a root of the result: its
+ * coordinates are converted to absolute (canvas) coordinates and shifted
+ * so the selection's top-left corner lands at (0,0).
+ *
+ * Pure function (no editor state) — unit-testable in Node.
+ */
+function selectionToAscii(blocks, selectedIds) {
+    if (!blocks || !selectedIds || !selectedIds.length) return "";
+
+    var byId = {};
+    blocks.forEach(function (b) { byId[b.id] = b; });
+
+    // Union of the subtrees of every selected block (a selected child of a
+    // selected parent is already covered by the parent's subtree).
+    var idSet = {};
+    selectedIds.forEach(function (id) {
+        if (!byId[id]) return;
+        var queue = [id];
+        while (queue.length) {
+            var cur = queue.shift();
+            if (idSet[cur]) continue;
+            idSet[cur] = true;
+            blocks.forEach(function (b) {
+                if (b.parent_id === cur) queue.push(b.id);
+            });
+        }
+    });
+
+    var members = blocks.filter(function (b) { return idSet[b.id]; });
+    if (!members.length) return "";
+
+    // Absolute (canvas) position — walks up the parent chain, adding the
+    // 1-cell container padding at each level.
+    function absPos(b) {
+        var x = b.x, y = b.y, pid = b.parent_id;
+        while (pid && byId[pid]) {
+            var p = byId[pid];
+            x = p.x + 1 + x;
+            y = p.y + 1 + y;
+            pid = p.parent_id;
+        }
+        return { x: x, y: y };
+    }
+
+    var minX = Infinity, minY = Infinity;
+    members.forEach(function (b) {
+        var p = absPos(b);
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+    });
+
+    var out = members.map(function (b) {
+        if (b.parent_id && idSet[b.parent_id]) {
+            return Object.assign({}, b); // hierarchy preserved
+        }
+        var p = absPos(b);
+        return Object.assign({}, b, {
+            x: p.x - minX,
+            y: p.y - minY,
+            parent_id: null,
+        });
+    });
+
+    return PGRenderer.render(out, null, null);
+}
+
 function editorApp() {
     return {
         layoutId: null,
@@ -1417,6 +1490,21 @@ function editorApp() {
             await this.refreshRender();
         },
 
+        // Copy the selection (every selected block with all of its
+        // descendants) to the clipboard as pseudo-graphic text anchored at
+        // (0,0) — the text can be pasted anywhere.
+        async copySelection() {
+            const text = selectionToAscii(this.blocks, this.selectedIds);
+            if (!text) return;
+            await navigator.clipboard.writeText(text);
+            const btn = document.querySelector('.block-props .copy-selection-btn');
+            if (btn) {
+                const orig = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = orig, 1500);
+            }
+        },
+
         // Nudge the selection by (dx, dy) grid cells (arrow keys).
         async _nudgeSelection(dx, dy) {
             const sel = this.selectedBlocks;
@@ -1759,5 +1847,5 @@ function editorApp() {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { editorApp: editorApp };
+    module.exports = { editorApp: editorApp, selectionToAscii: selectionToAscii };
 }

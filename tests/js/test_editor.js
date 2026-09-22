@@ -6,12 +6,18 @@
  * and the re-parenting decision made by _commitBlockMove (drop into a box,
  * drag out to the canvas, plain root move).
  *
+ * Also covers selectionToAscii — the selection → pseudo-graphic text the
+ * Copy button puts in the clipboard (with all descendants, anchored at
+ * (0,0)).
+ *
  * Run with: node --test tests/js/
  */
 
 const { test } = require("node:test");
 const assert = require("node:assert");
-const { editorApp } = require("../../boxframe/static/js/editor.js");
+// renderer.js sets global.PGRenderer, which selectionToAscii uses
+require("../../boxframe/static/js/core/renderer.js");
+const { editorApp, selectionToAscii } = require("../../boxframe/static/js/editor.js");
 
 function block(id, block_type, x, y, width, height, parent_id) {
     return {
@@ -330,4 +336,112 @@ test("_startResizeDrag: a block from a multi-selection resizes the group bbox", 
     assert.equal(app.resizePreviewY, 2);
     assert.equal(app.resizeStartW, 38);
     assert.equal(app.resizeStartH, 4);
+});
+
+// ── selectionToAscii (Copy button → clipboard) ───────────
+
+function sbox(id, x, y, w, h, extra = {}) {
+    return Object.assign({
+        id, block_type: "box", x, y, width: w, height: h,
+        content: "", border_style: "solid", order: 0,
+    }, extra);
+}
+
+test("selectionToAscii: empty selection renders an empty string", () => {
+    assert.equal(selectionToAscii([], ["b1"]), "");
+    assert.equal(selectionToAscii([sbox("b1", 0, 0, 5, 2)], []), "");
+});
+
+test("selectionToAscii: a single block is re-anchored at (0,0)", () => {
+    const blocks = [sbox("b1", 7, 4, 10, 4, { content: "Hi" })];
+    const out = selectionToAscii(blocks, ["b1"]);
+    assert.equal(out, [
+        "┌────────┐",
+        "│Hi      │",
+        "│        │",
+        "└────────┘",
+    ].join("\n"));
+});
+
+test("selectionToAscii: children are copied with the parent (hierarchy kept)", () => {
+    // Empty boxes show the [box] type hint (same as the canvas preview);
+    // in a 6×2 box the hint clips to 4 cells and overwrites the bottom
+    // border's middle — the copy reflects what is rendered.
+    const blocks = [
+        sbox("p", 3, 2, 12, 5),
+        sbox("c", 2, 1, 6, 2, { parent_id: "p", order: 1 }),
+    ];
+    const out = selectionToAscii(blocks, ["p"]);
+    assert.equal(out, [
+        "┌──────────┐",
+        "│[box]     │",
+        "│  ┌────┐  │",
+        "│  └[box┘  │",
+        "└──────────┘",
+    ].join("\n"));
+});
+
+test("selectionToAscii: a child without its parent is re-anchored by absolute position", () => {
+    const blocks = [
+        sbox("p", 4, 2, 20, 6),
+        sbox("c", 1, 1, 8, 3, { parent_id: "p", order: 1, content: "C" }),
+    ];
+    // Child absolute (4+1+1, 2+1+1) = (6,3) → re-anchored at (0,0)
+    const out = selectionToAscii(blocks, ["c"]);
+    assert.equal(out, [
+        "┌──────┐",
+        "│C     │",
+        "└──────┘",
+    ].join("\n"));
+});
+
+test("selectionToAscii: selecting a parent and its child does not duplicate the child", () => {
+    const blocks = [
+        sbox("p", 0, 0, 12, 5),
+        sbox("c", 2, 1, 6, 2, { parent_id: "p", order: 1 }),
+    ];
+    assert.equal(
+        selectionToAscii(blocks, ["p", "c"]),
+        selectionToAscii(blocks, ["p"]),
+    );
+});
+
+test("selectionToAscii: multi-selection copies every block, anchored at the group top-left", () => {
+    const blocks = [
+        sbox("a", 2, 5, 6, 2),
+        sbox("b", 10, 5, 6, 2, { order: 1 }),
+    ];
+    const out = selectionToAscii(blocks, ["a", "b"]);
+    assert.equal(out, [
+        "┌────┐  ┌────┐",
+        "└[box┘  └[box┘",
+    ].join("\n"));
+});
+
+test("selectionToAscii: deep nesting copies grandchildren too", () => {
+    const blocks = [
+        sbox("r", 1, 1, 16, 8),
+        sbox("m", 1, 1, 10, 5, { parent_id: "r", order: 1 }),
+        sbox("g", 1, 1, 4, 2, { parent_id: "m", order: 2 }),
+    ];
+    const out = selectionToAscii(blocks, ["r"]);
+    assert.equal(out, [
+        "┌──────────────┐",
+        "│[box]         │",
+        "│ ┌────────┐   │",
+        "│ │[box]   │   │",
+        "│ │ ┌──┐   │   │",
+        "│ │ └[b┘   │   │",
+        "│ └────────┘   │",
+        "└──────────────┘",
+    ].join("\n"));
+});
+
+test("selectionToAscii: unknown selected ids are ignored", () => {
+    const blocks = [sbox("b1", 0, 0, 5, 2)];
+    assert.equal(selectionToAscii(blocks, ["nope"]), "");
+    assert.equal(
+        selectionToAscii(blocks, ["nope", "b1"]),
+        selectionToAscii(blocks, ["b1"]),
+    );
 });
