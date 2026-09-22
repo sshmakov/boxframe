@@ -158,11 +158,13 @@ def test_single_click_selects_block(page: Page):
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
 
-    # Semi-transparent selection frame with a resize handle appears on the
-    # canvas; the block actions live in the properties panel
+    # Semi-transparent selection frame with a resize handle on every
+    # corner appears on the canvas; the block actions live in the
+    # properties panel
     selection = page.locator(".block-selection")
     expect(selection).to_be_visible()
-    expect(selection.locator(".sel-resize")).to_be_visible()
+    expect(selection.locator(".sel-resize")).to_have_count(4)
+    expect(selection.locator(".sel-resize--se")).to_be_visible()
     expect(selection.locator(".sel-icon")).to_have_count(0)
 
     # The block is highlighted in the sidebar list
@@ -439,7 +441,8 @@ def test_drag_block_past_canvas_edges(page: Page):
 
 
 def test_selection_resize_handle_resizes_block(page: Page):
-    """Dragging the resize handle on the selection frame resizes the block."""
+    """Dragging the bottom-right handle on the selection frame resizes the
+    block; the top-left corner stays in place."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
@@ -449,7 +452,7 @@ def test_selection_resize_handle_resizes_block(page: Page):
     cw = block_box["width"] / 20
     ch = block_box["height"] / 4
 
-    handle = page.locator(".block-selection .sel-resize")
+    handle = page.locator(".block-selection .sel-resize--se")
     h = handle.bounding_box()
     start_x = h["x"] + h["width"] / 2
     start_y = h["y"] + h["height"] / 2
@@ -469,6 +472,99 @@ def test_selection_resize_handle_resizes_block(page: Page):
             break
         page.wait_for_timeout(100)
     assert (block["width"], block["height"]) == (22, 5)
+
+
+def test_selection_nw_handle_resizes_block(page: Page):
+    """Dragging the top-left handle moves the top-left corner; the
+    bottom-right corner stays in place (x/y and the size all change)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+
+    # Estimate the character cell size from the block's rendered size (20x4)
+    block_box = page.locator(f'.block-preview[data-block-id="{block_id}"]').bounding_box()
+    cw = block_box["width"] / 20
+    ch = block_box["height"] / 4
+
+    handle = page.locator(".block-selection .sel-resize--nw")
+    h = handle.bounding_box()
+    start_x = h["x"] + h["width"] / 2
+    start_y = h["y"] + h["height"] / 2
+
+    # Drag -2 cells left, +1 cell down: (2,2,20,4) → (0,3,22,3)
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x - 2 * cw, start_y + 1 * ch, steps=5)
+    page.mouse.up()
+
+    # Poll: the browser's PUT may still be in flight
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if (block["x"], block["y"], block["width"], block["height"]) == (0, 3, 22, 3):
+            break
+        page.wait_for_timeout(100)
+    assert (block["x"], block["y"], block["width"], block["height"]) == (0, 3, 22, 3)
+
+
+def test_selection_group_resize_resizes_all_blocks(page: Page):
+    """Dragging a corner handle of a multi-selection resizes the whole
+    group: every block gets the bounding-box delta (position + size)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    # A second block to the right of the first (2,2,20,4) → (30,2,10,4)
+    r = requests.post(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks",
+        json={
+            "block_type": "box",
+            "x": 30, "y": 2, "width": 10, "height": 4,
+            "content": "B",
+        },
+        timeout=5,
+    )
+    assert r.status_code == 200
+    block2_id = r.json()["id"]
+
+    # Reload so the editor renders the new block
+    page.reload()
+    expect(page.locator(f'.block-preview[data-block-id="{block2_id}"]')).to_be_visible()
+
+    # Select both blocks via the sidebar list (click + shift+click) — the
+    # floating properties panel covers the second block on the canvas
+    page.locator(".block-item", has_text="@(2,2)").click()
+    page.locator(".block-item", has_text="@(30,2)").click(modifiers=["Shift"])
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+
+    # Estimate the character cell size from the first block's rendered size
+    block_box = page.locator(f'.block-preview[data-block-id="{block_id}"]').bounding_box()
+    cw = block_box["width"] / 20
+    ch = block_box["height"] / 4
+
+    # Group bbox: (2,2,38,4). Drag the 'nw' handle -2 cells left, +1 down
+    # → (0,3,40,3): every block shifts by (-2, +1) and grows by (+2, -1)
+    handle = page.locator(".block-selection .sel-resize--nw")
+    h = handle.bounding_box()
+    start_x = h["x"] + h["width"] / 2
+    start_y = h["y"] + h["height"] / 2
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x - 2 * cw, start_y + 1 * ch, steps=5)
+    page.mouse.up()
+
+    # Poll: the browser's batch PUT may still be in flight
+    blocks = {}
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = {b["id"]: b for b in r.json()["blocks"]}
+        b1, b2 = blocks[block_id], blocks[block2_id]
+        if (b1["x"], b1["y"], b1["width"], b1["height"]) == (0, 3, 22, 3) and \
+           (b2["x"], b2["y"], b2["width"], b2["height"]) == (28, 3, 12, 3):
+            break
+        page.wait_for_timeout(100)
+    b1, b2 = blocks[block_id], blocks[block2_id]
+    assert (b1["x"], b1["y"], b1["width"], b1["height"]) == (0, 3, 22, 3)
+    assert (b2["x"], b2["y"], b2["width"], b2["height"]) == (28, 3, 12, 3)
 
 
 def test_properties_panel_shows_next_to_selected_block(page: Page):

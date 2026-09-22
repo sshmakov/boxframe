@@ -200,14 +200,17 @@ function editorApp() {
         // ── Resize state ───────────────────────────────────────
         resizeStartW: 0,         // block (or group bbox) width at resize start
         resizeStartH: 0,         // block (or group bbox) height at resize start
+        resizeStartX: 0,         // block (or group bbox) X at resize start
+        resizeStartY: 0,         // block (or group bbox) Y at resize start
         resizeStartClientX: 0,   // mouse X at resize start (client coords)
         resizeStartClientY: 0,   // mouse Y at resize start (client coords)
         resizePreviewW: 0,       // preview width during drag (grid cells)
         resizePreviewH: 0,       // preview height during drag (grid cells)
         resizeGroup: false,      // resize drag of a whole multi-selection
-        resizeOriginal: null,    // [{id, width, height}] of the selected blocks
+        resizeOriginal: null,    // [{id, x, y, width, height}] of the selected blocks
         resizePreviewX: 0,       // preview origin (grid cells)
         resizePreviewY: 0,
+        resizeCorner: 'se',      // dragged corner: 'nw' | 'ne' | 'sw' | 'se'
 
         previewEl: null,
         dropTargetIds: [],    // box ids highlighted as the drop parent during a drag
@@ -799,6 +802,7 @@ function editorApp() {
             this.dragGroupDy = 0;
             this.resizeGroup = false;
             this.resizeOriginal = null;
+            this.resizeCorner = 'se';
             this.pendingBlock = null;
             this.pendingToggle = false;
             this.marquee = null;
@@ -851,18 +855,24 @@ function editorApp() {
             this._startResizeDrag(block, e);
         },
 
-        // Resize handle on the selection frame (visible while a block is
-        // selected, no hover needed). For a multi-selection the frame is
-        // the group's bounding box — the handle resizes the whole group.
+        // Corner resize handle on the selection frame (visible while a
+        // block is selected, no hover needed). For a multi-selection the
+        // frame is the group's bounding box — the handle resizes the whole
+        // group. The dragged corner follows the mouse, the opposite corner
+        // stays in place.
         onSelectionResizeMouseDown(e) {
             if (e.button !== 0) return;
 
             if (!this.selectedBlock) return;
 
-            this._startResizeDrag(this.selectedBlock, e);
+            const handle = e.target.closest('.sel-resize');
+            const corner = handle && handle.dataset.corner
+                ? handle.dataset.corner
+                : 'se';
+            this._startResizeDrag(this.selectedBlock, e, corner);
         },
 
-        _startResizeDrag(block, e) {
+        _startResizeDrag(block, e, corner) {
             // A block that is part of a multi-selection resizes the whole
             // group (the selection frame's handle); otherwise just itself.
             const sel = (this.selectedIds.length > 1 && this.selectedIds.includes(block.id))
@@ -873,10 +883,13 @@ function editorApp() {
             this.dragMode = 'resize';
             this.dragBlock = sel[0];
             this.resizeGroup = sel.length > 1;
+            this.resizeCorner = corner || 'se';
             if (this.resizeGroup) {
                 // Group bbox: the preview tracks the bounding box, each
                 // block is resized by the same delta on commit.
-                this.resizeOriginal = sel.map(b => ({ id: b.id, width: b.width, height: b.height }));
+                this.resizeOriginal = sel.map(b => ({
+                    id: b.id, x: b.x, y: b.y, width: b.width, height: b.height,
+                }));
                 // Absolute (canvas) coords — children carry relative coords
                 const rects = sel.map(b => this._absoluteRect(b));
                 const minX = Math.min(...rects.map(r => r.x));
@@ -892,6 +905,8 @@ function editorApp() {
                 this.resizeStartW = block.width;
                 this.resizeStartH = block.height;
             }
+            this.resizeStartX = this.resizePreviewX;
+            this.resizeStartY = this.resizePreviewY;
             this.resizeStartClientX = e.clientX;
             this.resizeStartClientY = e.clientY;
             this.resizePreviewW = this.resizeStartW;
@@ -1177,21 +1192,38 @@ function editorApp() {
             if (this.dragMode === 'resize' && this.dragBlock) {
                 const dx = e.clientX - this.resizeStartClientX;
                 const dy = e.clientY - this.resizeStartClientY;
-                const gridDx = dx / this.charWidth;
-                const gridDy = dy / this.charHeight;
+                // The dragged corner follows the mouse (snapped to a
+                // half-cell); the opposite corner stays in place.
+                const snapDx = Math.round((dx / this.charWidth) * 2) / 2;
+                const snapDy = Math.round((dy / this.charHeight) * 2) / 2;
 
-                let newW = this.resizeStartW + gridDx;
-                let newH = this.resizeStartH + gridDy;
-
-                // Snap to grid (0.5 char threshold)
-                newW = Math.round(newW * 2) / 2;
-                newH = Math.round(newH * 2) / 2;
+                let newX = this.resizeStartX;
+                let newY = this.resizeStartY;
+                let newW = this.resizeStartW;
+                let newH = this.resizeStartH;
+                switch (this.resizeCorner) {
+                    case 'nw':
+                        newX += snapDx; newY += snapDy;
+                        newW -= snapDx; newH -= snapDy;
+                        break;
+                    case 'ne':
+                        newY += snapDy;
+                        newW += snapDx; newH -= snapDy;
+                        break;
+                    case 'sw':
+                        newX += snapDx;
+                        newW -= snapDx; newH += snapDy;
+                        break;
+                    default: // 'se'
+                        newW += snapDx; newH += snapDy;
+                        break;
+                }
 
                 if (this.resizeGroup) {
-                    // Group resize: the bounding box grows; per-block
+                    // Group resize: the bounding box grows/shrinks; per-block
                     // minimums and line thickness are applied on commit.
-                    this.resizePreviewW = Math.max(1, newW);
-                    this.resizePreviewH = Math.max(1, newH);
+                    newW = Math.max(1, newW);
+                    newH = Math.max(1, newH);
                 } else {
                     // Lines are always 1 cell thick — the thin dimension is fixed
                     if (this.dragBlock.block_type === 'hline') newH = 1;
@@ -1203,15 +1235,39 @@ function editorApp() {
                     const minH = (this.dragBlock.block_type === 'hline' || this.dragBlock.block_type === 'button') ? 1 : 2;
                     newW = Math.max(minW, newW);
                     newH = Math.max(minH, newH);
-                    this.resizePreviewW = newW;
-                    this.resizePreviewH = newH;
                 }
 
-                // Update preview dimensions
-                if (this.previewEl) {
-                    this.previewEl.style.width = (this.resizePreviewW * this.charWidth) + 'px';
-                    this.previewEl.style.height = (this.resizePreviewH * this.charHeight) + 'px';
+                // A size clamped to its minimum keeps the fixed corner in
+                // place (the moving edge stops at the minimum distance).
+                // The formula holds exactly even without clamping.
+                if (this.resizeCorner === 'nw' || this.resizeCorner === 'sw') {
+                    newX = this.resizeStartX + this.resizeStartW - newW;
                 }
+                if (this.resizeCorner === 'nw' || this.resizeCorner === 'ne') {
+                    newY = this.resizeStartY + this.resizeStartH - newH;
+                }
+                // No block may cross the canvas origin (0,0) — the fixed
+                // corner stays, the moving edge stops at the origin.
+                if (newX < 0) {
+                    newW = this.resizeStartX + this.resizeStartW;
+                    newX = 0;
+                }
+                if (newY < 0) {
+                    newH = this.resizeStartY + this.resizeStartH;
+                    newY = 0;
+                }
+
+                this.resizePreviewX = newX;
+                this.resizePreviewY = newY;
+                this.resizePreviewW = newW;
+                this.resizePreviewH = newH;
+
+                // Update preview position and dimensions
+                if (this.previewEl) {
+                    this.previewEl.style.width = (newW * this.charWidth) + 'px';
+                    this.previewEl.style.height = (newH * this.charHeight) + 'px';
+                }
+                this._showPreview(newX, newY);
 
                 e.preventDefault();
                 e.stopPropagation();
@@ -1432,17 +1488,23 @@ function editorApp() {
         async _commitBlockResize() {
             if (!this.dragBlock) return;
 
-            // Calculate new dimensions from preview
-            const newW = Math.round(this.resizePreviewW);
-            const newH = Math.round(this.resizePreviewH);
+            // The preview rect is the final (clamped) position and size in
+            // absolute (canvas) grid cells — the fixed corner was kept in
+            // place during the drag.
+            const absX = Math.round(this.resizePreviewX);
+            const absY = Math.round(this.resizePreviewY);
+            const absW = Math.round(this.resizePreviewW);
+            const absH = Math.round(this.resizePreviewH);
 
             if (this.resizeGroup) {
-                // Group resize: every selected block grows by the same
-                // delta, clamped to its own minimums (lines stay 1 cell
-                // thick). One batch update = one undo step.
-                const dw = newW - this.resizeStartW;
-                const dh = newH - this.resizeStartH;
-                if (dw === 0 && dh === 0) return;
+                // Group resize: every selected block gets the bbox delta
+                // (position + size), clamped to its own minimums (lines stay
+                // 1 cell thick). One batch update = one undo step.
+                const dX = absX - this.resizeStartX;
+                const dY = absY - this.resizeStartY;
+                const dW = absW - this.resizeStartW;
+                const dH = absH - this.resizeStartH;
+                if (dX === 0 && dY === 0 && dW === 0 && dH === 0) return;
 
                 const updates = [];
                 for (const o of this.resizeOriginal) {
@@ -1450,12 +1512,14 @@ function editorApp() {
                     if (!b) continue;
                     const minW = b.block_type === 'vline' ? 1 : 2;
                     const minH = (b.block_type === 'hline' || b.block_type === 'button') ? 1 : 2;
-                    let w = Math.max(minW, o.width + dw);
-                    let h = Math.max(minH, o.height + dh);
+                    const x = o.x + dX;
+                    const y = o.y + dY;
+                    let w = Math.max(minW, o.width + dW);
+                    let h = Math.max(minH, o.height + dH);
                     if (b.block_type === 'hline') h = 1;
                     if (b.block_type === 'vline') w = 1;
-                    if (w === o.width && h === o.height) continue;
-                    updates.push({ id: o.id, width: w, height: h });
+                    if (x === o.x && y === o.y && w === o.width && h === o.height) continue;
+                    updates.push({ id: o.id, x, y, width: w, height: h });
                 }
                 if (!updates.length) return;
 
@@ -1470,31 +1534,34 @@ function editorApp() {
             }
 
             const block = this.dragBlock;
-            const oldW = block.width;
-            const oldH = block.height;
+            const old = { x: block.x, y: block.y, width: block.width, height: block.height };
 
-            // Minimum size: 2x2; lines are always 1 cell thick;
-            // buttons support height 1 ([label])
-            const minW = block.block_type === 'vline' ? 1 : 2;
-            const minH = (block.block_type === 'hline' || block.block_type === 'button') ? 1 : 2;
-            let clampedW = Math.max(minW, newW);
-            let clampedH = Math.max(minH, newH);
-            if (block.block_type === 'hline') clampedH = 1;
-            if (block.block_type === 'vline') clampedW = 1;
+            // A child keeps its parent — the new absolute position is
+            // converted back to coordinates relative to it (a top/left
+            // corner drag moves the block, so x/y may change too).
+            let x = absX;
+            let y = absY;
+            if (block.parent_id) {
+                const parent = this.blocks.find(b => b.id === block.parent_id);
+                if (parent) {
+                    const rel = this._absToRel(absX, absY, parent);
+                    x = rel.x;
+                    y = rel.y;
+                }
+            }
 
-            if (clampedW === oldW && clampedH === oldH) {
+            if (x === old.x && y === old.y && absW === old.width && absH === old.height) {
                 return; // No change
             }
 
             try {
                 const updated = await this.store.updateBlock(block.id, {
-                    width: clampedW, height: clampedH
+                    x, y, width: absW, height: absH
                 });
                 Object.assign(block, updated);
                 await this.refreshRender();
             } catch (err) {
-                block.width = oldW;
-                block.height = oldH;
+                Object.assign(block, old);
                 console.error('Failed to resize block:', err);
             }
         },

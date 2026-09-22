@@ -342,6 +342,159 @@ test("_startResizeDrag: a block from a multi-selection resizes the group bbox", 
     assert.equal(app.resizeStartH, 4);
 });
 
+// ── Corner resize (selection frame handles) ──────────────
+
+// Simulates a corner resize drag: mousedown on the selection frame's
+// corner handle, then a mousemove by (dx, dy) pixels.
+function cornerResize(app, block, corner, dx, dy, selectedIds) {
+    app.charWidth = 8;
+    app.charHeight = 16;
+    app._ensurePreviewEl = () => null;
+    app._setPreviewMode = () => {};
+    app._showPreview = () => {};
+    app.selectedIds = selectedIds || [block.id];
+    app._startResizeDrag(block, {
+        clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {},
+    }, corner);
+    app.onCanvasMouseMove({
+        clientX: dx, clientY: dy, preventDefault() {}, stopPropagation() {},
+    });
+}
+
+test("onSelectionResizeMouseDown: the corner is read from the handle", () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    app.charWidth = 8;
+    app.charHeight = 16;
+    app._ensurePreviewEl = () => null;
+    app._setPreviewMode = () => {};
+    app._showPreview = () => {};
+    app.selectedIds = ["b1"];
+    let corner = null;
+    app._startResizeDrag = (b, e, c) => { corner = c; };
+
+    const e = {
+        button: 0,
+        target: {
+            closest: (sel) =>
+                sel === ".sel-resize" ? { dataset: { corner: "nw" } } : null,
+        },
+    };
+    app.onSelectionResizeMouseDown(e);
+
+    assert.equal(corner, "nw");
+});
+
+test("corner resize: 'se' grows the block from the bottom-right", () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    cornerResize(app, app.blocks[0], "se", 16, 16); // +2 cells right, +1 down
+    assert.deepEqual(
+        [app.resizePreviewX, app.resizePreviewY, app.resizePreviewW, app.resizePreviewH],
+        [2, 2, 22, 5],
+    );
+});
+
+test("corner resize: 'ne' moves the top edge down, keeps the left edge", () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    cornerResize(app, app.blocks[0], "ne", 16, 16);
+    assert.deepEqual(
+        [app.resizePreviewX, app.resizePreviewY, app.resizePreviewW, app.resizePreviewH],
+        [2, 3, 22, 3],
+    );
+});
+
+test("corner resize: 'sw' moves the left edge right, keeps the top-right corner", () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    cornerResize(app, app.blocks[0], "sw", 16, 16); // +2 cells right, +1 down
+    assert.deepEqual(
+        [app.resizePreviewX, app.resizePreviewY, app.resizePreviewW, app.resizePreviewH],
+        [4, 2, 18, 5],
+    );
+});
+
+test("corner resize: 'nw' moves both edges, keeps the bottom-right corner", () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    cornerResize(app, app.blocks[0], "nw", -16, 16); // -2 cells left, +1 down
+    assert.deepEqual(
+        [app.resizePreviewX, app.resizePreviewY, app.resizePreviewW, app.resizePreviewH],
+        [0, 3, 22, 3],
+    );
+});
+
+test("corner resize: a clamped minimum size keeps the fixed corner in place", () => {
+    const app = appWith([block("b1", "box", 2, 2, 4, 4)]);
+    // Drag the 'sw' corner +3 cells right: the width would hit 1, but the
+    // minimum is 2 — the right edge stays at x=6, the left edge stops at 4
+    cornerResize(app, app.blocks[0], "sw", 24, 0);
+    assert.deepEqual(
+        [app.resizePreviewX, app.resizePreviewY, app.resizePreviewW, app.resizePreviewH],
+        [4, 2, 2, 4],
+    );
+});
+
+test("corner resize: the moving edge stops at the canvas origin", () => {
+    const app = appWith([block("b1", "box", 2, 2, 4, 4)]);
+    // Drag the 'nw' corner -4 cells left: the left edge hits 0, the right
+    // edge stays at x=6
+    cornerResize(app, app.blocks[0], "nw", -32, 0);
+    assert.deepEqual(
+        [app.resizePreviewX, app.resizePreviewY, app.resizePreviewW, app.resizePreviewH],
+        [0, 2, 6, 4],
+    );
+});
+
+test("_commitBlockResize: 'nw' updates x/y and the size", async () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    const calls = stubStore(app);
+    cornerResize(app, app.blocks[0], "nw", -16, 16);
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].id, "b1");
+    assert.deepEqual(calls[0].props, { x: 0, y: 3, width: 22, height: 3 });
+});
+
+test("_commitBlockResize: a child keeps relative coordinates to its parent", async () => {
+    const app = appWith([
+        block("p", "box", 4, 6, 30, 12),
+        block("c", "text", 2, 3, 8, 2, "p"),
+    ]);
+    const calls = stubStore(app);
+    // Child absolute (7, 10) 8x2; 'ne' +2 right, +2 down → (7, 10) 10x2
+    // (the height hits its minimum of 2, the bottom edge stays at y=12)
+    cornerResize(app, app.blocks[1], "ne", 16, 32);
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].id, "c");
+    assert.deepEqual(calls[0].props, { x: 2, y: 3, width: 10, height: 2 });
+});
+
+test("_commitBlockResize: a group resize shifts and resizes every block", async () => {
+    const app = appWith([
+        block("b1", "box", 2, 2, 20, 4),
+        block("b2", "box", 30, 2, 10, 4),
+    ]);
+    const calls = [];
+    app.store = {
+        batchBlocks: async ({ update }) => {
+            calls.push(update);
+            update.forEach(u =>
+                Object.assign(app.blocks.find(b => b.id === u.id), u));
+            return { updated: update };
+        },
+    };
+    app.refreshRender = async () => {};
+    // Group bbox (2, 2, 38, 4); 'nw' -2 left, +1 down → (0, 3, 40, 3)
+    cornerResize(app, app.blocks[0], "nw", -16, 16, ["b1", "b2"]);
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], [
+        { id: "b1", x: 0, y: 3, width: 22, height: 3 },
+        { id: "b2", x: 28, y: 3, width: 12, height: 3 },
+    ]);
+});
+
 // ── _blockAt (topmost hit-test for click / drag / dblclick) ──
 
 test("_blockAt: the highest-order block under the point wins", () => {

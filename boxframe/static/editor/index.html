@@ -102,15 +102,21 @@
                  @dblclick="onCanvasDblClick($event)">
                 <div class="canvas-drag-overlay"></div>
                 <div x-html="htmlPreview"></div>
-                <!-- Selection frame with a resize handle: the block itself
-                     for a single selection, the group's bounding box for a
-                     multi-selection; block actions live in the properties
-                     panel -->
+                <!-- Selection frame with corner resize handles: the block
+                     itself for a single selection, the group's bounding box
+                     for a multi-selection; block actions live in the
+                     properties panel -->
                 <div class="block-selection" x-show="selectedBlock && !editingBlock" x-cloak
                      :style="selectionStyle">
                     <div class="block-selection__frame"></div>
-                    <div class="sel-resize" @mousedown="onSelectionResizeMouseDown($event)"
-                         title="Drag to resize"></div>
+                    <div class="sel-resize sel-resize--nw" data-corner="nw"
+                         @mousedown="onSelectionResizeMouseDown($event)" title="Drag to resize"></div>
+                    <div class="sel-resize sel-resize--ne" data-corner="ne"
+                         @mousedown="onSelectionResizeMouseDown($event)" title="Drag to resize"></div>
+                    <div class="sel-resize sel-resize--sw" data-corner="sw"
+                         @mousedown="onSelectionResizeMouseDown($event)" title="Drag to resize"></div>
+                    <div class="sel-resize sel-resize--se" data-corner="se"
+                         @mousedown="onSelectionResizeMouseDown($event)" title="Drag to resize"></div>
                 </div>
                 <!-- Block properties panel (floats next to the selection;
                      with several blocks selected the values apply to all) -->
