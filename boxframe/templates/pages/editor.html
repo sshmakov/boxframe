@@ -101,6 +101,7 @@
         <!-- Content: canvas preview -->
         <section class="editor-content">
             <div class="canvas-container"
+                 :class="{ 'is-dragging': isDragging }"
                  title="Click a block to select it, drag on empty canvas to select several (Shift — add), double-click to edit its text"
                  @dragover.prevent="onCanvasDragOver($event)"
                  @dragleave="onCanvasDragLeave($event)"
@@ -126,7 +127,11 @@
                          @mousedown="onSelectionResizeMouseDown($event)" title="Drag to resize"></div>
                 </div>
                 <!-- Block properties panel (floats next to the selection;
-                     with several blocks selected the values apply to all) -->
+                     with several blocks selected the values apply to all).
+                     Hidden while a move/resize drag is in progress via the
+                     .is-dragging class on the canvas container (see
+                     editor.css) — a CSS rule rather than an x-show term, so
+                     the hide survives Alpine re-init of this element. -->
                 <div class="block-props" x-show="selectedBlock && !editingBlock" x-cloak
                      :style="propsPanelStyle">
                     <div class="block-props__head">

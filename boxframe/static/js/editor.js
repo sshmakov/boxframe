@@ -1757,6 +1757,12 @@ function editorApp() {
             return this.selectedIds.length > 1;
         },
 
+        // True while a move or resize drag is in progress — the
+        // properties panel is hidden for the duration of the drag.
+        get isDragging() {
+            return this.dragMode === 'move' || this.dragMode === 'resize';
+        },
+
         // Panel header: the block type for a single selection,
         // the count for a multi-selection.
         get panelTitle() {

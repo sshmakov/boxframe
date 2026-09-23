@@ -447,6 +447,15 @@
     font-size: 12px;
 }
 
+/* Hidden while a move/resize drag is in progress. Driven by the
+   .is-dragging class on the canvas container (toggled reactively), not by
+   an x-show term on the panel itself: the panel's :style binding changes
+   when the dragged block moves, which makes Alpine re-init the element and
+   drop its x-show effect mid-drag. A CSS rule on the container is immune. */
+.canvas-container.is-dragging .block-props {
+    display: none !important;
+}
+
 .block-props__head {
     display: flex;
     align-items: center;

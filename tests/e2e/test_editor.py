@@ -508,6 +508,38 @@ def test_selection_nw_handle_resizes_block(page: Page):
     assert (block["x"], block["y"], block["width"], block["height"]) == (0, 3, 22, 3)
 
 
+def test_props_panel_hidden_during_move_and_resize(page: Page):
+    """The properties panel is hidden while a move or resize drag is in
+    progress and reappears once the drag ends."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    # Move drag: the panel hides mid-drag and comes back on mouseup
+    block_box = page.locator(f'.block-preview[data-block-id="{block_id}"]').bounding_box()
+    start_x = block_box["x"] + block_box["width"] / 2
+    start_y = block_box["y"] + block_box["height"] / 2
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x + 5, start_y + 5, steps=5)
+    expect(panel).not_to_be_visible()
+    page.mouse.up()
+    expect(panel).to_be_visible()
+
+    # Resize drag: same behavior for the corner handle
+    handle = page.locator(".block-selection .sel-resize--se")
+    h = handle.bounding_box()
+    hx, hy = h["x"] + h["width"] / 2, h["y"] + h["height"] / 2
+    page.mouse.move(hx, hy)
+    page.mouse.down()
+    page.mouse.move(hx + 5, hy + 5, steps=5)
+    expect(panel).not_to_be_visible()
+    page.mouse.up()
+    expect(panel).to_be_visible()
+
+
 def test_selection_group_resize_resizes_all_blocks(page: Page):
     """Dragging a corner handle of a multi-selection resizes the whole
     group: every block gets the bounding-box delta (position + size)."""
