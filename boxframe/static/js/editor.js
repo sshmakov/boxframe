@@ -1489,12 +1489,33 @@ function editorApp() {
             if (!this.dragBlock) return;
 
             // The preview rect is the final (clamped) position and size in
-            // absolute (canvas) grid cells — the fixed corner was kept in
-            // place during the drag.
-            const absX = Math.round(this.resizePreviewX);
-            const absY = Math.round(this.resizePreviewY);
-            const absW = Math.round(this.resizePreviewW);
-            const absH = Math.round(this.resizePreviewH);
+            // absolute (canvas) grid cells, but its moving edges can sit on
+            // a half-cell (the drag snaps to 0.5). The fixed edges are exact
+            // integers (startX/startW are), so keep them as-is and round
+            // only the moving edge — rounding x and width independently
+            // would shift the fixed corner by a cell.
+            const corner = this.resizeCorner;
+            let absX, absY, absW, absH;
+            if (corner === 'nw' || corner === 'sw') {
+                // Left edge moves; the right edge stays at startX + startW.
+                const right = this.resizeStartX + this.resizeStartW;
+                absX = Math.round(this.resizePreviewX);
+                absW = right - absX;
+            } else {
+                // Right edge moves; the left edge stays at startX.
+                absX = this.resizeStartX;
+                absW = Math.round(this.resizePreviewX + this.resizePreviewW) - absX;
+            }
+            if (corner === 'nw' || corner === 'ne') {
+                // Top edge moves; the bottom edge stays at startY + startH.
+                const bottom = this.resizeStartY + this.resizeStartH;
+                absY = Math.round(this.resizePreviewY);
+                absH = bottom - absY;
+            } else {
+                // Bottom edge moves; the top edge stays at startY.
+                absY = this.resizeStartY;
+                absH = Math.round(this.resizePreviewY + this.resizePreviewH) - absY;
+            }
 
             if (this.resizeGroup) {
                 // Group resize: every selected block gets the bbox delta
