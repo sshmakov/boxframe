@@ -253,7 +253,10 @@
     border-radius: 4px;
     background: rgba(233, 69, 96, 0.15);
     pointer-events: none;
-    transition: left 0.05s, top 0.05s;
+    /* Position AND size animate together: the opposite corner is a sum of
+       the pair (e.g. right = left + width), so with equal duration/easing
+       it stays exactly in place during corner resizes. */
+    transition: left 0.05s, top 0.05s, width 0.05s, height 0.05s;
     z-index: 30;
 }
 
