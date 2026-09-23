@@ -342,7 +342,7 @@
 .block-line--v.block-line--double { border-left: 3px double rgba(136, 136, 170, 0.5); }
 .block-line--v.block-line--none { border-left: 1px dashed rgba(136, 136, 170, 0.3); }
 
-/* Resize handle — bottom-right corner */
+/* Resize handle — bottom-right corner (round dot, shown on hover) */
 .resize-handle {
     position: absolute;
     right: -1px;
@@ -350,10 +350,9 @@
     width: 14px;
     height: 14px;
     cursor: nwse-resize;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath d='M8 1L4 5M8 3L3 8M6 1L8 1L8 3' stroke='%23888' stroke-width='1.2' fill='none'/%3E%3C/svg%3E");
-    background-size: 10px 10px;
-    background-repeat: no-repeat;
-    background-position: center;
+    background-color: rgba(136, 136, 170, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 50%;
     opacity: 0;
     transition: opacity 0.15s;
     z-index: 20;
@@ -361,9 +360,7 @@
 
 .resize-handle.visible { opacity: 1; }
 
-.resize-handle:hover {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath d='M8 1L4 5M8 3L3 8M6 1L8 1L8 3' stroke='%23e94560' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
-}
+.resize-handle:hover { background-color: #e94560; }
 
 /* ── Selection frame (single-click selection) ───────────── */
 .block-selection {
@@ -382,35 +379,25 @@
 }
 
 /* Resize handles on the selection frame — one per corner. The dragged
-   corner follows the mouse, the opposite corner stays in place. */
+   corner follows the mouse, the opposite corner stays in place. Round
+   dots; for a small selection they are pushed outward from the corners
+   (--sel-ox/--sel-oy, set by selectionStyle) so the block itself stays
+   visible between them. */
 .sel-resize {
     position: absolute;
-    width: 18px;
-    height: 18px;
+    width: 14px;
+    height: 14px;
     background-color: rgba(233, 69, 96, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.35);
-    border-radius: 3px;
+    border-radius: 50%;
     pointer-events: auto;
     transition: background-color 0.15s;
 }
 
-.sel-resize::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath d='M8 1L4 5M8 3L3 8M6 1L8 1L8 3' stroke='%23fff' stroke-width='1.2' fill='none'/%3E%3C/svg%3E");
-    background-size: 10px 10px;
-    background-repeat: no-repeat;
-    background-position: center;
-}
-
-.sel-resize--nw { left: -9px; top: -9px; cursor: nwse-resize; }
-.sel-resize--nw::before { transform: rotate(180deg); }
-.sel-resize--ne { right: -9px; top: -9px; cursor: nesw-resize; }
-.sel-resize--ne::before { transform: rotate(90deg); }
-.sel-resize--sw { left: -9px; bottom: -9px; cursor: nesw-resize; }
-.sel-resize--sw::before { transform: rotate(-90deg); }
-.sel-resize--se { right: -9px; bottom: -9px; cursor: nwse-resize; }
+.sel-resize--nw { left: calc(-7px - var(--sel-ox, 0px)); top: calc(-7px - var(--sel-oy, 0px)); cursor: nwse-resize; }
+.sel-resize--ne { right: calc(-7px - var(--sel-ox, 0px)); top: calc(-7px - var(--sel-oy, 0px)); cursor: nesw-resize; }
+.sel-resize--sw { left: calc(-7px - var(--sel-ox, 0px)); bottom: calc(-7px - var(--sel-oy, 0px)); cursor: nesw-resize; }
+.sel-resize--se { right: calc(-7px - var(--sel-ox, 0px)); bottom: calc(-7px - var(--sel-oy, 0px)); cursor: nwse-resize; }
 
 .sel-resize:hover { background-color: #ff6b81; }
 

@@ -1867,11 +1867,20 @@ function editorApp() {
             const y = Math.min(...rects.map(r => r.y));
             const w = Math.max(...rects.map(r => r.x + r.width)) - x;
             const h = Math.max(...rects.map(r => r.y + r.height)) - y;
+            const wPx = w * this.charWidth;
+            const hPx = h * this.charHeight;
+            // A small selection would be covered by its corner handles —
+            // push them outward (CSS: --sel-ox/--sel-oy) so the block
+            // itself stays visible between them.
+            const ox = wPx < 3 * this.charWidth ? 12 : 0;
+            const oy = hPx < 2 * this.charHeight ? 12 : 0;
             return (
                 `left:${pad + x * this.charWidth}px;` +
                 `top:${pad + y * this.charHeight}px;` +
-                `width:${w * this.charWidth}px;` +
-                `height:${h * this.charHeight}px;`
+                `width:${wPx}px;` +
+                `height:${hPx}px;` +
+                `--sel-ox:${ox}px;` +
+                `--sel-oy:${oy}px;`
             );
         },
 

@@ -172,6 +172,47 @@ def test_single_click_selects_block(page: Page):
     expect(page.locator(".block-item--selected .block-item__info strong")).to_have_text("box")
 
 
+def test_small_block_corner_handles_pushed_outward(page: Page):
+    """A 1-char-wide block: the corner handles are pushed outward from
+    the selection frame (per axis) so the block stays visible between
+    them; a large block keeps the handles centered on its corners."""
+    layout_id, box_id = _create_project_with_block(page)
+
+    # Add a 1-char-wide vline next to the box
+    r = requests.post(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks",
+        json={"block_type": "vline", "x": 30, "y": 2, "width": 1, "height": 10},
+        timeout=5,
+    )
+    assert r.status_code == 200
+    line_id = r.json()["id"]
+    page.reload()
+
+    def handle_geom(block_id: str) -> dict:
+        page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+        return page.evaluate(
+            """() => {
+                const frame = document.querySelector('.block-selection').getBoundingClientRect();
+                const se = document.querySelector('.block-selection .sel-resize--se').getBoundingClientRect();
+                return {
+                    frame: {x: frame.x, y: frame.y, w: frame.width, h: frame.height},
+                    se: {x: se.x, y: se.y, w: se.width, h: se.height},
+                };
+            }"""
+        )
+
+    g = handle_geom(line_id)
+    # 1 char wide — the SE handle sits fully to the right of the frame
+    assert g["se"]["x"] > g["frame"]["x"] + g["frame"]["w"]
+    # 10 rows tall — vertically the handle stays centered on the corner
+    assert g["se"]["y"] < g["frame"]["y"] + g["frame"]["h"]
+
+    g = handle_geom(box_id)
+    # The 20x4 box is large — the SE handle is centered on the corner
+    assert g["se"]["x"] < g["frame"]["x"] + g["frame"]["w"]
+    assert g["se"]["y"] < g["frame"]["y"] + g["frame"]["h"]
+
+
 def test_click_list_item_selects_block(page: Page):
     """Clicking an element in the sidebar list selects it on the canvas."""
     layout_id, block_id = _create_project_with_block(page)

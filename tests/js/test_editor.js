@@ -1003,3 +1003,58 @@ test("buildDuplicates: unknown selected ids are ignored", () => {
         1,
     );
 });
+
+// ── selectionStyle (corner-handle offset for small selections) ──
+
+function selectionApp(blocks, selectedIds) {
+    const app = appWith(blocks);
+    app.charWidth = 8;
+    app.charHeight = 16;
+    app.selectedIds = selectedIds;
+    return app;
+}
+
+test("selectionStyle: a large selection keeps the handles on the corners", () => {
+    const app = selectionApp([block("b1", "box", 2, 2, 20, 4)], ["b1"]);
+    const style = app.selectionStyle;
+    assert.ok(style.includes("width:160px"));
+    assert.ok(style.includes("height:64px"));
+    assert.ok(style.includes("--sel-ox:0px"));
+    assert.ok(style.includes("--sel-oy:0px"));
+});
+
+test("selectionStyle: a 1-char-wide block pushes the handles outward horizontally", () => {
+    const app = selectionApp([block("b1", "vline", 2, 2, 1, 10)], ["b1"]);
+    const style = app.selectionStyle;
+    assert.ok(style.includes("--sel-ox:12px"));
+    assert.ok(style.includes("--sel-oy:0px"));
+});
+
+test("selectionStyle: a 1-row-tall block pushes the handles outward vertically", () => {
+    const app = selectionApp([block("b1", "hline", 2, 2, 10, 1)], ["b1"]);
+    const style = app.selectionStyle;
+    assert.ok(style.includes("--sel-ox:0px"));
+    assert.ok(style.includes("--sel-oy:12px"));
+});
+
+test("selectionStyle: a 1x1 block pushes the handles outward on both axes", () => {
+    const app = selectionApp([block("b1", "text", 2, 2, 1, 1)], ["b1"]);
+    const style = app.selectionStyle;
+    assert.ok(style.includes("--sel-ox:12px"));
+    assert.ok(style.includes("--sel-oy:12px"));
+});
+
+test("selectionStyle: a multi-selection uses the group bbox for the offset", () => {
+    const app = selectionApp(
+        [
+            block("a", "box", 0, 0, 2, 10),
+            block("b", "box", 5, 0, 2, 10),
+        ],
+        ["a", "b"],
+    );
+    // Group bbox is 7 wide (0..7) — above the 3-char threshold
+    const style = app.selectionStyle;
+    assert.ok(style.includes("width:56px"));
+    assert.ok(style.includes("--sel-ox:0px"));
+    assert.ok(style.includes("--sel-oy:0px"));
+});
