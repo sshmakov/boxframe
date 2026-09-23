@@ -6,6 +6,10 @@
  * and the re-parenting decision made by _commitBlockMove (drop into a box,
  * drag out to the canvas, plain root move).
  *
+ * Also covers corner resize — the preview rect per corner and the commit
+ * (single/child/group), including the half-cell rounding regression (0047)
+ * where the fixed corner had to stay in place.
+ *
  * Also covers selectionToAscii — the selection → pseudo-graphic text the
  * Copy button puts in the clipboard (with all descendants, anchored at
  * (0,0)).
@@ -493,6 +497,98 @@ test("_commitBlockResize: a group resize shifts and resizes every block", async 
         { id: "b1", x: 0, y: 3, width: 22, height: 3 },
         { id: "b2", x: 28, y: 3, width: 12, height: 3 },
     ]);
+});
+
+// ── Commit rounding (0047): half-cell drags keep the fixed corner ──
+// The drag snaps to half-cells, so the preview rect can carry a .5
+// fraction. The committed fixed edges must stay at their exact integer
+// positions — rounding x and width independently used to shift the
+// fixed corner by a cell.
+
+test("corner resize: half-cell 'sw' preview keeps the fixed edges exact", () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    cornerResize(app, app.blocks[0], "sw", 4, 8); // 0.5 right, 0.5 down
+    assert.deepEqual(
+        [app.resizePreviewX, app.resizePreviewY, app.resizePreviewW, app.resizePreviewH],
+        [2.5, 2, 19.5, 4.5],
+    );
+});
+
+test("_commitBlockResize: half-cell 'sw' keeps the top-right corner in place", async () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    const calls = stubStore(app);
+    cornerResize(app, app.blocks[0], "sw", 4, 8);
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].props, { x: 3, y: 2, width: 19, height: 5 });
+    // Fixed corner: top-right stays at (startX + startW, startY) = (22, 2)
+    assert.equal(calls[0].props.x + calls[0].props.width, 22);
+    assert.equal(calls[0].props.y, 2);
+});
+
+test("_commitBlockResize: half-cell 'nw' keeps the bottom-right corner in place", async () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    const calls = stubStore(app);
+    cornerResize(app, app.blocks[0], "nw", -4, 8); // 0.5 left, 0.5 down
+    await app._commitBlockResize();
+
+    assert.deepEqual(calls[0].props, { x: 2, y: 3, width: 20, height: 3 });
+    // Fixed corner: bottom-right stays at (22, 6)
+    assert.equal(calls[0].props.x + calls[0].props.width, 22);
+    assert.equal(calls[0].props.y + calls[0].props.height, 6);
+});
+
+test("_commitBlockResize: half-cell 'ne' keeps the bottom-left corner in place", async () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    const calls = stubStore(app);
+    cornerResize(app, app.blocks[0], "ne", 4, -8); // 0.5 right, 0.5 up
+    await app._commitBlockResize();
+
+    assert.deepEqual(calls[0].props, { x: 2, y: 2, width: 21, height: 4 });
+    // Fixed corner: bottom-left stays at (2, 6)
+    assert.equal(calls[0].props.x, 2);
+    assert.equal(calls[0].props.y + calls[0].props.height, 6);
+});
+
+test("_commitBlockResize: half-cell 'se' keeps the top-left corner in place", async () => {
+    const app = appWith([block("b1", "box", 2, 2, 20, 4)]);
+    const calls = stubStore(app);
+    cornerResize(app, app.blocks[0], "se", 4, 8); // 0.5 right, 0.5 down
+    await app._commitBlockResize();
+
+    assert.deepEqual(calls[0].props, { x: 2, y: 2, width: 21, height: 5 });
+    assert.equal(calls[0].props.x, 2);
+    assert.equal(calls[0].props.y, 2);
+});
+
+test("_commitBlockResize: half-cell group 'sw' keeps the fixed bbox edges in place", async () => {
+    const app = appWith([
+        block("b1", "box", 2, 2, 20, 4),
+        block("b2", "box", 30, 2, 10, 4),
+    ]);
+    const calls = [];
+    app.store = {
+        batchBlocks: async ({ update }) => {
+            calls.push(update);
+            update.forEach(u =>
+                Object.assign(app.blocks.find(b => b.id === u.id), u));
+            return { updated: update };
+        },
+    };
+    app.refreshRender = async () => {};
+    // Group bbox (2, 2, 38, 4); 'sw' 0.5 right, 0.5 down
+    cornerResize(app, app.blocks[0], "sw", 4, 8, ["b1", "b2"]);
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], [
+        { id: "b1", x: 3, y: 2, width: 19, height: 5 },
+        { id: "b2", x: 31, y: 2, width: 9, height: 5 },
+    ]);
+    // Fixed bbox edges: right stays at 40, top at 2
+    assert.equal(Math.max(...calls[0].map(u => u.x + u.width)), 40);
+    assert.equal(Math.min(...calls[0].map(u => u.y)), 2);
 });
 
 // ── _blockAt (topmost hit-test for click / drag / dblclick) ──
