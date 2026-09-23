@@ -72,7 +72,9 @@ class BlockCreate(BaseModel):
     width: int = 20
     height: int = 3
     content: str = ""
-    border_style: str = "solid"
+    # Optional: None → the type-specific default (text: "none", else "solid").
+    # For text blocks width/height are recomputed from the content (autosize).
+    border_style: str | None = None
     parent_id: str | None = None
     meta: dict = {}
     order: int = 0
@@ -105,7 +107,7 @@ class BlockIn(BaseModel):
     width: int = 20
     height: int = 3
     content: str = ""
-    border_style: str = "solid"
+    border_style: str | None = None
     parent_id: str | None = None
     meta: dict = {}
     order: int = 0
@@ -122,7 +124,8 @@ class BatchBlockCreate(BaseModel):
     width: int = 20
     height: int = 3
     content: str = ""
-    border_style: str = "solid"
+    # Optional: None → the type-specific default (text: "none", else "solid")
+    border_style: str | None = None
     parent_id: str | None = None
     meta: dict = {}
     order: int = 0

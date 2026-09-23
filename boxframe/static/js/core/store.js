@@ -207,6 +207,23 @@
             else if (block.block_type === "vline") block.width = 1;
         }
 
+        // Text autosizes to its content (the border is included) — mirrors
+        // LayoutService rules. Applied on create and when an update carries
+        // content / border_style / block_type; a plain size update is a
+        // manual resize and is kept.
+        function normalizeText(block) {
+            if (block.block_type !== "text") return;
+            var size = PGRenderer.textBlockSize(block.content, block.border_style);
+            block.width = size[0];
+            block.height = size[1];
+        }
+
+        // True when an update payload changes what a text block autosizes
+        // from (its content or its border).
+        function textAutosizeTriggered(props) {
+            return !!props && ("content" in props || "border_style" in props || "block_type" in props);
+        }
+
         // Collect the ids of a block and all of its descendants (BFS over the
         // flat list). Cascade delete: removing a container removes its whole
         // subtree — mirrors the ORM cascade on the server.
@@ -248,7 +265,10 @@
                     width: data.width != null ? data.width : 20,
                     height: data.height != null ? data.height : 3,
                     content: data.content != null ? data.content : "",
-                    border_style: data.border_style || "solid",
+                    // Unsent border style → the type-specific default
+                    // (text: none), same as the API
+                    border_style: data.border_style ||
+                        (data.block_type === "text" ? "none" : "solid"),
                     parent_id: data.parent_id || null,
                     meta: data.meta || {},
                     order: order,
@@ -256,6 +276,7 @@
                     updated_at: new Date().toISOString(),
                 };
                 normalizeLine(block);
+                normalizeText(block);
                 layout.blocks.push(block);
                 mutate();
                 return Promise.resolve(Object.assign({}, block));
@@ -275,6 +296,7 @@
                     }
                 });
                 normalizeLine(block);
+                if (textAutosizeTriggered(props)) normalizeText(block);
                 block.updated_at = new Date().toISOString();
                 mutate();
                 return Promise.resolve(Object.assign({}, block));
@@ -324,7 +346,10 @@
                         width: data.width != null ? data.width : 20,
                         height: data.height != null ? data.height : 3,
                         content: data.content != null ? data.content : "",
-                        border_style: data.border_style || "solid",
+                        // Unsent border style → the type-specific default
+                        // (text: none), same as the API
+                        border_style: data.border_style ||
+                            (data.block_type === "text" ? "none" : "solid"),
                         parent_id: data.parent_id || null,
                         meta: data.meta || {},
                         order: data.order ? data.order : nextOrder++,
@@ -332,6 +357,7 @@
                         updated_at: new Date().toISOString(),
                     };
                     normalizeLine(block);
+                    normalizeText(block);
                     layout.blocks.push(block);
                     created.push(Object.assign({}, block));
                 });
@@ -350,6 +376,7 @@
                         }
                     });
                     normalizeLine(block);
+                    if (textAutosizeTriggered(data)) normalizeText(block);
                     block.updated_at = new Date().toISOString();
                     updated.push(Object.assign({}, block));
                 });

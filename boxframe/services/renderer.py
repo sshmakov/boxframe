@@ -132,6 +132,21 @@ def _fmt_px(v: float) -> str:
     return str(v)
 
 
+def text_block_size(content: str, border_style: str) -> tuple[int, int]:
+    """Fit size of a text block: the content's extent plus the border.
+
+    The text is not wrapped — the block grows to fit every explicit line.
+    Empty content is one empty line. A border (any style except "none")
+    adds one cell on each side. The result is at least 1×1.
+    """
+    lines = (content or "").split("\n")
+    text_w = max((len(line) for line in lines), default=0)
+    text_h = max(1, len(lines))
+    if border_style != "none":
+        return text_w + 2, text_h + 2
+    return max(1, text_w), text_h
+
+
 def _block_preview_html(
     bd: dict,
     char_width_px: float,

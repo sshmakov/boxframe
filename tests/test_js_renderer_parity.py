@@ -57,6 +57,22 @@ def render_js_html(blocks: list[dict]) -> str:
     return result.stdout
 
 
+def text_size_js(content: str, border_style: str) -> tuple[int, int]:
+    """Compute the text fit size with the JS renderer via a node one-liner."""
+    script = (
+        f"const PG = require({json.dumps(RENDERER_JS)});"
+        f"process.stdout.write(JSON.stringify(PG.textBlockSize("
+        f"{json.dumps(content)}, {json.dumps(border_style)})));")
+    result = subprocess.run(
+        [NODE, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    w, h = json.loads(result.stdout)
+    return w, h
+
+
 def to_nested(blocks: list[dict]) -> list[dict]:
     """Convert a flat block list (parent_id refs) to nested dicts (children).
 
@@ -111,6 +127,25 @@ def test_parity_lines():
     ]
     py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
     assert render_js(blocks, 40, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
+
+
+def test_parity_text_block_size():
+    """The text fit size (autosize) must agree between the renderers."""
+    from boxframe.services.renderer import text_block_size
+    cases = [
+        ("", "none"),
+        ("", "solid"),
+        ("hi", "none"),
+        ("hi", "solid"),
+        ("hi", "double"),
+        ("hello\nworld", "none"),
+        ("hello\nworld", "dashed"),
+        ("ab\ncdef", "dotted"),
+        ("a\n", "none"),
+        ("  spaced  ", "solid"),
+    ]
+    for content, style in cases:
+        assert text_block_size(content, style) == text_size_js(content, style), (content, style)
 
 
 def test_parity_word_wrap():

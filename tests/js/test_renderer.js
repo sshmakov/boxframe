@@ -423,6 +423,27 @@ test("wrap text preserves spaces", () => {
     assert.deepEqual(PG.wrapText("a  b\nc  d", 10), ["a  b", "c  d"]);
 });
 
+// ── Text autosize tests ───────────────────────────────────
+
+test("text block size no border", () => {
+    // Without a border the fit size is the content's extent (min 1×1)
+    assert.deepEqual(PG.textBlockSize("", "none"), [1, 1]);
+    assert.deepEqual(PG.textBlockSize("hi", "none"), [2, 1]);
+    assert.deepEqual(PG.textBlockSize("hello\nworld", "none"), [5, 2]);
+    // The longest line sets the width, every explicit line sets a row
+    assert.deepEqual(PG.textBlockSize("ab\ncdef", "none"), [4, 2]);
+    // A trailing newline adds an empty line
+    assert.deepEqual(PG.textBlockSize("a\n", "none"), [1, 2]);
+});
+
+test("text block size with border", () => {
+    // A border (any style except none) adds one cell on each side
+    assert.deepEqual(PG.textBlockSize("", "solid"), [2, 3]);
+    assert.deepEqual(PG.textBlockSize("hi", "solid"), [4, 3]);
+    assert.deepEqual(PG.textBlockSize("hi", "double"), [4, 3]);
+    assert.deepEqual(PG.textBlockSize("hello\nworld", "dashed"), [7, 4]);
+});
+
 test("word wrap in border", () => {
     const result = render([{
         id: "b1", block_type: "box",

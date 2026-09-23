@@ -309,6 +309,115 @@ test("memory store: batchBlocks normalizes line thickness", async () => {
     assert.equal(result.updated[0].width, 30);
 });
 
+// ── Text autosize ─────────────────────────────────────────
+
+test("memory store: text block defaults to no border and fit size", async () => {
+    const store = createMemoryStore();
+
+    // Unsent border style → "none" for text (other types stay solid)
+    const text = await store.createBlock({
+        block_type: "text", x: 0, y: 0, width: 50, height: 5, content: "hi",
+    });
+    assert.equal(text.border_style, "none");
+    // "hi", no border → 2×1 (the requested 50×5 is ignored)
+    assert.equal(text.width, 2);
+    assert.equal(text.height, 1);
+
+    const box = await store.createBlock({ block_type: "box", x: 0, y: 0 });
+    assert.equal(box.border_style, "solid");
+
+    // Empty content → the minimum 1×1
+    const empty = await store.createBlock({ block_type: "text", x: 0, y: 0 });
+    assert.equal(empty.width, 1);
+    assert.equal(empty.height, 1);
+});
+
+test("memory store: text block autosizes with a border", async () => {
+    const store = createMemoryStore();
+    const text = await store.createBlock({
+        block_type: "text", x: 0, y: 0, content: "hi", border_style: "solid",
+    });
+    // "hi" + border → 4×3
+    assert.equal(text.width, 4);
+    assert.equal(text.height, 3);
+});
+
+test("memory store: text content update re-fits the block", async () => {
+    const store = createMemoryStore();
+    const text = await store.createBlock({
+        block_type: "text", x: 0, y: 0, content: "hi",
+    });
+
+    const updated = await store.updateBlock(text.id, { content: "hello\nworld" });
+    // "hello\nworld", no border → 5×2
+    assert.equal(updated.width, 5);
+    assert.equal(updated.height, 2);
+});
+
+test("memory store: text border update re-fits the block", async () => {
+    const store = createMemoryStore();
+    const text = await store.createBlock({
+        block_type: "text", x: 0, y: 0, content: "hi",
+    });
+
+    let updated = await store.updateBlock(text.id, { border_style: "double" });
+    assert.equal(updated.width, 4);
+    assert.equal(updated.height, 3);
+
+    updated = await store.updateBlock(text.id, { border_style: "none" });
+    assert.equal(updated.width, 2);
+    assert.equal(updated.height, 1);
+});
+
+test("memory store: text manual resize is kept until the next content change", async () => {
+    const store = createMemoryStore();
+    const text = await store.createBlock({
+        block_type: "text", x: 0, y: 0, content: "hi",
+    });
+
+    // A plain size update is a manual resize — kept
+    let updated = await store.updateBlock(text.id, { width: 10, height: 3 });
+    assert.equal(updated.width, 10);
+    assert.equal(updated.height, 3);
+
+    // Position-only updates do not re-fit either
+    updated = await store.updateBlock(text.id, { x: 5 });
+    assert.equal(updated.x, 5);
+    assert.equal(updated.width, 10);
+    assert.equal(updated.height, 3);
+
+    // The next content change snaps back to the fit size
+    updated = await store.updateBlock(text.id, { content: "hey" });
+    assert.equal(updated.width, 3);
+    assert.equal(updated.height, 1);
+});
+
+test("memory store: batchBlocks normalizes text", async () => {
+    const store = createMemoryStore();
+    const text = await store.createBlock({
+        block_type: "text", x: 0, y: 0, content: "hi",
+    });
+
+    const result = await store.batchBlocks({
+        create: [{ block_type: "text", x: 0, y: 5, width: 40, height: 4, content: "abc" }],
+        update: [{ id: text.id, content: "abcd" }],
+    });
+    // "abc", no border → 3×1 (the requested 40×4 is ignored)
+    assert.equal(result.created[0].width, 3);
+    assert.equal(result.created[0].height, 1);
+    assert.equal(result.created[0].border_style, "none");
+    // The content update re-fitted: "abcd", no border → 4×1
+    assert.equal(result.updated[0].width, 4);
+    assert.equal(result.updated[0].height, 1);
+
+    // A plain size update is a manual resize — kept
+    const result2 = await store.batchBlocks({
+        update: [{ id: text.id, width: 12, height: 2 }],
+    });
+    assert.equal(result2.updated[0].width, 12);
+    assert.equal(result2.updated[0].height, 2);
+});
+
 test("memory store: batchBlocks skips unknown ids", async () => {
     const store = createMemoryStore();
     const a = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 10, height: 3 });

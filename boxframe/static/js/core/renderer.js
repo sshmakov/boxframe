@@ -108,6 +108,24 @@
         return wrapped;
     }
 
+    // Port of text_block_size in services/renderer.py: the fit size of a
+    // text block — the content's extent plus the border. The text is not
+    // wrapped, the block grows to fit every explicit line. Empty content
+    // is one empty line; a border (any style except "none") adds one cell
+    // on each side. The result is at least 1×1.
+    function textBlockSize(content, borderStyle) {
+        var lines = String(content == null ? "" : content).split("\n");
+        var textW = 0;
+        for (var i = 0; i < lines.length; i++) {
+            if (lines[i].length > textW) textW = lines[i].length;
+        }
+        var textH = Math.max(1, lines.length);
+        if (borderStyle !== "none") {
+            return [textW + 2, textH + 2];
+        }
+        return [Math.max(1, textW), textH];
+    }
+
     // ── Grid drawing (ports of the PseudoGraphicRenderer methods) ──
 
     // Write a cell, respecting the grid bounds and the active clip rect
@@ -640,6 +658,7 @@
         render: render,
         canvasSize: canvasSize,
         wrapText: wrapText,
+        textBlockSize: textBlockSize,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,
         renderBoundsHtml: renderBoundsHtml,

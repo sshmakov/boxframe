@@ -675,6 +675,192 @@ def test_update_vline_width_stays_one(client: TestClient):
     assert data["width"] == 1
 
 
+# ── Text autosize tests ─────────────────────────────────────
+
+
+def test_create_text_default_border_none(client: TestClient):
+    """A text block created without border_style has no border."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "content": "hi",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["border_style"] == "none"
+
+
+def test_create_box_default_border_solid(client: TestClient):
+    """The type-specific default does not leak: other types stay solid."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0,
+    })
+    assert r.status_code == 200
+    assert r.json()["border_style"] == "solid"
+
+
+def test_create_text_autosizes_to_content(client: TestClient):
+    """A new text block is sized to fit its content; requested w/h are ignored."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text",
+        "x": 0, "y": 0, "width": 50, "height": 5,
+        "content": "hi",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    # "hi", no border → 2×1
+    assert data["width"] == 2
+    assert data["height"] == 1
+
+
+def test_create_text_autosizes_with_border(client: TestClient):
+    """The border is included in the fit size (one cell on each side)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "content": "hi",
+        "border_style": "solid",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 4
+    assert data["height"] == 3
+
+
+def test_create_text_empty_content_is_one_cell(client: TestClient):
+    """Empty content: the minimum 1×1 (no border)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text",
+        "x": 0, "y": 0,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 1
+    assert data["height"] == 1
+
+
+def test_update_text_content_autosizes(client: TestClient):
+    """Editing the content re-fits the block (multi-line included)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "content": "hi",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "content": "hello\nworld",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    # "hello\nworld", no border → 5×2
+    assert data["width"] == 5
+    assert data["height"] == 2
+
+
+def test_update_text_border_autosizes(client: TestClient):
+    """Toggling the border re-fits the block (the border is included)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "content": "hi",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "border_style": "double",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 4
+    assert data["height"] == 3
+
+    # Back to none — the border cells are released
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "border_style": "none",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 2
+    assert data["height"] == 1
+
+
+def test_update_text_manual_resize_kept(client: TestClient):
+    """A plain size update is a manual resize — it is kept until the next
+    content/border change re-fits the block."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "content": "hi",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "width": 10, "height": 3,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 10
+    assert data["height"] == 3
+
+    # Position-only updates do not re-fit either
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "x": 5,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["x"] == 5
+    assert data["width"] == 10
+    assert data["height"] == 3
+
+    # The next content change snaps back to the fit size
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "content": "hey",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 3
+    assert data["height"] == 1
+
+
+def test_update_block_type_to_text_autosizes(client: TestClient):
+    """Changing a block's type to text re-fits it to its content."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 20, "height": 5,
+        "content": "hi",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "block_type": "text",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    # "hi" + the box's solid border → 4×3
+    assert data["width"] == 4
+    assert data["height"] == 3
+
+
 # ── Batch replace tests (undo/redo support) ─────────────────
 
 
@@ -875,6 +1061,47 @@ def test_batch_blocks_normalizes_lines(client: TestClient):
     updated = r.json()["updated"][0]
     assert updated["height"] == 1
     assert updated["width"] == 30
+
+
+def test_batch_blocks_normalizes_text(client: TestClient):
+    """Text blocks autosize in batch create; a content update re-fits,
+    a plain size update is kept (manual resize)."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text", "x": 0, "y": 0, "content": "hi",
+    })
+    text_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "create": [
+            {"block_type": "text", "x": 0, "y": 5, "width": 40, "height": 4,
+             "content": "abc"},
+        ],
+        "update": [
+            {"id": text_id, "content": "abcd"},
+        ],
+    })
+    assert r.status_code == 200
+    created = r.json()["created"][0]
+    # "abc", no border → 3×1 (the requested 40×4 is ignored)
+    assert created["width"] == 3
+    assert created["height"] == 1
+    assert created["border_style"] == "none"
+    # The content update re-fitted: "abcd", no border → 4×1
+    updated = r.json()["updated"][0]
+    assert updated["width"] == 4
+    assert updated["height"] == 1
+
+    # A plain size update is a manual resize — kept
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [
+            {"id": text_id, "width": 12, "height": 2},
+        ],
+    })
+    assert r.status_code == 200
+    updated = r.json()["updated"][0]
+    assert updated["width"] == 12
+    assert updated["height"] == 2
 
 
 def test_batch_blocks_ignores_unknown_ids(client: TestClient):

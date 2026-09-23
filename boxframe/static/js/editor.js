@@ -1011,6 +1011,7 @@ function editorApp() {
                 width: w,
                 height: h,
                 content: defaults.content,
+                border_style: defaults.border_style || 'solid',
                 order: maxOrder + 1,
             };
             if (container) {
@@ -1236,9 +1237,11 @@ function editorApp() {
                     if (this.dragBlock.block_type === 'vline') newW = 1;
 
                     // Clamp to minimum size only — blocks may extend beyond
-                    // the layout bounds. Buttons support height 1 ([label]).
-                    const minW = this.dragBlock.block_type === 'vline' ? 1 : 2;
-                    const minH = (this.dragBlock.block_type === 'hline' || this.dragBlock.block_type === 'button') ? 1 : 2;
+                    // the layout bounds. Buttons support height 1 ([label]),
+                    // text blocks shrink to 1×1 (they autosize to content).
+                    const t = this.dragBlock.block_type;
+                    const minW = (t === 'vline' || t === 'text') ? 1 : 2;
+                    const minH = (t === 'hline' || t === 'button' || t === 'text') ? 1 : 2;
                     newW = Math.max(minW, newW);
                     newH = Math.max(minH, newH);
                 }
@@ -1402,8 +1405,10 @@ function editorApp() {
             if (newContent === block.content) return;
 
             try {
-                await this.store.updateBlock(block.id, { content: newContent });
-                block.content = newContent;
+                // The update may re-size the block (text autosizes to its
+                // content) — merge the stored result back.
+                const updated = await this.store.updateBlock(block.id, { content: newContent });
+                Object.assign(block, updated);
                 await this.refreshRender();
             } catch (err) {
                 // Reopen the editor so the user can retry
@@ -1573,8 +1578,9 @@ function editorApp() {
                 for (const o of this.resizeOriginal) {
                     const b = this.blocks.find(bl => bl.id === o.id);
                     if (!b) continue;
-                    const minW = b.block_type === 'vline' ? 1 : 2;
-                    const minH = (b.block_type === 'hline' || b.block_type === 'button') ? 1 : 2;
+                    // Text blocks shrink to 1×1 (they autosize to content)
+                    const minW = (b.block_type === 'vline' || b.block_type === 'text') ? 1 : 2;
+                    const minH = (b.block_type === 'hline' || b.block_type === 'button' || b.block_type === 'text') ? 1 : 2;
                     const x = o.x + dX;
                     const y = o.y + dY;
                     let w = Math.max(minW, o.width + dW);
@@ -1639,6 +1645,13 @@ function editorApp() {
             if (type === 'button') return { width: 16, height: 1, content: 'Button' };
             if (type === 'hline') return { width: 20, height: 1, content: '' };
             if (type === 'vline') return { width: 1, height: 5, content: '' };
+            if (type === 'text') {
+                // Text autosizes to its content — no border by default, the
+                // size is the placeholder's fit size (the store recomputes
+                // it on create).
+                const size = PGRenderer.textBlockSize('[text]', 'none');
+                return { width: size[0], height: size[1], content: '[text]', border_style: 'none' };
+            }
             return { width: 20, height: 3, content: `[${type}]` };
         },
 
@@ -2156,6 +2169,7 @@ function editorApp() {
                 width: defaults.width,
                 height: defaults.height,
                 content: defaults.content,
+                border_style: defaults.border_style || 'solid',
                 order: maxOrder + 1
             });
             block._seq = ++this._seqCounter;

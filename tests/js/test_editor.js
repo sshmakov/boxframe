@@ -463,14 +463,14 @@ test("_commitBlockResize: a child keeps relative coordinates to its parent", asy
         block("c", "text", 2, 3, 8, 2, "p"),
     ]);
     const calls = stubStore(app);
-    // Child absolute (7, 10) 8x2; 'ne' +2 right, +2 down → (7, 10) 10x2
-    // (the height hits its minimum of 2, the bottom edge stays at y=12)
+    // Child absolute (7, 10) 8x2; 'ne' +2 right, +2 down → (7, 11) 10x1
+    // (the height hits its minimum of 1, the bottom edge stays at y=12)
     cornerResize(app, app.blocks[1], "ne", 16, 32);
     await app._commitBlockResize();
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].id, "c");
-    assert.deepEqual(calls[0].props, { x: 2, y: 3, width: 10, height: 2 });
+    assert.deepEqual(calls[0].props, { x: 2, y: 4, width: 10, height: 1 });
 });
 
 test("_commitBlockResize: a group resize shifts and resizes every block", async () => {

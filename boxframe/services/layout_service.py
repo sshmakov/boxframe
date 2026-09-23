@@ -14,7 +14,13 @@ from sqlalchemy.orm import selectinload
 from boxframe.models.block import Block
 from boxframe.models.layout import Layout
 from boxframe.models.project import Project
-from boxframe.services.renderer import RenderBlock, PseudoGraphicRenderer
+from boxframe.services.renderer import RenderBlock, PseudoGraphicRenderer, text_block_size
+
+
+def default_border_style(block_type: str) -> str:
+    """Type-specific default border: text blocks have no border,
+    everything else is solid."""
+    return "none" if block_type == "text" else "solid"
 
 
 class LayoutService:
@@ -114,7 +120,7 @@ class LayoutService:
         width: int = 20,
         height: int = 3,
         content: str = "",
-        border_style: str = "solid",
+        border_style: str | None = None,
         parent_id: str | None = None,
         meta: dict[str, Any] | None = None,
         order: int = 0,
@@ -129,16 +135,23 @@ class LayoutService:
             max_order = result.scalar() or 0
             order = max_order + 1
 
+        # Unsent border style → the type-specific default (text: none)
+        if border_style is None:
+            border_style = default_border_style(block_type)
+
         # Validate a parent (exists, same layout, no cycle) before inserting
         block_id = str(uuid.uuid4())
         if parent_id:
             await self._validate_reparent(block_id, parent_id, layout_id)
 
-        # Lines are always 1 cell thick — the thin dimension is fixed
+        # Lines are always 1 cell thick — the thin dimension is fixed;
+        # text autosizes to its content (the border is included)
         if block_type == "hline":
             height = 1
         elif block_type == "vline":
             width = 1
+        elif block_type == "text":
+            width, height = text_block_size(content, border_style)
 
         block = Block(
             id=block_id,
@@ -170,11 +183,17 @@ class LayoutService:
                 if hasattr(block, key):
                     setattr(block, key, value)
             # Lines are always 1 cell thick — the thin dimension is fixed
-            # (also applies when block_type is changed to a line type)
+            # (also applies when block_type is changed to a line type);
+            # text autosizes to its content when the text or the border
+            # changes (a plain size update is a manual resize — kept)
             if block.block_type == "hline":
                 block.height = 1
             elif block.block_type == "vline":
                 block.width = 1
+            elif block.block_type == "text" and (
+                "content" in kwargs or "border_style" in kwargs or "block_type" in kwargs
+            ):
+                block.width, block.height = text_block_size(block.content, block.border_style)
             await self.db.commit()
             await self.db.refresh(block)
         return block
@@ -219,7 +238,10 @@ class LayoutService:
             block_type = data.get("block_type", "box")
             width = data.get("width", 20)
             height = data.get("height", 3)
-            # Lines are always 1 cell thick — the thin dimension is fixed
+            # Lines are always 1 cell thick — the thin dimension is fixed.
+            # Text blocks are NOT re-sized here: a snapshot may carry a
+            # manually resized text block, and undo/redo must restore it
+            # exactly.
             if block_type == "hline":
                 height = 1
             elif block_type == "vline":
@@ -235,7 +257,7 @@ class LayoutService:
                     width=width,
                     height=height,
                     content=data.get("content", ""),
-                    border_style=data.get("border_style", "solid"),
+                    border_style=data.get("border_style") or "solid",
                     meta=data.get("meta") or {},
                     order=data.get("order", 0),
                 )
@@ -320,11 +342,19 @@ class LayoutService:
                 block_type = data.get("block_type", "box")
                 width = data.get("width", 20)
                 height = data.get("height", 3)
-                # Lines are always 1 cell thick — the thin dimension is fixed
+                content = data.get("content", "")
+                border_style = data.get("border_style")
+                if border_style is None:
+                    border_style = default_border_style(block_type)
+                # Lines are always 1 cell thick — the thin dimension is
+                # fixed; text autosizes to its content (the border is
+                # included)
                 if block_type == "hline":
                     height = 1
                 elif block_type == "vline":
                     width = 1
+                elif block_type == "text":
+                    width, height = text_block_size(content, border_style)
                 order = data.get("order") or 0
                 if order == 0:
                     order = next_order
@@ -342,8 +372,8 @@ class LayoutService:
                     y=data.get("y", 0),
                     width=width,
                     height=height,
-                    content=data.get("content", ""),
-                    border_style=data.get("border_style", "solid"),
+                    content=content,
+                    border_style=border_style,
                     meta=data.get("meta") or {},
                     order=order,
                 )
@@ -366,11 +396,17 @@ class LayoutService:
                     continue
                 if hasattr(block, key):
                     setattr(block, key, value)
-            # Lines are always 1 cell thick (also when block_type changes)
+            # Lines are always 1 cell thick (also when block_type changes);
+            # text autosizes to its content when the text or the border
+            # changes (a plain size update is a manual resize — kept)
             if block.block_type == "hline":
                 block.height = 1
             elif block.block_type == "vline":
                 block.width = 1
+            elif block.block_type == "text" and (
+                "content" in data or "border_style" in data or "block_type" in data
+            ):
+                block.width, block.height = text_block_size(block.content, block.border_style)
             updated.append(block)
 
         await self.db.commit()

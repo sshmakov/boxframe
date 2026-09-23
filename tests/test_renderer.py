@@ -467,6 +467,30 @@ def test_wrap_text_preserves_spaces():
     assert r._wrap_text("a  b\nc  d", 10) == ["a  b", "c  d"]
 
 
+# ── Text autosize tests ───────────────────────────────────
+
+
+def test_text_block_size_no_border():
+    """Without a border the fit size is the content's extent (min 1×1)."""
+    from boxframe.services.renderer import text_block_size
+    assert text_block_size("", "none") == (1, 1)
+    assert text_block_size("hi", "none") == (2, 1)
+    assert text_block_size("hello\nworld", "none") == (5, 2)
+    # The longest line sets the width, every explicit line sets a row
+    assert text_block_size("ab\ncdef", "none") == (4, 2)
+    # A trailing newline adds an empty line
+    assert text_block_size("a\n", "none") == (1, 2)
+
+
+def test_text_block_size_with_border():
+    """A border (any style except none) adds one cell on each side."""
+    from boxframe.services.renderer import text_block_size
+    assert text_block_size("", "solid") == (2, 3)
+    assert text_block_size("hi", "solid") == (4, 3)
+    assert text_block_size("hi", "double") == (4, 3)
+    assert text_block_size("hello\nworld", "dashed") == (7, 4)
+
+
 def test_word_wrap_in_border():
     """Long content wraps by words inside the frame instead of truncating."""
     result = _render([{
