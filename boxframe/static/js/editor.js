@@ -810,6 +810,11 @@ function editorApp() {
             this.previewEl = null;
             this._clearDropTargetHighlight();
             this._hideMarquee();
+            // Restore the container clipping released during a group move
+            // (on a successful commit the DOM is rebuilt anyway).
+            this._restoreClipping();
+            const sel = document.querySelector('.canvas-container .block-selection');
+            if (sel) sel.style.transform = '';
         },
 
         // ── Resize handle binding ───────────────────────────────
@@ -1180,6 +1185,7 @@ function editorApp() {
                     dy = Math.max(dy, -minY);
                     this.dragGroupDx = dx;
                     this.dragGroupDy = dy;
+                    this._unclipAncestors();
                     this._applyGroupTransform(dx, dy);
                 } else {
                     this._showPreview(gx, gy);
@@ -1286,6 +1292,42 @@ function editorApp() {
                 const el = canvas.querySelector('.block-preview[data-block-id="' + id + '"]');
                 if (el) el.style.transform = t;
             }
+            // The selection frame is positioned from the stored coordinates
+            // (which only change on commit) — shift it by the same delta so
+            // it follows the group.
+            const sel = canvas.querySelector('.block-selection');
+            if (sel) sel.style.transform = t;
+        },
+
+        // A container clips its children (overflow:hidden) — release the
+        // clip on the selected blocks' ancestors while a group move is in
+        // progress, so a block dragged across a container border stays
+        // visible (the re-parenting itself happens on commit). Saves the
+        // previous values for _restoreClipping.
+        _unclipAncestors() {
+            const canvas = document.querySelector('.canvas-container');
+            if (!canvas) return;
+            if (!this._unclippedAncestors) this._unclippedAncestors = new Map();
+            for (const id of this.selectedIds) {
+                const el = canvas.querySelector('.block-preview[data-block-id="' + id + '"]');
+                if (!el) continue;
+                let a = el.parentElement;
+                while (a && a !== canvas && a.classList.contains('block-preview')) {
+                    if (!this._unclippedAncestors.has(a)) {
+                        this._unclippedAncestors.set(a, a.style.overflow);
+                    }
+                    a.style.overflow = 'visible';
+                    a = a.parentElement;
+                }
+            }
+        },
+
+        _restoreClipping() {
+            if (!this._unclippedAncestors) return;
+            for (const [el, prev] of this._unclippedAncestors) {
+                el.style.overflow = prev;
+            }
+            this._unclippedAncestors = null;
         },
 
         // ── Inline content editing (double-click a block) ─────

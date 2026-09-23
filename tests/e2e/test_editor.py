@@ -1569,6 +1569,63 @@ def test_drag_child_out_of_box_unparents(page: Page):
     assert (block["x"], block["y"]) == (40, 20)
 
 
+def test_drag_preselected_child_out_of_box_stays_visible(page: Page):
+    """Dragging a PRE-SELECTED child out of its parent box: the child's
+    preview is not clipped by the parent's overflow:hidden while it
+    crosses the border (the group-move path transforms the real preview
+    element, which is nested inside the parent's div), and the selection
+    frame follows the block. The re-parenting still happens on commit."""
+    specs = [
+        {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
+        {"block_type": "button", "x": 2, "y": 2, "width": 10, "height": 2,
+         "content": "Go", "parent_index": 0},  # child inside the box
+    ]
+    layout_id, (box_id, child_id) = _create_project_with_blocks(page, specs)
+    metrics = _canvas_metrics(page, box_id, 30, 10)
+
+    # The child is at relative (2, 2) → absolute (3, 3), 10×2 → center (8, 4).
+    # Pre-select it with a click, then drag it outside the box.
+    start = _grid_point(metrics, 8, 4)
+    page.mouse.click(*start)
+    expect(page.locator(".block-selection")).to_be_visible()
+
+    end = _grid_point(metrics, 45, 20)
+    page.mouse.move(*start)
+    page.mouse.down()
+    page.mouse.move(*end, steps=12)
+
+    # Mid-drag: the child's preview extends past the box's border, the box
+    # no longer clips it, and the selection frame sits on the child.
+    state = page.evaluate(
+        """(args) => {
+            const [boxId, childId] = args;
+            const box = document.querySelector('.block-preview[data-block-id="' + boxId + '"]');
+            const child = document.querySelector('.block-preview[data-block-id="' + childId + '"]');
+            const sel = document.querySelector('.block-selection');
+            const br = box.getBoundingClientRect();
+            const cr = child.getBoundingClientRect();
+            const sr = sel.getBoundingClientRect();
+            return {
+                outside: cr.x > br.x + br.width || cr.y > br.y + br.height,
+                boxClips: getComputedStyle(box).overflow === 'hidden',
+                frameOnChild: Math.abs(sr.x - cr.x) < 2 && Math.abs(sr.y - cr.y) < 2,
+            };
+        }""",
+        [box_id, child_id],
+    )
+    assert state["outside"], "child should be past the box border mid-drag"
+    assert not state["boxClips"], "box must not clip the dragged child"
+    assert state["frameOnChild"], "selection frame should follow the child"
+
+    page.mouse.up()
+    block = _wait_block(
+        page, layout_id, child_id,
+        lambda b: b["parent_id"] is None and b["x"] > 30,
+    )
+    assert block["parent_id"] is None
+    assert (block["x"], block["y"]) == (40, 19)
+
+
 # ── Drop-target highlight (the box that will become the parent) ──
 
 
