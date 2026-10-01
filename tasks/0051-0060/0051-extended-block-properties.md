@@ -253,14 +253,15 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 
 # План работ
 
-- [ ] Составить план работ
-- [ ] Фаза 0: `core/properties.js` (схема, включая текущие свойства)
-- [ ] Фаза 0: генератор секций панели (группировка, видимость по типу,
+- [x] Составить план работ
+- [x] Фаза 0: `core/properties.js` (схема, включая текущие свойства)
+- [x] Фаза 0: генератор секций панели (группировка, видимость по типу,
       контролы по `kind`)
-- [ ] Фаза 0: mixed-отображение для multi-selection
-- [ ] Фаза 0: max-height + внутренний скролл, убрать `panelH = 300`
-- [ ] Фаза 0: унификация маркапа web/static-редакторов
-- [ ] Фаза 0: персист состояния секций в localStorage
+- [x] Фаза 0: mixed-отображение для multi-selection
+- [x] Фаза 0: max-height + внутренний скролл, убрать `panelH = 300`
+- [x] Фаза 0: унификация маркапа web/static-редакторов
+- [x] Фаза 0: персист состояния секций в localStorage
+- [x] Фаза 0: e2e-тесты обновлены под секционный маркап
 - [ ] Фаза 1: `meta` в `RenderBlock` + эффективные стили (Python)
 - [ ] Фаза 1: `_draw_border` per-side + правило углов (Python)
 - [ ] Фаза 1: порт per-side borders в `core/renderer.js`
@@ -304,7 +305,38 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 
 # Выполнение задачи
 
-(не начато — задача является спецификацией)
+## Фаза 0 (2026-10-01, ветка `feature/extprops`)
+
+- `boxframe/static/js/core/properties.js` — декларативная схема
+  `PROPERTY_SCHEMA` (текущие свойства: `border_style` — segmented, секция
+  Style; `x/y/width/height/order` — number, секция Geometry; `content` —
+  text, секция Text), `sectionsForType()` (секции = уникальные `group` в
+  порядке объявления, отфильтрованные по `types`), `buildPropsPanelHTML()`
+  (маркап тела панели из схемы), `readPropValue()` (meta-свойства —
+  `block.meta[key]`, остальные — `block[key]`).
+- Панель: секции Style/Geometry/Text, свёрнуты по умолчанию; состояние
+  открытости персистится в localStorage (ключ `boxframe.props.sections`) —
+  переживает смену выделения и перезагрузку.
+- Multi-selection: расходящиеся значения — «mixed» (placeholder `—`,
+  подсветка активного состояния не ставится); изменение применяется ко всем
+  выделенным блокам одной batch-операцией (один шаг undo).
+- `propsPanelStyle`: захардкоженный `panelH = 300` убран — клампинг по
+  реальной высоте панели; `.block-props__body` — `max-height` + внутренний
+  вертикальный скролл.
+- Унификация маркапа: оба редактора (web — `templates/pages/editor.html`,
+  static — `static/editor/index.html`) рендерят тело панели через
+  `x-html="propsPanelHTML"` из одного генератора.
+- Реализационная деталь: Alpine `x-for`/`x-if` клонирует только ПЕРВОГО
+  element-детёныша контента `<template>` — ветки по `kind` обёрнуты в
+  единый корень `.prop-cell` (`display: contents`, чтобы внутренний
+  контрол остался grid-элементом). Детали — в Замечаниях.
+- e2e-тесты (`tests/e2e/test_editor.py`): 7 тестов обновлены под секционный
+  маркап (хелпер `_open_section`, порядок секций Style/Geometry/Text,
+  сетка Geometry 2×2+1, mixed-заголовок «N selected»).
+
+Приёмка: `pytest tests/ --ignore=tests/e2e` — 151 passed,
+`node --test "tests/js/*.js"` — 233 pass, `pytest tests/e2e/` — 70 passed
+(регрессий нет: рендерер не тронут, вывод побайтово как до фазы 0).
 
 # Замечания
 
@@ -327,3 +359,16 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 5. **Ограничение «1 клетка».** Fill и стрелки — ровно 1 клетка. Широкие
    символы (эмодзи и т.п.) запрещены — это жёсткое ограничение
    моноширинной сетки, валидация на входе.
+6. **Alpine: `x-for`/`x-if` клонируют только первого детёныша.** Оба
+   директива инстанцируют только ПЕРВОГО element-детёныша контента
+   `<template>` (`importNode(content, true).firstElementChild` /
+   `cloneNode(true).firstElementChild`). Несколько соседних
+   `<template x-if>`-веток внутри `x-for`-шаблона **не отрисуются** —
+   у каждой итерации должен быть единый корень (в панели — `.prop-cell`
+   с `display: contents`). Учитывать при добавлении новых `kind` в схему.
+7. **Баг API (найден при smoke-проверке фазы 0, не исправлен).**
+   `LayoutService.create_block` не валидирует существование `layout_id` —
+   SQLite не форсит FK (`PRAGMA foreign_keys` не включён), блок можно
+   «повесить» на несуществующий layout (HTTP 200). Вне скоупа фазы 0;
+   починить отдельной задачей (404 в `create_block`/`update_block`/
+   `delete_block`).
