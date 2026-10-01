@@ -35,6 +35,9 @@ class RenderBlock:
     order: int = 0
     is_root: bool = False
     children: list["RenderBlock"] = field(default_factory=list)
+    # Free-form block metadata (per-side border overrides and other
+    # extended properties — tasks/0051). Absent keys inherit defaults.
+    meta: dict = field(default_factory=dict)
 
     # ── HTML preview generation ─────────────────────────────
 
@@ -76,7 +79,11 @@ class RenderBlock:
         )
 
     def _border_html(self) -> str:
-        """Generate border HTML for a block."""
+        """Generate border HTML for a block.
+
+        Lines keep the global style; other blocks get per-side classes
+        (meta.border_h / meta.border_v ?? border_style).
+        """
         border_map = {
             "solid": "solid",
             "dashed": "dashed",
@@ -93,8 +100,11 @@ class RenderBlock:
                 f"</div>"
             )
 
+        h_style, v_style = effective_border_styles(self.border_style, self.meta)
+        h = border_map.get(h_style, "solid")
+        v = border_map.get(v_style, "solid")
         return (
-            f'<div class="block-border block-border--{style}"'
+            f'<div class="block-border block-border--h-{h} block-border--v-{v}"'
             f' style="width:100%;height:100%;">'
             f"</div>"
         )
@@ -123,6 +133,19 @@ BORDERS: dict[str, dict[str, str]] = {
         "t_l": "╠", "t_r": "╣", "t_t": "╦", "b_l": "╩", "b_b": "╬",
     },
 }
+
+
+def effective_border_styles(border_style: str, meta: dict | None) -> tuple[str, str]:
+    """Effective per-side styles: (H, V) for top/bottom and left/right.
+
+    meta.border_h / meta.border_v override the base border_style per axis;
+    an absent (or empty) key inherits the base, so old layouts without
+    meta render unchanged.
+    """
+    meta = meta or {}
+    h = meta.get("border_h") or border_style
+    v = meta.get("border_v") or border_style
+    return h, v
 
 
 def _fmt_px(v: float) -> str:
@@ -169,6 +192,7 @@ def _block_preview_html(
     order = bd.get("order", 0)
     block_type = bd.get("block_type", "box")
     border_style = bd.get("border_style", "solid")
+    meta = bd.get("meta") or {}
 
     if is_root:
         left = round(padding_offset + x * char_width_px, 1)
@@ -200,7 +224,13 @@ def _block_preview_html(
         direction = "h" if block_type == "hline" else "v"
         border_html = f'<div class="block-line block-line--{direction} block-line--{bs}"></div>'
     else:
-        border_html = f'<div class="block-border block-border--{bs}" style="width:100%;height:100%;"></div>'
+        # Per-side border classes (meta.border_h / meta.border_v ?? border_style)
+        h_style, v_style = effective_border_styles(border_style, meta)
+        border_html = (
+            f'<div class="block-border block-border--h-{border_map.get(h_style, "solid")}'
+            f' block-border--v-{border_map.get(v_style, "solid")}"'
+            f' style="width:100%;height:100%;"></div>'
+        )
 
     children_html = "".join(
         _block_preview_html(c, char_width_px, char_height_px, padding_offset, False)
@@ -314,10 +344,13 @@ class PseudoGraphicRenderer:
             self._draw_button(block, style_map)
             return
 
-        has_border = block.border_style != "none" and block.width >= 2 and block.height >= 2
+        h_style, v_style = effective_border_styles(block.border_style, block.meta)
+        has_border = (
+            h_style != "none" or v_style != "none"
+        ) and block.width >= 2 and block.height >= 2
 
         if has_border:
-            self._draw_border(block, style_map)
+            self._draw_border(block, h_style, v_style)
             self._draw_content(block)
             if block.children:
                 self._render_children_in_container(block, style_map)
@@ -325,8 +358,14 @@ class PseudoGraphicRenderer:
             # No border - just place content at the block's position
             self._draw_content(block)
 
-    def _draw_border(self, block: RenderBlock, style: dict[str, str]) -> None:
-        """Draw the border of a block."""
+    def _draw_border(self, block: RenderBlock, h_style: str, v_style: str) -> None:
+        """Draw the border of a block with per-side styles.
+
+        H (top/bottom) and V (left/right) may differ (meta.border_h /
+        meta.border_v). An edge is drawn only if its style is not "none";
+        a corner only if BOTH adjacent sides are drawn. A corner takes the
+        double glyph when either adjacent style is double (double wins).
+        """
         x, y = block.x, block.y
         w, h = block.width, block.height
 
@@ -339,21 +378,32 @@ class PseudoGraphicRenderer:
         if w < 2 or h < 2:
             return
 
-        # Corners
-        self._set(x, y, style["tl"])
-        self._set(x + w - 1, y, style["tr"])
-        self._set(x, y + h - 1, style["bl"])
-        self._set(x + w - 1, y + h - 1, style["br"])
+        hm = BORDERS.get(h_style, BORDERS["solid"])
+        vm = BORDERS.get(v_style, BORDERS["solid"])
+        has_h = h_style != "none"
+        has_v = v_style != "none"
+        corner = BORDERS["double"] if (h_style == "double" or v_style == "double") else BORDERS["solid"]
 
-        # Top and bottom edges
-        for i in range(1, w - 1):
-            self._set(x + i, y, style["h"])
-            self._set(x + i, y + h - 1, style["h"])
+        # Corners — only where both adjacent sides are drawn
+        if has_h and has_v:
+            self._set(x, y, corner["tl"])
+            self._set(x + w - 1, y, corner["tr"])
+            self._set(x, y + h - 1, corner["bl"])
+            self._set(x + w - 1, y + h - 1, corner["br"])
 
-        # Left and right edges
-        for j in range(1, h - 1):
-            self._set(x, y + j, style["v"])
-            self._set(x + w - 1, y + j, style["v"])
+        # Edges span the full extent of the block on their axis; where a
+        # corner is drawn it occupies the end cell, so the edge fills the
+        # interior. Without corners (the adjacent axis is "none") the edge
+        # runs end to end.
+        if has_h:
+            for i in range(0 if not has_v else 1, w if not has_v else w - 1):
+                self._set(x + i, y, hm["h"])
+                self._set(x + i, y + h - 1, hm["h"])
+
+        if has_v:
+            for j in range(0 if not has_h else 1, h if not has_h else h - 1):
+                self._set(x, y + j, vm["v"])
+                self._set(x + w - 1, y + j, vm["v"])
 
     def _draw_line(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw an hline (top row) or vline (left column) with style characters."""
@@ -433,25 +483,29 @@ class PseudoGraphicRenderer:
         if w < 1 or h < 1:
             return
 
-        has_border = block.border_style != "none"
+        # Per-side border: the content is inset by one cell only where a
+        # border is drawn (meta.border_h / meta.border_v ?? border_style)
+        h_style, v_style = effective_border_styles(block.border_style, block.meta)
+        has_h = h_style != "none"
+        has_v = v_style != "none"
+        has_border = has_h or has_v
         if has_border and (w < 2 or h < 2):
             return
+
+        # Determine content area
+        content_x = x + (1 if has_v else 0)
+        content_y = y + (1 if has_h else 0)
+        content_w = w - (2 if has_v else 0)
+        content_h = h - (2 if has_h else 0)
 
         if not block.content:
             # Show type hint if no content
             if has_border and w >= 4:
                 hint = f"[{block.block_type}]"
-                hx, hy = x + 1, y + 1
                 for i, ch in enumerate(hint):
-                    if hx + i < x + w - 1 and hy < self.grid_height:
-                        self._set(hx + i, hy, ch)
+                    if content_x + i < content_x + content_w and content_y < self.grid_height:
+                        self._set(content_x + i, content_y, ch)
             return
-
-        # Determine content area
-        content_x = x + (1 if has_border else 0)
-        content_y = y + (1 if has_border else 0)
-        content_w = w - (2 if has_border else 0)
-        content_h = h - (2 if has_border else 0)
 
         if content_w <= 0 or content_h <= 0:
             return
@@ -581,6 +635,7 @@ class PseudoGraphicRenderer:
                 content=bd.get("content", ""),
                 border_style=bd.get("border_style", "solid"),
                 order=bd.get("order", 0),
+                meta=bd.get("meta") or {},
             )
             children = bd.get("children", [])
             if children:
@@ -594,6 +649,7 @@ class PseudoGraphicRenderer:
                         content=c.get("content", ""),
                         border_style=c.get("border_style", "solid"),
                         order=c.get("order", 0),
+                        meta=c.get("meta") or {},
                     )
                     for c in children
                 ]

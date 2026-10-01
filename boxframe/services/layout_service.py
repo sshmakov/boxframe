@@ -453,6 +453,7 @@ class LayoutService:
                 border_style=block.border_style,
                 order=block.order,
                 is_root=True,
+                meta=block.meta or {},
             )
 
             # Add children

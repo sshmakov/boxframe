@@ -668,9 +668,12 @@ def test_properties_panel_shows_next_to_selected_block(page: Page):
 
     # The Line Style buttons reflect the current border style
     _open_section(panel, "Style")
-    expect(panel.locator(".style-btn")).to_have_count(5)
-    expect(panel.locator(".style-btn--active")).to_have_count(1)
-    expect(panel.locator(".style-btn--active")).to_have_attribute("title", "solid")
+    style = panel.locator(
+        ".props-section:has(.props-section__title:text-is('Style'))"
+    )
+    expect(style.locator(".style-btn")).to_have_count(5)
+    expect(style.locator(".style-btn--active")).to_have_count(1)
+    expect(style.locator(".style-btn--active")).to_have_attribute("title", "solid")
 
 
 def test_properties_panel_updates_border_style(page: Page):
@@ -682,7 +685,10 @@ def test_properties_panel_updates_border_style(page: Page):
     expect(panel).to_be_visible()
 
     _open_section(panel, "Style")
-    panel.locator(".style-btn[title='dashed']").click()
+    panel.locator(
+        ".props-section:has(.props-section__title:text-is('Style')) "
+        ".style-btn[title='dashed']"
+    ).click()
 
     # Poll: the browser's PUT may still be in flight
     block = None
@@ -735,7 +741,7 @@ def test_properties_panel_fields_in_one_row(page: Page):
 
 
 def test_properties_panel_section_order(page: Page):
-    """Panel sections top to bottom: actions, Style, Geometry, Text."""
+    """Panel sections top to bottom: actions, Style, Borders, Geometry, Text."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
@@ -743,19 +749,20 @@ def test_properties_panel_section_order(page: Page):
     expect(panel).to_be_visible()
 
     heads = panel.locator(".props-section__head")
-    expect(heads).to_have_count(3)
+    expect(heads).to_have_count(4)
     # text_content() is not affected by CSS text-transform
     titles = [
         panel.locator(".props-section__title").nth(i).text_content()
-        for i in range(3)
+        for i in range(4)
     ]
-    assert titles == ["Style", "Geometry", "Text"]
+    assert titles == ["Style", "Borders", "Geometry", "Text"]
 
     sections = {
         "actions": panel.locator(".block-props__actions"),
         "style": heads.nth(0),
-        "geometry": heads.nth(1),
-        "text": heads.nth(2),
+        "borders": heads.nth(1),
+        "geometry": heads.nth(2),
+        "text": heads.nth(3),
     }
     for name, loc in sections.items():
         expect(loc).to_have_count(1)
@@ -1099,7 +1106,10 @@ def test_panel_style_applies_to_all_selected(page: Page):
 
     panel = page.locator(".block-props")
     _open_section(panel, "Style")
-    panel.locator(".style-btn[title='dotted']").click()
+    panel.locator(
+        ".props-section:has(.props-section__title:text-is('Style')) "
+        ".style-btn[title='dotted']"
+    ).click()
 
     # Poll: the browser's batch request may still be in flight
     blocks = {}
@@ -1113,8 +1123,11 @@ def test_panel_style_applies_to_all_selected(page: Page):
     assert blocks[a_id]["border_style"] == "dotted"
     assert blocks[b_id]["border_style"] == "dotted"
     # The active style button reflects the shared style
-    expect(panel.locator(".style-btn--active")).to_have_count(1)
-    expect(panel.locator(".style-btn--active")).to_have_attribute("title", "dotted")
+    style = panel.locator(
+        ".props-section:has(.props-section__title:text-is('Style'))"
+    )
+    expect(style.locator(".style-btn--active")).to_have_count(1)
+    expect(style.locator(".style-btn--active")).to_have_attribute("title", "dotted")
 
 
 def test_group_duplicate_copies_all_selected(page: Page):
@@ -1377,7 +1390,11 @@ def test_static_editor_panel_matches_web_layout(page: Page):
 
     # Open the Style section: 5 style buttons
     _open_section(panel, "Style")
-    expect(panel.locator(".style-btn")).to_have_count(5)
+    expect(
+        panel.locator(
+            ".props-section:has(.props-section__title:text-is('Style')) .style-btn"
+        )
+    ).to_have_count(5)
 
     # Open the Geometry section: X/Y/W/H/Order in a two-column grid
     _open_section(panel, "Geometry")

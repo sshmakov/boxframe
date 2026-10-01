@@ -60,6 +60,18 @@
     var DEFAULT_CANVAS_WIDTH = 80;
     var DEFAULT_CANVAS_HEIGHT = 24;
 
+    // Port of effective_border_styles in services/renderer.py: the
+    // effective per-side styles (H, V) for top/bottom and left/right.
+    // meta.border_h / meta.border_v override the base border_style per
+    // axis; an absent (or empty) key inherits the base, so old layouts
+    // without meta render unchanged.
+    function effectiveBorderStyles(borderStyle, meta) {
+        meta = meta || {};
+        var h = meta.border_h || borderStyle;
+        var v = meta.border_v || borderStyle;
+        return [h, v];
+    }
+
     // ── Text wrapping (port of PseudoGraphicRenderer._wrap_text) ──
 
     function wrapText(text, width) {
@@ -137,7 +149,12 @@
         grid[y][x] = ch;
     }
 
-    function drawBorder(block, style, grid, gw, gh, clip) {
+    // Port of PseudoGraphicRenderer._draw_border: per-side styles. H
+    // (top/bottom) and V (left/right) may differ (meta.border_h /
+    // meta.border_v). An edge is drawn only if its style is not "none";
+    // a corner only if BOTH adjacent sides are drawn. A corner takes the
+    // double glyph when either adjacent style is double (double wins).
+    function drawBorder(block, hStyle, vStyle, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
         var w = Math.min(block.width, gw - x);
@@ -145,18 +162,37 @@
 
         if (w < 2 || h < 2) return;
 
-        setCell(grid, gw, gh, clip, x, y, style.tl);
-        setCell(grid, gw, gh, clip, x + w - 1, y, style.tr);
-        setCell(grid, gw, gh, clip, x, y + h - 1, style.bl);
-        setCell(grid, gw, gh, clip, x + w - 1, y + h - 1, style.br);
+        var hm = BORDERS[hStyle] || BORDERS.solid;
+        var vm = BORDERS[vStyle] || BORDERS.solid;
+        var hasH = hStyle !== "none";
+        var hasV = vStyle !== "none";
+        var corner = (hStyle === "double" || vStyle === "double") ? BORDERS.double : BORDERS.solid;
 
-        for (var i = 1; i < w - 1; i++) {
-            setCell(grid, gw, gh, clip, x + i, y, style.h);
-            setCell(grid, gw, gh, clip, x + i, y + h - 1, style.h);
+        if (hasH && hasV) {
+            setCell(grid, gw, gh, clip, x, y, corner.tl);
+            setCell(grid, gw, gh, clip, x + w - 1, y, corner.tr);
+            setCell(grid, gw, gh, clip, x, y + h - 1, corner.bl);
+            setCell(grid, gw, gh, clip, x + w - 1, y + h - 1, corner.br);
         }
-        for (var j = 1; j < h - 1; j++) {
-            setCell(grid, gw, gh, clip, x, y + j, style.v);
-            setCell(grid, gw, gh, clip, x + w - 1, y + j, style.v);
+        // Edges span the full extent of the block on their axis; where a
+        // corner is drawn it occupies the end cell, so the edge fills the
+        // interior. Without corners (the adjacent axis is "none") the edge
+        // runs end to end.
+        if (hasH) {
+            var hStart = hasV ? 1 : 0;
+            var hEnd = hasV ? w - 1 : w;
+            for (var i = hStart; i < hEnd; i++) {
+                setCell(grid, gw, gh, clip, x + i, y, hm.h);
+                setCell(grid, gw, gh, clip, x + i, y + h - 1, hm.h);
+            }
+        }
+        if (hasV) {
+            var vStart = hasH ? 1 : 0;
+            var vEnd = hasH ? h - 1 : h;
+            for (var j = vStart; j < vEnd; j++) {
+                setCell(grid, gw, gh, clip, x, y + j, vm.v);
+                setCell(grid, gw, gh, clip, x + w - 1, y + j, vm.v);
+            }
         }
     }
 
@@ -237,27 +273,31 @@
 
         if (w < 1 || h < 1) return;
 
-        var hasBorder = block.border_style !== "none";
+        // Per-side border: the content is inset by one cell only where a
+        // border is drawn (meta.border_h / meta.border_v ?? border_style)
+        var styles = effectiveBorderStyles(block.border_style, block.meta);
+        var hasH = styles[0] !== "none";
+        var hasV = styles[1] !== "none";
+        var hasBorder = hasH || hasV;
         if (hasBorder && (w < 2 || h < 2)) return;
+
+        var contentX = x + (hasV ? 1 : 0);
+        var contentY = y + (hasH ? 1 : 0);
+        var contentW = w - (hasV ? 2 : 0);
+        var contentH = h - (hasH ? 2 : 0);
 
         if (!block.content) {
             // Show type hint if no content
             if (hasBorder && w >= 4) {
                 var hint = "[" + block.block_type + "]";
-                var hx = x + 1, hy = y + 1;
                 for (var i = 0; i < hint.length; i++) {
-                    if (hx + i < x + w - 1 && hy < gh) {
-                        setCell(grid, gw, gh, clip, hx + i, hy, hint[i]);
+                    if (contentX + i < contentX + contentW && contentY < gh) {
+                        setCell(grid, gw, gh, clip, contentX + i, contentY, hint[i]);
                     }
                 }
             }
             return;
         }
-
-        var contentX = x + (hasBorder ? 1 : 0);
-        var contentY = y + (hasBorder ? 1 : 0);
-        var contentW = w - (hasBorder ? 2 : 0);
-        var contentH = h - (hasBorder ? 2 : 0);
 
         if (contentW <= 0 || contentH <= 0) return;
 
@@ -317,6 +357,7 @@
                 block_type: child.block_type,
                 content: child.content,
                 border_style: child.border_style,
+                meta: child.meta,
                 order: child.order,
                 parent_id: child.parent_id,
             };
@@ -339,10 +380,12 @@
             return;
         }
 
-        var hasBorder = block.border_style !== "none" && block.width >= 2 && block.height >= 2;
+        var styles = effectiveBorderStyles(block.border_style, block.meta);
+        var hasBorder = (styles[0] !== "none" || styles[1] !== "none")
+            && block.width >= 2 && block.height >= 2;
 
         if (hasBorder) {
-            drawBorder(block, style, grid, gw, gh, clip);
+            drawBorder(block, styles[0], styles[1], grid, gw, gh, clip);
             drawContent(block, grid, gw, gh, clip);
             var hasChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
             if (hasChildren) {
@@ -444,7 +487,11 @@
             return '<div class="block-line block-line--' + direction + " block-line--" + style + '"></div>';
         }
 
-        return '<div class="block-border block-border--' + style +
+        // Per-side border classes (meta.border_h / meta.border_v ?? border_style)
+        var styles = effectiveBorderStyles(block.border_style, block.meta);
+        var h = styleMap[styles[0]] || "solid";
+        var v = styleMap[styles[1]] || "solid";
+        return '<div class="block-border block-border--h-' + h + ' block-border--v-' + v +
             '" style="width:100%;height:100%;"></div>';
     }
 
@@ -488,7 +535,12 @@
             var direction = blockType === "hline" ? "h" : "v";
             borderHtml = '<div class="block-line block-line--' + direction + ' block-line--' + bs + '"></div>';
         } else {
-            borderHtml = '<div class="block-border block-border--' + bs + '" style="width:100%;height:100%;"></div>';
+            // Per-side border classes (meta.border_h / meta.border_v ?? border_style)
+            var styles = effectiveBorderStyles(borderStyle, bd.meta);
+            var h = borderMap[styles[0]] || "solid";
+            var v = borderMap[styles[1]] || "solid";
+            borderHtml = '<div class="block-border block-border--h-' + h + ' block-border--v-' + v +
+                '" style="width:100%;height:100%;"></div>';
         }
 
         var childrenHtml = "";
@@ -538,6 +590,7 @@
                 width: b.width, height: b.height,
                 block_type: b.block_type,
                 border_style: b.border_style,
+                meta: b.meta,
                 order: b.order,
                 children: [],
             });
@@ -657,6 +710,7 @@
         BORDER_STYLES: BORDER_STYLES,
         render: render,
         canvasSize: canvasSize,
+        effectiveBorderStyles: effectiveBorderStyles,
         wrapText: wrapText,
         textBlockSize: textBlockSize,
         toHtmlPreview: toHtmlPreview,

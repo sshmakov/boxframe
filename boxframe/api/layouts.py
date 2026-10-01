@@ -403,6 +403,7 @@ def _serialize_blocks_for_html(blocks: list) -> list[dict]:
             "block_type": block.block_type,
             "content": block.content,
             "border_style": block.border_style,
+            "meta": block.meta or {},
             "order": block.order,
             "children": [to_dict(c) for c in blocks if c.parent_id == block.id],
         }

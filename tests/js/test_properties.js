@@ -58,15 +58,29 @@ const FILL_PROP = {
 
 // ── Schema ────────────────────────────────────────────────
 
-test("schema: the current properties are described (phase 0 set)", () => {
+test("schema: the current properties are described (phase 1 set)", () => {
     const keys = PGProperties.PROPERTY_SCHEMA.map(p => p.key);
     assert.deepEqual(keys, [
-        "border_style", "x", "y", "width", "height", "order", "content",
+        "border_style", "border_h", "border_v",
+        "x", "y", "width", "height", "order", "content",
     ]);
     const style = PGProperties.findProperty("border_style");
     assert.equal(style.kind, "segmented");
     assert.deepEqual(style.options, PGRenderer.BORDER_STYLES);
     assert.equal(style.group, "Style");
+    // Per-side border overrides (phase 1 of tasks/0051): meta keys,
+    // absent = inherit the base border_style
+    for (const key of ["border_h", "border_v"]) {
+        const prop = PGProperties.findProperty(key);
+        assert.equal(prop.meta, true);
+        assert.equal(prop.kind, "segmented");
+        assert.deepEqual(prop.options, PGRenderer.BORDER_STYLES);
+        assert.equal(prop.group, "Borders");
+        assert.equal(prop.default, null);
+        assert.ok(!prop.types.includes("button"));
+        assert.ok(!prop.types.includes("hline"));
+        assert.ok(!prop.types.includes("vline"));
+    }
     assert.equal(PGProperties.findProperty("x").min, 0);
     assert.equal(PGProperties.findProperty("width").min, 1);
     assert.equal(PGProperties.findProperty("content").kind, "text");
@@ -105,13 +119,21 @@ test("readPropValue: meta properties read block.meta[key], absent → default", 
 
 test("sectionsForType: groups in declaration order, all properties applicable", () => {
     const sections = PGProperties.sectionsForType("box");
-    assert.deepEqual(sections.map(s => s.name), ["Style", "Geometry", "Text"]);
+    assert.deepEqual(sections.map(s => s.name), ["Style", "Borders", "Geometry", "Text"]);
     assert.deepEqual(sections[0].props.map(p => p.key), ["border_style"]);
+    assert.deepEqual(sections[1].props.map(p => p.key), ["border_h", "border_v"]);
     assert.deepEqual(
-        sections[1].props.map(p => p.key),
+        sections[2].props.map(p => p.key),
         ["x", "y", "width", "height", "order"],
     );
-    assert.deepEqual(sections[2].props.map(p => p.key), ["content"]);
+    assert.deepEqual(sections[3].props.map(p => p.key), ["content"]);
+});
+
+test("sectionsForType: border_h/border_v are not applicable to button and lines", () => {
+    for (const type of ["button", "hline", "vline"]) {
+        const sections = PGProperties.sectionsForType(type);
+        assert.ok(!sections.some(s => s.name === "Borders"), type);
+    }
 });
 
 test("sectionsForType: the types filter drops inapplicable properties and empty groups", () => {
@@ -155,7 +177,10 @@ test("panelSections: empty without a selection", () => {
 
 test("panelSections: the sections of the primary selected block's type", () => {
     const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
-    assert.deepEqual(app.panelSections.map(s => s.name), ["Style", "Geometry", "Text"]);
+    assert.deepEqual(
+        app.panelSections.map(s => s.name),
+        ["Style", "Borders", "Geometry", "Text"],
+    );
 });
 
 // ── Mixed display (multi-selection) ───────────────────────
