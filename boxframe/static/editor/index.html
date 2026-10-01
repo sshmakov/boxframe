@@ -121,6 +121,9 @@
                 </div>
                 <!-- Block properties panel (floats next to the selection;
                      with several blocks selected the values apply to all).
+                     The body is generated from the declarative property
+                     schema (core/properties.js): sections, controls and
+                     mixed display — one source of truth for both editors.
                      Hidden while a move/resize drag is in progress via the
                      .is-dragging class on the canvas container (see
                      editor.css) — a CSS rule rather than an x-show term, so
@@ -132,60 +135,16 @@
                         <button class="block-props__close" @click="clearSelection()"
                                 title="Deselect (Esc)">×</button>
                     </div>
-                    <div class="block-props__grid">
-                        <div class="block-props__actions">
-                            <button class="action-btn" @click="duplicateBlock()"
-                                    title="Duplicate selected block(s) (Ctrl+D)">⧉ Duplicate</button>
-                            <button class="action-btn copy-selection-btn" @click="copySelection()"
-                                    title="Copy selected block(s) with their children to the clipboard as pseudo-graphic text">📋 Copy</button>
-                            <button class="action-btn action-btn--danger"
-                                    @click="deleteSelection()"
-                                    title="Delete selected block(s) (Del)">✕ Delete</button>
-                        </div>
-                        <div class="prop prop--wide">
-                            <span>Line Style</span>
-                            <div class="style-btns">
-                                <template x-for="s in borderStyles" :key="s">
-                                    <button type="button" class="style-btn"
-                                            :class="{ 'style-btn--active': styleActive(s) }"
-                                            @click="updateSelectedBlock({ border_style: s })"
-                                            :title="s" x-text="styleIcon(s)"></button>
-                                </template>
-                            </div>
-                        </div>
-                        <div class="prop-row">
-                            <label class="prop prop--inline">
-                                <span>X</span>
-                                <input type="number" min="0" :value="selectedBlock.x"
-                                       @change="updateSelectedXY($event)">
-                            </label>
-                            <label class="prop prop--inline">
-                                <span>Y</span>
-                                <input type="number" min="0" :value="selectedBlock.y"
-                                       @change="updateSelectedXY($event)">
-                            </label>
-                            <label class="prop prop--inline">
-                                <span>W</span>
-                                <input type="number" min="1" :value="selectedBlock.width"
-                                       @change="updateSelectedWH($event)">
-                            </label>
-                            <label class="prop prop--inline">
-                                <span>H</span>
-                                <input type="number" min="1" :value="selectedBlock.height"
-                                       @change="updateSelectedWH($event)">
-                            </label>
-                        </div>
-                        <label class="prop prop--wide" x-show="!isMultiSelect" x-cloak>
-                            <span>Order</span>
-                            <input type="number" min="0" :value="selectedBlock.order"
-                                   @change="updateSelectedOrder($event)">
-                        </label>
-                        <label class="prop prop--wide">
-                            <span>Content</span>
-                            <input type="text" :value="selectedBlock.content"
-                                   @change="updateSelectedContent($event)">
-                        </label>
+                    <div class="block-props__actions">
+                        <button class="action-btn" @click="duplicateBlock()"
+                                title="Duplicate selected block(s) (Ctrl+D)">⧉ Duplicate</button>
+                        <button class="action-btn copy-selection-btn" @click="copySelection()"
+                                title="Copy selected block(s) with their children to the clipboard as pseudo-graphic text">📋 Copy</button>
+                        <button class="action-btn action-btn--danger"
+                                @click="deleteSelection()"
+                                title="Delete selected block(s) (Del)">✕ Delete</button>
                     </div>
+                    <div class="block-props__body" x-html="propsPanelHTML"></div>
                 </div>
                 <!-- Inline content editor (opened by double-click on a block) -->
                 <div class="block-edit-overlay" x-show="editingBlock" x-cloak
@@ -201,6 +160,7 @@
 
 <script src="../js/alpine.min.js" defer></script>
 <script src="../js/core/renderer.js"></script>
+<script src="../js/core/properties.js"></script>
 <script src="../js/core/store.js"></script>
 <script src="../js/core/history.js"></script>
 <script src="../js/core/import.js"></script>

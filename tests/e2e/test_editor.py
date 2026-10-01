@@ -640,6 +640,11 @@ def test_selection_group_resize_resizes_all_blocks(page: Page):
     assert (b2["x"], b2["y"], b2["width"], b2["height"]) == (28, 3, 12, 3)
 
 
+def _open_section(panel, name: str) -> None:
+    """Open a properties-panel section (collapsed by default)."""
+    panel.locator(".props-section__head", has_text=name).click()
+
+
 def test_properties_panel_shows_next_to_selected_block(page: Page):
     """Selecting a block shows a floating properties panel next to it."""
     layout_id, block_id = _create_project_with_block(page)
@@ -649,10 +654,6 @@ def test_properties_panel_shows_next_to_selected_block(page: Page):
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
     expect(panel.locator(".block-props__type")).to_have_text("box")
-    # The Line Style buttons reflect the current border style
-    expect(panel.locator(".style-btn")).to_have_count(5)
-    expect(panel.locator(".style-btn--active")).to_have_count(1)
-    expect(panel.locator(".style-btn--active")).to_have_attribute("title", "solid")
 
     # The panel floats to the right of the block (the preferred side) and
     # stays inside the visible canvas area
@@ -665,6 +666,12 @@ def test_properties_panel_shows_next_to_selected_block(page: Page):
     assert panel_box["x"] + panel_box["width"] <= canvas_box["x"] + canvas_box["width"]
     assert panel_box["y"] + panel_box["height"] <= canvas_box["y"] + canvas_box["height"]
 
+    # The Line Style buttons reflect the current border style
+    _open_section(panel, "Style")
+    expect(panel.locator(".style-btn")).to_have_count(5)
+    expect(panel.locator(".style-btn--active")).to_have_count(1)
+    expect(panel.locator(".style-btn--active")).to_have_attribute("title", "solid")
+
 
 def test_properties_panel_updates_border_style(page: Page):
     """Changing the style in the properties panel persists to the database."""
@@ -674,6 +681,7 @@ def test_properties_panel_updates_border_style(page: Page):
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
+    _open_section(panel, "Style")
     panel.locator(".style-btn[title='dashed']").click()
 
     # Poll: the browser's PUT may still be in flight
@@ -688,31 +696,37 @@ def test_properties_panel_updates_border_style(page: Page):
 
 
 def test_properties_panel_fields_in_one_row(page: Page):
-    """X/Y/W/H are one row of four fields; each label sits to the left of
-    its input, not above it."""
+    """Geometry fields sit in a two-column grid (X/Y, W/H, Order); each
+    label sits to the left of its input, not above it."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
-    boxes = [
-        panel.locator(".prop-row input").nth(i).bounding_box()
-        for i in range(4)
-    ]
+    # Open the Geometry section (collapsed by default)
+    _open_section(panel, "Geometry")
+    inputs = panel.locator(".props-section__body input[type=number]")
+    expect(inputs).to_have_count(5)
+    expect(inputs.first).to_be_visible()
+
+    boxes = [inputs.nth(i).bounding_box() for i in range(5)]
     assert all(b is not None for b in boxes)
 
-    # One row: the same top (up to a couple of px) and strictly
-    # increasing left — X, Y, W, H from left to right
-    tops = [b["y"] for b in boxes]
-    assert max(tops) - min(tops) <= 2
-    lefts = [b["x"] for b in boxes]
-    assert all(b2 > b1 for b1, b2 in zip(lefts, lefts[1:]))
+    # Two-column grid: X/Y share a row, W/H the next, Order the third —
+    # the same top within a row (up to a couple of px), strictly
+    # increasing left within a row, rows stacked top to bottom
+    assert abs(boxes[0]["y"] - boxes[1]["y"]) <= 2
+    assert abs(boxes[2]["y"] - boxes[3]["y"]) <= 2
+    assert boxes[2]["y"] > boxes[0]["y"]
+    assert boxes[4]["y"] > boxes[2]["y"]
+    assert boxes[1]["x"] > boxes[0]["x"]
+    assert boxes[3]["x"] > boxes[2]["x"]
 
     # The label of each field is to the left of its input, vertically
     # centered against it
-    for i in range(4):
-        label = panel.locator(".prop-row .prop--inline > span").nth(i).bounding_box()
+    for i in range(5):
+        label = panel.locator(".props-section__body .prop--inline > span").nth(i).bounding_box()
         inp = boxes[i]
         assert label is not None
         assert label["x"] + label["width"] <= inp["x"] + 1
@@ -721,20 +735,27 @@ def test_properties_panel_fields_in_one_row(page: Page):
 
 
 def test_properties_panel_section_order(page: Page):
-    """Panel sections top to bottom: actions, Line Style, X/Y/W/H, Order,
-    Content."""
+    """Panel sections top to bottom: actions, Style, Geometry, Text."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
+    heads = panel.locator(".props-section__head")
+    expect(heads).to_have_count(3)
+    # text_content() is not affected by CSS text-transform
+    titles = [
+        panel.locator(".props-section__title").nth(i).text_content()
+        for i in range(3)
+    ]
+    assert titles == ["Style", "Geometry", "Text"]
+
     sections = {
         "actions": panel.locator(".block-props__actions"),
-        "line_style": panel.locator(".prop--wide:has(.style-btns)"),
-        "xywh": panel.locator(".prop-row"),
-        "order": panel.locator(".prop--wide:has(input[type=number])"),
-        "content": panel.locator(".prop--wide:has(input[type=text])"),
+        "style": heads.nth(0),
+        "geometry": heads.nth(1),
+        "text": heads.nth(2),
     }
     for name, loc in sections.items():
         expect(loc).to_have_count(1)
@@ -1077,6 +1098,7 @@ def test_panel_style_applies_to_all_selected(page: Page):
     expect(page.locator(".block-props__type")).to_have_text("2 selected")
 
     panel = page.locator(".block-props")
+    _open_section(panel, "Style")
     panel.locator(".style-btn[title='dotted']").click()
 
     # Poll: the browser's batch request may still be in flight
@@ -1319,7 +1341,9 @@ def test_static_editor_block_not_shifted_when_not_at_top(page: Page):
     page.locator(".block-preview").click()
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
-    y_input = panel.locator(".prop input").nth(1)
+    _open_section(panel, "Geometry")
+    y_input = panel.locator(".props-section__body input[type=number]").nth(1)
+    expect(y_input).to_be_visible()
     y_input.fill("5")
     y_input.dispatch_event("change")
     page.wait_for_timeout(300)
@@ -1338,9 +1362,9 @@ def test_static_editor_block_not_shifted_when_not_at_top(page: Page):
 
 
 def test_static_editor_panel_matches_web_layout(page: Page):
-    """The static editor's panel keeps the web layout: an actions row,
-    Line Style buttons and X/Y/W/H in one row (the markup is duplicated
-    in static/editor/index.html)."""
+    """The static editor's panel keeps the web layout: an actions row and
+    the same schema-generated sections (core/properties.js builds the
+    markup for both editors)."""
     page.goto(f"{BASE_URL}/static/editor/index.html")
     page.locator(".palette-btn", has_text="box").click()
     expect(page.locator(".block-preview")).to_have_count(1)
@@ -1350,16 +1374,24 @@ def test_static_editor_panel_matches_web_layout(page: Page):
     expect(panel).to_be_visible()
 
     expect(panel.locator(".block-props__actions .action-btn")).to_have_count(3)
+
+    # Open the Style section: 5 style buttons
+    _open_section(panel, "Style")
     expect(panel.locator(".style-btn")).to_have_count(5)
 
-    boxes = [
-        panel.locator(".prop-row input").nth(i).bounding_box()
-        for i in range(4)
-    ]
+    # Open the Geometry section: X/Y/W/H/Order in a two-column grid
+    _open_section(panel, "Geometry")
+    inputs = panel.locator(".props-section__body input[type=number]")
+    expect(inputs).to_have_count(5)
+    expect(inputs.first).to_be_visible()
+
+    boxes = [inputs.nth(i).bounding_box() for i in range(5)]
     assert all(b is not None for b in boxes)
-    assert max(b["y"] for b in boxes) - min(b["y"] for b in boxes) <= 2
-    lefts = [b["x"] for b in boxes]
-    assert all(b2 > b1 for b1, b2 in zip(lefts, lefts[1:]))
+    assert abs(boxes[0]["y"] - boxes[1]["y"]) <= 2
+    assert abs(boxes[2]["y"] - boxes[3]["y"]) <= 2
+    assert boxes[2]["y"] > boxes[0]["y"]
+    assert boxes[1]["x"] > boxes[0]["x"]
+    assert boxes[3]["x"] > boxes[2]["x"]
 
 
 def test_static_editor_delete_block_in_memory(page: Page):

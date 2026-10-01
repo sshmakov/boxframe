@@ -472,10 +472,12 @@
 
 .block-props__close:hover { color: var(--accent); }
 
-.block-props__grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
+/* The panel body scrolls internally when the open sections exceed the
+   max height (the position clamp in propsPanelStyle uses the real panel
+   height). */
+.block-props__body {
+    max-height: 400px;
+    overflow-y: auto;
     padding: 10px;
 }
 
@@ -514,13 +516,61 @@
 /* Actions row (duplicate / delete) — the panel is the single place for
    block actions; the selection frame keeps only the resize handle. */
 .block-props__actions {
-    grid-column: 1 / -1;
     display: flex;
     gap: 6px;
+    margin: 10px 10px 0;
     padding: 6px;
     border: 1px solid #333;
     border-radius: 4px;
 }
+
+/* Sections (generated from the property schema — core/properties.js):
+   a header toggles the body, the body is a 2-column grid of controls. */
+.props-section {
+    border: 1px solid #333;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+.props-section:last-child { margin-bottom: 0; }
+
+.props-section__head {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #0f0f23;
+    border: none;
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 6px 8px;
+    cursor: pointer;
+}
+
+.props-section__head:hover { color: var(--accent); }
+
+.props-section__chev {
+    color: var(--text-muted);
+    transition: transform 0.15s;
+}
+
+.props-section__chev--open { transform: rotate(90deg); }
+
+.props-section__body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 8px;
+}
+
+/* Single-root wrapper for the x-for iteration (Alpine clones only the
+   first element child of a template) — display:contents keeps the inner
+   control the grid item. */
+.prop-cell { display: contents; }
 
 .action-btn {
     flex: 1;
@@ -578,14 +628,7 @@
     background: rgba(233, 69, 96, 0.12);
 }
 
-/* X/Y/W/H: one row of four fields, label to the left of the input */
-.prop-row {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-}
-
+/* Number fields: label to the left of the input (one grid cell each) */
 .prop--inline {
     flex-direction: row;
     align-items: center;
@@ -594,7 +637,7 @@
 
 .prop--inline > span {
     flex: none;
-    width: 10px;
+    min-width: 10px;
 }
 
 .prop--inline input {

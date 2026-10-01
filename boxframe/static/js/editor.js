@@ -180,6 +180,16 @@ function editorApp() {
         marquee: null,         // { startX, startY, curX, curY, add } in content px
         marqueeEl: null,
 
+        // ── Properties panel (generated from the schema) ───────
+        // Open/closed state per section name; persisted in localStorage
+        // so the user's choice survives selection changes and reloads.
+        // New sections are collapsed by default.
+        sectionState: {},
+        // The panel body markup — generated once from the declarative
+        // schema (core/properties.js); the reactivity lives in the
+        // panelSections getter and the bindings inside the markup.
+        propsPanelHTML: '',
+
         // ── Drag state ──────────────────────────────────────────
         dragMode: null,          // 'palette' | 'pending' | 'move' | 'resize' | 'marquee' | null
         dragType: null,          // block type string (palette drag)
@@ -218,6 +228,12 @@ function editorApp() {
         charHeight: 0,
 
         async init() {
+            // The properties panel body is generated once from the
+            // declarative schema (core/properties.js) — the single source
+            // of truth for both editors.
+            this.propsPanelHTML = PGProperties.buildPropsPanelHTML();
+            this._loadSectionState();
+
             // Web mode: the server-rendered page sets data-layout-id → talk
             // to the API. Static mode (no layout id) → localStorage store
             // (the layout survives page reloads).
@@ -1848,13 +1864,6 @@ function editorApp() {
             return '';
         },
 
-        // Line Style button state: active when every selected block
-        // already has that style.
-        styleActive(style) {
-            const sel = this.selectedBlocks;
-            return sel.length > 0 && sel.every(b => b.border_style === style);
-        },
-
         // The selection frame: the block itself for a single selection,
         // the bounding box of all selected blocks for a multi-selection.
         get selectionStyle() {
@@ -1892,7 +1901,10 @@ function editorApp() {
             const pad = 16; // matches .render-wrapper padding
             const container = document.querySelector('.canvas-container');
             const panelW = 264;
-            const panelH = 300; // approximate height, for vertical clamping
+            // The panel's real height (head + actions + the open sections,
+            // capped by the CSS max-height) — for the vertical clamp.
+            const panelEl = document.querySelector('.block-props');
+            const panelH = (panelEl && panelEl.offsetHeight) ? panelEl.offsetHeight : 360;
 
             // Absolute (canvas) coords — children carry relative coords
             const rects = sel.map(b => this._absoluteRect(b));
@@ -2025,47 +2037,122 @@ function editorApp() {
         },
 
         // ── Properties panel (floating, next to selected block) ──
+        // The panel body is generated from the declarative schema
+        // (core/properties.js): sections = unique groups, controls per
+        // kind. This part provides the reactive state the generated
+        // markup binds to.
 
-        // Glyph for a border style in the panel's Line Style buttons —
-        // the box-drawing character the style renders with.
-        styleIcon(style) {
-            const icons = { solid: '─', dashed: '┄', dotted: '┈', double: '═', none: '∅' };
-            return icons[style] || style;
+        // Sections for the primary selected block's type (a section is
+        // visible if at least one of its properties applies to the type).
+        get panelSections() {
+            const b = this.selectedBlock;
+            if (!b) return [];
+            return PGProperties.sectionsForType(b.block_type);
         },
 
-        // Apply property values to the selection. Single selection → one
-        // block update; multi-selection → the same values for every
-        // selected block in one batch update (one undo step). Lines keep
-        // their 1-cell thickness (normalized by the store).
-        async updateSelectedBlock(props) {
+        // ── Section open/closed state (persisted in localStorage) ──
+
+        _loadSectionState() {
+            try {
+                const raw = typeof localStorage !== "undefined"
+                    ? localStorage.getItem("boxframe.props.sections")
+                    : null;
+                this.sectionState = raw ? (JSON.parse(raw) || {}) : {};
+            } catch (err) {
+                this.sectionState = {};
+            }
+        },
+
+        _saveSectionState() {
+            try {
+                if (typeof localStorage !== "undefined") {
+                    localStorage.setItem("boxframe.props.sections",
+                        JSON.stringify(this.sectionState));
+                }
+            } catch (err) {
+                // Private mode / quota — the state just won't survive a reload
+            }
+        },
+
+        // New sections are collapsed by default.
+        isSectionOpen(name) {
+            return this.sectionState[name] === true;
+        },
+
+        toggleSection(name) {
+            this.sectionState[name] = !this.isSectionOpen(name);
+            this._saveSectionState();
+        },
+
+        // ── Property values (single + multi-selection) ──────────
+
+        // The common value of a property across the selection — "" when
+        // the values differ (mixed) or nothing is selected (the panel
+        // shows the "—" placeholder for mixed).
+        propValue(key) {
+            const sel = this.selectedBlocks;
+            if (!sel.length) return "";
+            const prop = PGProperties.findProperty(key);
+            if (!prop) return "";
+            const first = PGProperties.readPropValue(sel[0], prop);
+            const common = sel.every(b => PGProperties.readPropValue(b, prop) === first);
+            return common && first != null ? first : "";
+        },
+
+        // True when the selection has 2+ blocks with differing values.
+        isMixedProp(key) {
+            const sel = this.selectedBlocks;
+            if (sel.length < 2) return false;
+            const prop = PGProperties.findProperty(key);
+            if (!prop) return false;
+            const first = PGProperties.readPropValue(sel[0], prop);
+            return !sel.every(b => PGProperties.readPropValue(b, prop) === first);
+        },
+
+        // Segmented/charpicker button state: active when every selected
+        // block already has that value (mixed → nothing highlighted).
+        propActive(key, opt) {
+            return !this.isMixedProp(key) && this.propValue(key) === opt;
+        },
+
+        // Apply a property value to the selection. Meta properties are
+        // merged into each block's current meta (the API/store replace
+        // the whole meta object on update); a null value clears the meta
+        // key (back to the default). Single selection → one block update;
+        // multi-selection → one batch update (one undo step).
+        async applyPropValue(prop, value) {
             const sel = this.selectedBlocks;
             if (!sel.length) return;
 
+            const makeProps = (b) => {
+                if (!prop.meta) return { [prop.key]: value };
+                const meta = Object.assign({}, b.meta || {});
+                if (value == null) delete meta[prop.key];
+                else meta[prop.key] = value;
+                return { meta };
+            };
+
             if (sel.length === 1) {
                 const b = sel[0];
-                const old = {};
-                for (const key of Object.keys(props)) old[key] = b[key];
+                const oldMeta = prop.meta ? Object.assign({}, b.meta || {}) : null;
+                const oldValue = prop.meta ? undefined : b[prop.key];
 
                 try {
-                    const updated = await this.store.updateBlock(b.id, props);
+                    const updated = await this.store.updateBlock(b.id, makeProps(b));
                     Object.assign(b, updated);
                     // The update may change `order` — restore the z-order
                     // list (sidebar order + hit-test tie-breaks)
                     this._reorderBlocks();
                     await this.refreshRender();
                 } catch (err) {
-                    Object.assign(b, old);
+                    if (prop.meta) b.meta = oldMeta;
+                    else b[prop.key] = oldValue;
                     console.error('Failed to update block:', err);
                 }
                 return;
             }
 
-            const updates = sel.map(b => {
-                const u = Object.assign({ id: b.id }, props);
-                if (u.width != null) u.width = Math.max(1, u.width);
-                if (u.height != null) u.height = Math.max(1, u.height);
-                return u;
-            });
+            const updates = sel.map(b => Object.assign({ id: b.id }, makeProps(b)));
             try {
                 const result = await this.store.batchBlocks({ update: updates });
                 this._applyBatchResult(result);
@@ -2075,62 +2162,25 @@ function editorApp() {
             }
         },
 
-        // Inputs of the floating properties panel, in DOM order:
-        // [0]=X [1]=Y [2]=W [3]=H [4]=Order [5]=Content
-        _panelInputs() {
-            const panel = document.querySelector('.block-props');
-            return panel ? Array.from(panel.querySelectorAll('.prop input')) : [];
-        },
+        // ── Panel control handlers (bound by the generated markup) ──
 
-        updateSelectedXY(e) {
-            const b = this.selectedBlock;
-            if (!b) return;
-            const inputs = this._panelInputs();
-            const x = parseInt(inputs[0].value, 10);
-            const y = parseInt(inputs[1].value, 10);
-            if (Number.isNaN(x) || Number.isNaN(y)) {
-                inputs[0].value = b.x;
-                inputs[1].value = b.y;
+        onPropNumber(prop, e) {
+            const v = parseInt(e.target.value, 10);
+            if (Number.isNaN(v)) {
+                e.target.value = this.propValue(prop.key);
                 return;
             }
-            // No layout-bounds clamping — only the canvas origin (0,0)
-            this.updateSelectedBlock({
-                x: Math.max(0, x),
-                y: Math.max(0, y)
-            });
+            // No layout-bounds clamping — only the schema minimum
+            const min = prop.min != null ? prop.min : 0;
+            this.applyPropValue(prop, Math.max(min, v));
         },
 
-        updateSelectedWH(e) {
-            const b = this.selectedBlock;
-            if (!b) return;
-            const inputs = this._panelInputs();
-            const w = parseInt(inputs[2].value, 10);
-            const h = parseInt(inputs[3].value, 10);
-            if (Number.isNaN(w) || Number.isNaN(h)) {
-                inputs[2].value = b.width;
-                inputs[3].value = b.height;
-                return;
-            }
-            // Minimum size only — blocks may extend beyond the layout
-            // bounds; line thickness is normalized by the store
-            this.updateSelectedBlock({ width: Math.max(1, w), height: Math.max(1, h) });
+        onPropText(prop, e) {
+            this.applyPropValue(prop, e.target.value);
         },
 
-        updateSelectedOrder(e) {
-            const b = this.selectedBlock;
-            if (!b) return;
-            const order = parseInt(e.target.value, 10);
-            if (Number.isNaN(order) || order < 0) {
-                e.target.value = b.order;
-                return;
-            }
-            this.updateSelectedBlock({ order });
-        },
-
-        updateSelectedContent(e) {
-            const b = this.selectedBlock;
-            if (!b) return;
-            this.updateSelectedBlock({ content: e.target.value });
+        onPropSelect(prop, opt) {
+            this.applyPropValue(prop, opt);
         },
 
         async refreshRender() {
