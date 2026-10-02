@@ -2180,6 +2180,13 @@ function editorApp() {
         },
 
         onPropSelect(prop, opt) {
+            // The "none" option may be a display sentinel for the absent
+            // value (fill): noneValue gives the stored value (null clears
+            // the meta key). Omitted → "none" is stored as-is.
+            if (opt === "none" && prop.noneValue !== undefined) {
+                this.applyPropValue(prop, prop.noneValue);
+                return;
+            }
             this.applyPropValue(prop, opt);
         },
 

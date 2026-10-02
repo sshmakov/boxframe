@@ -267,9 +267,9 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 - [x] Фаза 1: порт per-side borders в `core/renderer.js`
 - [x] Фаза 1: оверлей CSS (per-side border вместо outline)
 - [x] Фаза 1: тесты (test_renderer.py, js/test_renderer.js, parity)
-- [ ] Фаза 2: fill в `_draw_content` (Python) + порт в JS
-- [ ] Фаза 2: char-picker в схеме, подавление подсказки
-- [ ] Фаза 2: тесты (Python + JS + parity)
+- [x] Фаза 2: fill в `_draw_content` (Python) + порт в JS
+- [x] Фаза 2: char-picker в схеме, подавление подсказки
+- [x] Фаза 2: тесты (Python + JS + parity)
 - [ ] Фаза 3: стрелки в `_draw_line` (Python) + порт в JS
 - [ ] Фаза 3: выравнивание в `_draw_content` (Python) + порт в JS
 - [ ] Фаза 3: тесты (Python + JS + parity)
@@ -337,6 +337,38 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 Приёмка: `pytest tests/ --ignore=tests/e2e` — 151 passed,
 `node --test "tests/js/*.js"` — 233 pass, `pytest tests/e2e/` — 70 passed
 (регрессий нет: рендерер не тронут, вывод побайтово как до фазы 0).
+
+## Фаза 2 (2026-10-02, ветка `feature/extprops`)
+
+- `services/renderer.py`: `FILL_TYPES` (box, header, footer, sidebar,
+  content, grid, image) + `fill_char(block_type, meta)` — meta.fill ровно
+  1 клетка (широкие символы запрещены — ломают моноширинную сетку);
+  `_draw_content` закрашивает content-область fill **до** контента
+  (контент выигрывает), подавляет подсказку `[type]`; блок без рамки
+  заливает всю область; fill-область учитывает per-side inset (фаза 1).
+- `core/renderer.js`: порт `fillChar()` + fill в `drawContent`
+  (побайтовый parity, экспорт `fillChar`).
+- `core/properties.js`: свойство `fill` — charpicker `░ ▒ ▓ █ · ×` + ∅
+  (none), секция «Fill» (после «Borders»), `types` по матрице,
+  `default: "none"` (∅ подсвечен, когда fill отсутствует),
+  `noneValue: null` — опция «none» — display-сентинел: применение
+  удаляет ключ meta.fill.
+- `editor.js`: `onPropSelect` — `opt === "none" && prop.noneValue !==
+  undefined` → применить `noneValue` (null = очистить ключ).
+- Тесты: 11 в test_renderer.py + 11 в js/test_renderer.js (fill_char,
+  пустой блок, подавление подсказки, контент поверх fill, перенос,
+  без рамки, per-side inset, матрица неприменимых типов, невалидные
+  значения, image, контейнер с детьми), 2 parity (22 кейса + контейнер),
+  1 API (meta.fill через create/update/batch/export), e2e: порядок
+  секций Style/Borders/Fill/Geometry/Text + fill-пикер (символ →
+  meta.fill, ∅ → очистка).
+- Нюанс: wrap сохраняет хвостовой пробел перенесённой строки (пробелы —
+  форматирование) — он рисуется поверх fill как любая клетка контента
+  (зафиксировано в тестах; rstrip-поведение не введено).
+
+Приёмка: `pytest tests/ --ignore=tests/e2e` — 186 passed,
+`node --test "tests/js/*.js"` — 260 pass, `pytest tests/e2e/` — 71 passed
+(регрессий нет: дефолтные значения рендерятся побайтово как до фазы 2).
 
 # Замечания
 

@@ -49,19 +49,12 @@ function stubStore(app) {
     return calls;
 }
 
-// A meta property pushed into the schema for the meta-related tests
-// (phases 1-3 of tasks/0051 add the real ones).
-const FILL_PROP = {
-    key: "fill", meta: true, label: "Fill", kind: "charpicker",
-    options: ["░", "▒"], group: "Fill", default: null,
-};
-
 // ── Schema ────────────────────────────────────────────────
 
-test("schema: the current properties are described (phase 1 set)", () => {
+test("schema: the current properties are described (phase 2 set)", () => {
     const keys = PGProperties.PROPERTY_SCHEMA.map(p => p.key);
     assert.deepEqual(keys, [
-        "border_style", "border_h", "border_v",
+        "border_style", "border_h", "border_v", "fill",
         "x", "y", "width", "height", "order", "content",
     ]);
     const style = PGProperties.findProperty("border_style");
@@ -81,6 +74,19 @@ test("schema: the current properties are described (phase 1 set)", () => {
         assert.ok(!prop.types.includes("hline"));
         assert.ok(!prop.types.includes("vline"));
     }
+    // Fill (phase 2 of tasks/0051): meta key, charpicker; "none" is a
+    // display sentinel for the absent value (noneValue: null clears it)
+    const fill = PGProperties.findProperty("fill");
+    assert.equal(fill.meta, true);
+    assert.equal(fill.kind, "charpicker");
+    assert.deepEqual(fill.options, ["░", "▒", "▓", "█", "·", "×", "none"]);
+    assert.equal(fill.group, "Fill");
+    assert.equal(fill.default, "none");
+    assert.equal(fill.noneValue, null);
+    assert.ok(fill.types.includes("image"));
+    assert.ok(!fill.types.includes("button"));
+    assert.ok(!fill.types.includes("text"));
+    assert.ok(!fill.types.includes("hline"));
     assert.equal(PGProperties.findProperty("x").min, 0);
     assert.equal(PGProperties.findProperty("width").min, 1);
     assert.equal(PGProperties.findProperty("content").kind, "text");
@@ -100,39 +106,39 @@ test("readPropValue: direct properties read block[key]", () => {
 });
 
 test("readPropValue: meta properties read block.meta[key], absent → default", () => {
-    PGProperties.PROPERTY_SCHEMA.push(FILL_PROP);
-    try {
-        const withFill = block("b1", "box", 0, 0, 5, 2, { meta: { fill: "░" } });
-        assert.equal(PGProperties.readPropValue(withFill, FILL_PROP), "░");
-        const without = block("b2", "box", 0, 0, 5, 2);
-        assert.equal(PGProperties.readPropValue(without, FILL_PROP), null);
-        // A block without a meta object at all
-        const noMeta = block("b3", "box", 0, 0, 5, 2);
-        delete noMeta.meta;
-        assert.equal(PGProperties.readPropValue(noMeta, FILL_PROP), null);
-    } finally {
-        PGProperties.PROPERTY_SCHEMA.pop();
-    }
+    const fillProp = PGProperties.findProperty("fill");
+    const withFill = block("b1", "box", 0, 0, 5, 2, { meta: { fill: "░" } });
+    assert.equal(PGProperties.readPropValue(withFill, fillProp), "░");
+    // Absent → the schema default ("none" for fill)
+    const without = block("b2", "box", 0, 0, 5, 2);
+    assert.equal(PGProperties.readPropValue(without, fillProp), "none");
+    // A block without a meta object at all
+    const noMeta = block("b3", "box", 0, 0, 5, 2);
+    delete noMeta.meta;
+    assert.equal(PGProperties.readPropValue(noMeta, fillProp), "none");
 });
 
 // ── Sections ──────────────────────────────────────────────
 
 test("sectionsForType: groups in declaration order, all properties applicable", () => {
     const sections = PGProperties.sectionsForType("box");
-    assert.deepEqual(sections.map(s => s.name), ["Style", "Borders", "Geometry", "Text"]);
+    assert.deepEqual(sections.map(s => s.name),
+        ["Style", "Borders", "Fill", "Geometry", "Text"]);
     assert.deepEqual(sections[0].props.map(p => p.key), ["border_style"]);
     assert.deepEqual(sections[1].props.map(p => p.key), ["border_h", "border_v"]);
+    assert.deepEqual(sections[2].props.map(p => p.key), ["fill"]);
     assert.deepEqual(
-        sections[2].props.map(p => p.key),
+        sections[3].props.map(p => p.key),
         ["x", "y", "width", "height", "order"],
     );
-    assert.deepEqual(sections[3].props.map(p => p.key), ["content"]);
+    assert.deepEqual(sections[4].props.map(p => p.key), ["content"]);
 });
 
-test("sectionsForType: border_h/border_v are not applicable to button and lines", () => {
+test("sectionsForType: Borders and Fill are not applicable to button and lines", () => {
     for (const type of ["button", "hline", "vline"]) {
         const sections = PGProperties.sectionsForType(type);
         assert.ok(!sections.some(s => s.name === "Borders"), type);
+        assert.ok(!sections.some(s => s.name === "Fill"), type);
     }
 });
 
@@ -179,7 +185,7 @@ test("panelSections: the sections of the primary selected block's type", () => {
     const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
     assert.deepEqual(
         app.panelSections.map(s => s.name),
-        ["Style", "Borders", "Geometry", "Text"],
+        ["Style", "Borders", "Fill", "Geometry", "Text"],
     );
 });
 
@@ -217,31 +223,28 @@ test("propActive: a single selection highlights its value only", () => {
     assert.equal(app.propActive("border_style", "dashed"), false);
 });
 
-test("propValue: meta properties read block.meta (absent → \"\")", () => {
-    PGProperties.PROPERTY_SCHEMA.push(FILL_PROP);
-    try {
-        const app = appWith([
-            block("a", "box", 0, 0, 5, 2, { meta: { fill: "░" } }),
-            block("b", "box", 0, 0, 5, 2, { meta: { fill: "░" } }),
-        ], ["a", "b"]);
-        assert.equal(app.propValue("fill"), "░");
-        assert.equal(app.propActive("fill", "░"), true);
+test("propValue: meta properties read block.meta (absent → default)", () => {
+    const app = appWith([
+        block("a", "box", 0, 0, 5, 2, { meta: { fill: "░" } }),
+        block("b", "box", 0, 0, 5, 2, { meta: { fill: "░" } }),
+    ], ["a", "b"]);
+    assert.equal(app.propValue("fill"), "░");
+    assert.equal(app.propActive("fill", "░"), true);
 
-        // Mixed: one block has the fill, the other does not
-        const mixed = appWith([
-            block("a", "box", 0, 0, 5, 2, { meta: { fill: "░" } }),
-            block("b", "box", 0, 0, 5, 2),
-        ], ["a", "b"]);
-        assert.equal(mixed.propValue("fill"), "");
-        assert.equal(mixed.isMixedProp("fill"), true);
+    // Mixed: one block has the fill, the other does not
+    const mixed = appWith([
+        block("a", "box", 0, 0, 5, 2, { meta: { fill: "░" } }),
+        block("b", "box", 0, 0, 5, 2),
+    ], ["a", "b"]);
+    assert.equal(mixed.propValue("fill"), "");
+    assert.equal(mixed.isMixedProp("fill"), true);
 
-        // Absent on a single block → "" (no active button)
-        const single = appWith([block("a", "box", 0, 0, 5, 2)], ["a"]);
-        assert.equal(single.propValue("fill"), "");
-        assert.equal(single.propActive("fill", "░"), false);
-    } finally {
-        PGProperties.PROPERTY_SCHEMA.pop();
-    }
+    // Absent on a single block → the default "none" (the ∅ button is
+    // active, like border_style=none in the Style section)
+    const single = appWith([block("a", "box", 0, 0, 5, 2)], ["a"]);
+    assert.equal(single.propValue("fill"), "none");
+    assert.equal(single.propActive("fill", "none"), true);
+    assert.equal(single.propActive("fill", "░"), false);
 });
 
 // ── applyPropValue ────────────────────────────────────────
@@ -271,55 +274,40 @@ test("applyPropValue: an order change re-sorts the block list", async () => {
 });
 
 test("applyPropValue: a meta property is merged into the block's meta", async () => {
-    PGProperties.PROPERTY_SCHEMA.push(FILL_PROP);
-    try {
-        const app = appWith([
-            block("b1", "box", 0, 0, 5, 2, { meta: { keep: 1 } }),
-        ], ["b1"]);
-        const calls = stubStore(app);
-        await app.applyPropValue(FILL_PROP, "░");
+    const app = appWith([
+        block("b1", "box", 0, 0, 5, 2, { meta: { keep: 1 } }),
+    ], ["b1"]);
+    const calls = stubStore(app);
+    await app.applyPropValue(PGProperties.findProperty("fill"), "░");
 
-        assert.deepEqual(calls.update[0].props, { meta: { keep: 1, fill: "░" } });
-        assert.deepEqual(app.blocks[0].meta, { keep: 1, fill: "░" });
-    } finally {
-        PGProperties.PROPERTY_SCHEMA.pop();
-    }
+    assert.deepEqual(calls.update[0].props, { meta: { keep: 1, fill: "░" } });
+    assert.deepEqual(app.blocks[0].meta, { keep: 1, fill: "░" });
 });
 
 test("applyPropValue: a null meta value clears the key (back to default)", async () => {
-    PGProperties.PROPERTY_SCHEMA.push(FILL_PROP);
-    try {
-        const app = appWith([
-            block("b1", "box", 0, 0, 5, 2, { meta: { keep: 1, fill: "░" } }),
-        ], ["b1"]);
-        const calls = stubStore(app);
-        await app.applyPropValue(FILL_PROP, null);
+    const app = appWith([
+        block("b1", "box", 0, 0, 5, 2, { meta: { keep: 1, fill: "░" } }),
+    ], ["b1"]);
+    const calls = stubStore(app);
+    await app.applyPropValue(PGProperties.findProperty("fill"), null);
 
-        assert.deepEqual(calls.update[0].props, { meta: { keep: 1 } });
-        assert.deepEqual(app.blocks[0].meta, { keep: 1 });
-    } finally {
-        PGProperties.PROPERTY_SCHEMA.pop();
-    }
+    assert.deepEqual(calls.update[0].props, { meta: { keep: 1 } });
+    assert.deepEqual(app.blocks[0].meta, { keep: 1 });
 });
 
 test("applyPropValue: a multi-selection is one batch update with per-block meta", async () => {
-    PGProperties.PROPERTY_SCHEMA.push(FILL_PROP);
-    try {
-        const app = appWith([
-            block("a", "box", 0, 0, 5, 2, { meta: { a: 1 } }),
-            block("b", "box", 0, 0, 5, 2, { meta: { b: 2 } }),
-        ], ["a", "b"]);
-        const calls = stubStore(app);
-        await app.applyPropValue(FILL_PROP, "▒");
+    const app = appWith([
+        block("a", "box", 0, 0, 5, 2, { meta: { a: 1 } }),
+        block("b", "box", 0, 0, 5, 2, { meta: { b: 2 } }),
+    ], ["a", "b"]);
+    const calls = stubStore(app);
+    await app.applyPropValue(PGProperties.findProperty("fill"), "▒");
 
-        assert.equal(calls.batch.length, 1);
-        assert.deepEqual(calls.batch[0].update, [
-            { id: "a", meta: { a: 1, fill: "▒" } },
-            { id: "b", meta: { b: 2, fill: "▒" } },
-        ]);
-    } finally {
-        PGProperties.PROPERTY_SCHEMA.pop();
-    }
+    assert.equal(calls.batch.length, 1);
+    assert.deepEqual(calls.batch[0].update, [
+        { id: "a", meta: { a: 1, fill: "▒" } },
+        { id: "b", meta: { b: 2, fill: "▒" } },
+    ]);
 });
 
 test("applyPropValue: a failed single update rolls back the value", async () => {
@@ -332,19 +320,14 @@ test("applyPropValue: a failed single update rolls back the value", async () => 
 });
 
 test("applyPropValue: a failed meta update rolls back the meta", async () => {
-    PGProperties.PROPERTY_SCHEMA.push(FILL_PROP);
-    try {
-        const app = appWith([
-            block("b1", "box", 0, 0, 5, 2, { meta: { keep: 1 } }),
-        ], ["b1"]);
-        app.store = {
-            updateBlock: async () => { throw new Error("boom"); },
-        };
-        await app.applyPropValue(FILL_PROP, "░");
-        assert.deepEqual(app.blocks[0].meta, { keep: 1 });
-    } finally {
-        PGProperties.PROPERTY_SCHEMA.pop();
-    }
+    const app = appWith([
+        block("b1", "box", 0, 0, 5, 2, { meta: { keep: 1 } }),
+    ], ["b1"]);
+    app.store = {
+        updateBlock: async () => { throw new Error("boom"); },
+    };
+    await app.applyPropValue(PGProperties.findProperty("fill"), "░");
+    assert.deepEqual(app.blocks[0].meta, { keep: 1 });
 });
 
 // ── Control handlers ──────────────────────────────────────
@@ -386,6 +369,20 @@ test("onPropText / onPropSelect: the value is applied as-is", () => {
     app.onPropText(PGProperties.findProperty("content"), { target: { value: "Hi" } });
     app.onPropSelect(PGProperties.findProperty("border_style"), "dashed");
     assert.deepEqual(applied, [["content", "Hi"], ["border_style", "dashed"]]);
+});
+
+test("onPropSelect: the 'none' option applies noneValue (clears the meta key)", () => {
+    const app = appWith([block("b1", "box", 3, 4, 5, 6)], ["b1"]);
+    const applied = [];
+    app.applyPropValue = (prop, value) => applied.push([prop.key, value]);
+
+    // fill declares noneValue: null — "none" is a display sentinel
+    app.onPropSelect(PGProperties.findProperty("fill"), "none");
+    assert.deepEqual(applied, [["fill", null]]);
+
+    // A property without noneValue stores "none" as-is
+    app.onPropSelect(PGProperties.findProperty("border_style"), "none");
+    assert.deepEqual(applied, [["fill", null], ["border_style", "none"]]);
 });
 
 // ── Section open/closed state (localStorage) ──────────────

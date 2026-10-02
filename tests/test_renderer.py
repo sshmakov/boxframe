@@ -456,6 +456,158 @@ def test_per_side_html_preview_lines_keep_global_style():
     assert 'class="block-line block-line--h block-line--dashed"' in html
 
 
+# ── Fill tests (tasks/0051, phase 2) ──────────────────────
+
+
+def _fill_box(meta=None, border_style="solid", width=8, height=4, content=""):
+    data = {
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": width, "height": height,
+        "content": content,
+        "border_style": border_style,
+    }
+    if meta is not None:
+        data["meta"] = meta
+    return [data]
+
+
+def test_fill_char():
+    from boxframe.services.renderer import fill_char
+    assert fill_char("box", {"fill": "░"}) == "░"
+    assert fill_char("image", {"fill": "█"}) == "█"
+    assert fill_char("box", None) == ""
+    assert fill_char("box", {}) == ""
+    assert fill_char("box", {"fill": ""}) == ""
+    assert fill_char("box", {"fill": "ab"}) == ""  # more than one cell
+    assert fill_char("box", {"fill": 5}) == ""     # not a string
+    # Not in the fill matrix
+    for t in ["button", "input", "textarea", "text", "divider", "hline", "vline"]:
+        assert fill_char(t, {"fill": "░"}) == ""
+
+
+def test_fill_empty_box():
+    """fill paints the content area; the [type] hint is suppressed."""
+    result = _render(_fill_box({"fill": "░"}))
+    lines = result.split("\n")
+    assert lines[0] == "┌──────┐"
+    assert lines[1] == "│░░░░░░│"
+    assert lines[2] == "│░░░░░░│"
+    assert lines[3] == "└──────┘"
+
+
+def test_fill_suppresses_type_hint():
+    result = _render(_fill_box({"fill": "█"}))
+    assert "[box]" not in result
+
+
+def test_fill_content_on_top():
+    """Content is drawn over the fill (content wins)."""
+    result = _render(_fill_box({"fill": "░"}, content="Hi"))
+    lines = result.split("\n")
+    assert lines[1] == "│Hi░░░░│"
+    assert lines[2] == "│░░░░░░│"
+
+
+def test_fill_wrapped_content():
+    """Wrapped lines are each drawn over the fill. The wrap keeps the
+    trailing space of the first line (spaces are formatting) — it is
+    drawn over the fill like any content cell."""
+    result = _render(_fill_box({"fill": "·"}, content="Hello World"))
+    lines = result.split("\n")
+    assert lines[1] == "│Hello │"  # trailing space overwrites the fill
+    assert lines[2] == "│World·│"
+
+
+def test_fill_no_border_fills_whole_area():
+    """A block without a border fills its whole area."""
+    result = _render(_fill_box({"fill": "▒"}, border_style="none", width=6, height=3))
+    lines = result.split("\n")
+    assert lines[0] == "▒▒▒▒▒▒"
+    assert lines[1] == "▒▒▒▒▒▒"
+    assert lines[2] == "▒▒▒▒▒▒"
+
+
+def test_fill_respects_per_side_inset():
+    """The fill area is inset only where a border is drawn (H=none → no
+    top/bottom inset)."""
+    result = _render(_fill_box({"fill": "░", "border_h": "none"}))
+    lines = result.split("\n")
+    assert lines[0] == "│░░░░░░│"
+    assert lines[1] == "│░░░░░░│"
+    assert lines[2] == "│░░░░░░│"
+    assert lines[3] == "│░░░░░░│"
+
+
+def test_fill_ignored_for_other_types():
+    """fill applies only to the spec's types (matrix): button/text/input/
+    divider/lines render identically with and without meta.fill."""
+    cases = [
+        {"block_type": "button", "width": 12, "height": 3, "content": "Btn"},
+        {"block_type": "text", "width": 10, "height": 2, "content": "t",
+         "border_style": "none"},
+        {"block_type": "input", "width": 10, "height": 2, "content": ""},
+        {"block_type": "divider", "width": 10, "height": 1, "content": ""},
+        {"block_type": "hline", "width": 10, "height": 1, "content": ""},
+        {"block_type": "vline", "width": 1, "height": 5, "content": ""},
+    ]
+    for case in cases:
+        base = {"x": 0, "y": 0, "border_style": "solid", "order": 0}
+        plain = _render([dict(case, **base)])
+        with_fill = _render([dict(case, **base, meta={"fill": "░"})])
+        assert with_fill == plain, case["block_type"]
+
+
+def test_fill_invalid_values():
+    """Invalid meta.fill (multi-char, empty, non-string) → no fill."""
+    plain = _render(_fill_box(None))
+    for bad in ["ab", "", 5, None]:
+        assert _render(_fill_box({"fill": bad})) == plain, bad
+
+
+def test_fill_image_block():
+    """image is in the fill matrix: the hint is suppressed, the area filled."""
+    result = _render([{
+        "block_type": "image",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"fill": "█"},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "┌────────┐"
+    assert lines[1] == "│████████│"
+    assert lines[2] == "│████████│"
+    assert lines[3] == "└────────┘"
+
+
+def test_fill_children_container():
+    """A filled container: children are drawn on top of the fill."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 20, "height": 6,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"fill": "░"},
+        "children": [{
+            "block_type": "text",
+            "x": 1, "y": 1,
+            "width": 8, "height": 1,
+            "content": "Hello",
+            "border_style": "none",
+        }],
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[1] == "│" + "░" * 18 + "│"
+    assert lines[2] == "│░Hello" + "░" * 12 + "│"
+    assert lines[3] == "│" + "░" * 18 + "│"
+    assert lines[4] == "│" + "░" * 18 + "│"
+    assert lines[5] == "└" + "─" * 18 + "┘"
+
+
 # ── Line block tests (hline / vline) ──────────────────────
 
 

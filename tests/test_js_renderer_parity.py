@@ -169,6 +169,61 @@ def test_parity_per_side_children_container():
     assert render_js(js_blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8)
 
 
+def test_parity_fill():
+    """Fill (meta.fill) renders identically in both renderers."""
+    cases = [
+        # (block_type, meta, content, border_style)
+        ("box", {"fill": "░"}, "", "solid"),
+        ("box", {"fill": "█"}, "Hi", "solid"),
+        ("box", {"fill": "·"}, "Hello World", "solid"),
+        ("box", {"fill": "▒"}, "", "none"),
+        ("header", {"fill": "▒"}, "Header", "double"),
+        ("footer", {"fill": "▓"}, "", "dashed"),
+        ("sidebar", {"fill": "░"}, "Side", "solid"),
+        ("content", {"fill": "×"}, "Some content here that wraps", "solid"),
+        ("grid", {"fill": "░"}, "", "dotted"),
+        ("image", {"fill": "█"}, "", "solid"),
+        ("box", {"fill": "░", "border_h": "none"}, "", "solid"),
+        ("box", {"fill": "▒", "border_v": "none"}, "Hi", "solid"),
+        ("box", {"fill": "░", "border_h": "none", "border_v": "none"}, "x", "none"),
+        ("box", {"fill": "ab"}, "x", "solid"),  # invalid: more than one cell
+        ("box", {"fill": ""}, "", "solid"),     # invalid: empty
+        ("box", {"fill": 5}, "", "solid"),      # invalid: not a string
+        ("button", {"fill": "░"}, "Btn", "solid"),   # not in the matrix
+        ("text", {"fill": "░"}, "t", "none"),        # not in the matrix
+        ("input", {"fill": "░"}, "", "solid"),       # not in the matrix
+        ("divider", {"fill": "░"}, "", "solid"),     # not in the matrix
+        ("hline", {"fill": "░"}, "", "solid"),       # not in the matrix
+        ("vline", {"fill": "░"}, "", "solid"),       # not in the matrix
+    ]
+    for block_type, meta, content, base in cases:
+        blocks = [{"id": "b1", "block_type": block_type, "x": 0, "y": 0,
+                   "width": 12, "height": 5, "content": content,
+                   "border_style": base, "meta": meta, "order": 0}]
+        py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
+        assert render_js(blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8), \
+            (block_type, meta, content, base)
+
+
+def test_parity_fill_children_container():
+    """A filled container with children: the child overwrites the fill."""
+    js_blocks = [
+        {"id": "p", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 6,
+         "content": "", "border_style": "solid", "meta": {"fill": "░"}, "order": 0},
+        {"id": "c", "block_type": "text", "x": 1, "y": 1, "width": 8, "height": 1,
+         "content": "Hello", "border_style": "none", "parent_id": "p", "order": 0},
+    ]
+    py_blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 6,
+        "content": "", "border_style": "solid", "meta": {"fill": "░"}, "order": 0,
+        "children": [
+            {"block_type": "text", "x": 1, "y": 1, "width": 8, "height": 1,
+             "content": "Hello", "border_style": "none", "order": 0},
+        ],
+    }]
+    assert render_js(js_blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8)
+
+
 def test_parity_lines():
     blocks = [
         {"id": "h1", "block_type": "hline", "x": 2, "y": 2, "width": 15, "height": 1,

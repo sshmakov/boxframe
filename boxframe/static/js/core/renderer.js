@@ -72,6 +72,27 @@
         return [h, v];
     }
 
+    // Block types whose content area can be painted with a fill character
+    // (meta.fill, tasks/0051 phase 2). Mirrors FILL_TYPES in
+    // services/renderer.py.
+    var FILL_TYPES = {
+        box: true, header: true, footer: true, sidebar: true,
+        content: true, grid: true, image: true,
+    };
+
+    // Port of fill_char in services/renderer.py: the block's fill
+    // character (meta.fill), if applicable. fill applies only to
+    // FILL_TYPES; the value must be exactly one cell (a wide character
+    // would break the monospace grid). An absent or invalid value means
+    // no fill.
+    function fillChar(blockType, meta) {
+        if (!FILL_TYPES[blockType]) return "";
+        meta = meta || {};
+        var fill = meta.fill;
+        if (typeof fill === "string" && fill.length === 1) return fill;
+        return "";
+    }
+
     // ── Text wrapping (port of PseudoGraphicRenderer._wrap_text) ──
 
     function wrapText(text, width) {
@@ -286,9 +307,23 @@
         var contentW = w - (hasV ? 2 : 0);
         var contentH = h - (hasH ? 2 : 0);
 
+        // Fill (meta.fill) paints the content area first; the content is
+        // drawn on top (content wins) and the [type] hint is suppressed.
+        // A block without a border fills its whole area.
+        var fill = fillChar(block.block_type, block.meta);
+        if (fill && contentW > 0 && contentH > 0) {
+            for (var fj = 0; fj < contentH; fj++) {
+                var frow = contentY + fj;
+                if (frow >= gh) break;
+                for (var fi = 0; fi < contentW; fi++) {
+                    setCell(grid, gw, gh, clip, contentX + fi, frow, fill);
+                }
+            }
+        }
+
         if (!block.content) {
-            // Show type hint if no content
-            if (hasBorder && w >= 4) {
+            // Show type hint if no content and no fill
+            if (hasBorder && w >= 4 && !fill) {
                 var hint = "[" + block.block_type + "]";
                 for (var i = 0; i < hint.length; i++) {
                     if (contentX + i < contentX + contentW && contentY < gh) {
@@ -711,6 +746,7 @@
         render: render,
         canvasSize: canvasSize,
         effectiveBorderStyles: effectiveBorderStyles,
+        fillChar: fillChar,
         wrapText: wrapText,
         textBlockSize: textBlockSize,
         toHtmlPreview: toHtmlPreview,

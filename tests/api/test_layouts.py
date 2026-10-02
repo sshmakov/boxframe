@@ -1019,6 +1019,41 @@ def test_batch_blocks_create_update_delete(client: TestClient):
     assert created["content"] == "Go"
 
 
+def test_block_meta_fill_passes_through_api(client: TestClient):
+    """meta.fill (tasks/0051, phase 2) passes through create/update/batch
+    and the JSON export (metadata)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create with meta.fill
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 3,
+        "meta": {"fill": "█"},
+    })
+    assert r.status_code == 200
+    block_id = r.json()["id"]
+    assert r.json()["meta"] == {"fill": "█"}
+
+    # Update: the meta object is replaced (the client sends the merged meta)
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "meta": {"fill": "░", "border_h": "dashed"},
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {"fill": "░", "border_h": "dashed"}
+
+    # Batch update: meta passes through
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [{"id": block_id, "meta": {"fill": "▒"}}],
+    })
+    assert r.status_code == 200
+    assert r.json()["updated"][0]["meta"] == {"fill": "▒"}
+
+    # Export JSON: metadata carries the fill
+    r = client.get(f"/api/layouts/{layout_id}/export")
+    assert r.status_code == 200
+    exported = r.json()["layout_json"]["blocks"][0]
+    assert exported["metadata"] == {"fill": "▒"}
+
+
 def test_batch_blocks_auto_order(client: TestClient):
     """Created blocks without an explicit order get sequential orders
     after the current maximum."""

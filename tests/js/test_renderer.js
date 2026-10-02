@@ -382,6 +382,139 @@ test("per-side children container: 1-cell padding and clip", () => {
     assert.equal(ls[5], "─".repeat(20)); // bottom edge end to end
 });
 
+// ── Fill tests (tasks/0051, phase 2) ──────────────────────
+
+function fillBox(meta, extra) {
+    return Object.assign({
+        id: "b1", block_type: "box",
+        x: 0, y: 0, width: 8, height: 4,
+        content: "", border_style: "solid",
+    }, meta ? { meta } : {}, extra || {});
+}
+
+test("fillChar: single-cell values for applicable types only", () => {
+    assert.equal(PG.fillChar("box", { fill: "░" }), "░");
+    assert.equal(PG.fillChar("image", { fill: "█" }), "█");
+    assert.equal(PG.fillChar("box", null), "");
+    assert.equal(PG.fillChar("box", {}), "");
+    assert.equal(PG.fillChar("box", { fill: "" }), "");
+    assert.equal(PG.fillChar("box", { fill: "ab" }), ""); // more than one cell
+    assert.equal(PG.fillChar("box", { fill: 5 }), "");    // not a string
+    // Not in the fill matrix
+    for (const t of ["button", "input", "textarea", "text", "divider", "hline", "vline"]) {
+        assert.equal(PG.fillChar(t, { fill: "░" }), "");
+    }
+});
+
+test("fill empty box: content area painted, hint suppressed", () => {
+    const result = render([fillBox({ fill: "░" })]);
+    const ls = lines(result);
+    assert.equal(ls[0], "┌──────┐");
+    assert.equal(ls[1], "│░░░░░░│");
+    assert.equal(ls[2], "│░░░░░░│");
+    assert.equal(ls[3], "└──────┘");
+});
+
+test("fill suppresses the type hint", () => {
+    const result = render([fillBox({ fill: "█" })]);
+    assert.ok(!result.includes("[box]"));
+});
+
+test("fill content on top: content wins", () => {
+    const result = render([fillBox({ fill: "░" }, { content: "Hi" })]);
+    const ls = lines(result);
+    assert.equal(ls[1], "│Hi░░░░│");
+    assert.equal(ls[2], "│░░░░░░│");
+});
+
+test("fill wrapped content: each line over the fill", () => {
+    // The wrap keeps the trailing space of the first line (spaces are
+    // formatting) — it is drawn over the fill like any content cell.
+    const result = render([fillBox({ fill: "·" }, { content: "Hello World" })]);
+    const ls = lines(result);
+    assert.equal(ls[1], "│Hello │"); // trailing space overwrites the fill
+    assert.equal(ls[2], "│World·│");
+});
+
+test("fill no border: the whole area is filled", () => {
+    const result = render([fillBox({ fill: "▒" }, { border_style: "none", width: 6, height: 3 })]);
+    const ls = lines(result);
+    assert.equal(ls[0], "▒▒▒▒▒▒");
+    assert.equal(ls[1], "▒▒▒▒▒▒");
+    assert.equal(ls[2], "▒▒▒▒▒▒");
+});
+
+test("fill respects the per-side inset (H=none → no top/bottom inset)", () => {
+    const result = render([fillBox({ fill: "░", border_h: "none" })]);
+    const ls = lines(result);
+    assert.equal(ls[0], "│░░░░░░│");
+    assert.equal(ls[1], "│░░░░░░│");
+    assert.equal(ls[2], "│░░░░░░│");
+    assert.equal(ls[3], "│░░░░░░│");
+});
+
+test("fill ignored for other types (matrix)", () => {
+    const cases = [
+        { block_type: "button", width: 12, height: 3, content: "Btn" },
+        { block_type: "text", width: 10, height: 2, content: "t", border_style: "none" },
+        { block_type: "input", width: 10, height: 2, content: "" },
+        { block_type: "divider", width: 10, height: 1, content: "" },
+        { block_type: "hline", width: 10, height: 1, content: "" },
+        { block_type: "vline", width: 1, height: 5, content: "" },
+    ];
+    for (const c of cases) {
+        const base = { id: "b1", x: 0, y: 0, border_style: "solid", order: 0 };
+        const plain = render([Object.assign({}, c, base)]);
+        const withFill = render([Object.assign({}, c, base, { meta: { fill: "░" } })]);
+        assert.equal(withFill, plain, c.block_type);
+    }
+});
+
+test("fill invalid values: no fill", () => {
+    const plain = render([fillBox(null)]);
+    for (const bad of ["ab", "", 5, null]) {
+        assert.equal(render([fillBox({ fill: bad })]), plain, String(bad));
+    }
+});
+
+test("fill image block: hint suppressed, area filled", () => {
+    const result = render([{
+        id: "b1", block_type: "image",
+        x: 0, y: 0, width: 10, height: 4,
+        content: "", border_style: "solid",
+        meta: { fill: "█" },
+    }]);
+    const ls = lines(result);
+    assert.equal(ls[0], "┌────────┐");
+    assert.equal(ls[1], "│████████│");
+    assert.equal(ls[2], "│████████│");
+    assert.equal(ls[3], "└────────┘");
+});
+
+test("fill children container: children drawn over the fill", () => {
+    const result = render([
+        {
+            id: "p", block_type: "box",
+            x: 0, y: 0, width: 20, height: 6,
+            content: "", border_style: "solid",
+            meta: { fill: "░" },
+        },
+        {
+            id: "c", block_type: "text",
+            x: 1, y: 1, width: 8, height: 1,
+            content: "Hello", border_style: "none",
+            parent_id: "p",
+        },
+    ]);
+    const ls = lines(result);
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[1], "│" + "░".repeat(18) + "│");
+    assert.equal(ls[2], "│░Hello" + "░".repeat(12) + "│");
+    assert.equal(ls[3], "│" + "░".repeat(18) + "│");
+    assert.equal(ls[4], "│" + "░".repeat(18) + "│");
+    assert.equal(ls[5], "└" + "─".repeat(18) + "┘");
+});
+
 // ── Line block tests (hline / vline) ──────────────────────
 
 test("hline solid", () => {

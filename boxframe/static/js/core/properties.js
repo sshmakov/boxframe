@@ -17,6 +17,8 @@
  *   group    — section name (sections = unique groups, declaration order)
  *   types    — applicable block_type; omitted = all
  *   default  — value when absent (null = inherit/none)
+ *   noneValue — value applied when the "none" option is picked (null
+ *               clears the meta key); omitted → "none" is stored as-is
  *   min/max  — for number
  *
  * Requires core/renderer.js (PGRenderer.BORDER_STYLES).
@@ -65,6 +67,23 @@
             types: ["box", "header", "footer", "sidebar", "content", "grid",
                     "input", "textarea", "text", "divider"],
             default: null,
+        },
+        // Fill (phase 2 of tasks/0051): meta.fill paints the block's
+        // content area; the content is drawn on top and the [type] hint
+        // is suppressed. "none" is a display sentinel for the absent
+        // value — picking it clears the meta key (noneValue: null).
+        {
+            key: "fill",
+            meta: true,
+            label: "Fill",
+            kind: "charpicker",
+            options: ["░", "▒", "▓", "█", "·", "×", "none"],
+            icons: { none: "∅" },
+            group: "Fill",
+            types: ["box", "header", "footer", "sidebar", "content", "grid",
+                    "image"],
+            default: "none",
+            noneValue: null,
         },
         { key: "x", label: "X", kind: "number", group: "Geometry", min: 0 },
         { key: "y", label: "Y", kind: "number", group: "Geometry", min: 0 },

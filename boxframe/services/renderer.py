@@ -148,6 +148,29 @@ def effective_border_styles(border_style: str, meta: dict | None) -> tuple[str, 
     return h, v
 
 
+# Block types whose content area can be painted with a fill character
+# (meta.fill, tasks/0051 phase 2).
+FILL_TYPES = frozenset(
+    {"box", "header", "footer", "sidebar", "content", "grid", "image"}
+)
+
+
+def fill_char(block_type: str, meta: dict | None) -> str:
+    """The block's fill character (meta.fill), if applicable.
+
+    fill applies only to FILL_TYPES; the value must be exactly one cell
+    (a wide character would break the monospace grid). An absent or
+    invalid value means no fill.
+    """
+    if block_type not in FILL_TYPES:
+        return ""
+    meta = meta or {}
+    fill = meta.get("fill")
+    if isinstance(fill, str) and len(fill) == 1:
+        return fill
+    return ""
+
+
 def _fmt_px(v: float) -> str:
     """Format a pixel value: integers without a decimal part."""
     if v == int(v):
@@ -498,9 +521,21 @@ class PseudoGraphicRenderer:
         content_w = w - (2 if has_v else 0)
         content_h = h - (2 if has_h else 0)
 
+        # Fill (meta.fill) paints the content area first; the content is
+        # drawn on top (content wins) and the [type] hint is suppressed.
+        # A block without a border fills its whole area.
+        fill = fill_char(block.block_type, block.meta)
+        if fill and content_w > 0 and content_h > 0:
+            for j in range(content_h):
+                row = content_y + j
+                if row >= self.grid_height:
+                    break
+                for i in range(content_w):
+                    self._set(content_x + i, row, fill)
+
         if not block.content:
-            # Show type hint if no content
-            if has_border and w >= 4:
+            # Show type hint if no content and no fill
+            if has_border and w >= 4 and not fill:
                 hint = f"[{block.block_type}]"
                 for i, ch in enumerate(hint):
                     if content_x + i < content_x + content_w and content_y < self.grid_height:
