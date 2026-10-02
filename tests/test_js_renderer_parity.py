@@ -251,6 +251,64 @@ def test_parity_lines():
     assert render_js(blocks, 40, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
 
 
+def test_parity_arrows():
+    """Arrows (meta.arrow_start / meta.arrow_end) render identically."""
+    cases = [
+        # (block_type, meta, border_style, width, height)
+        ("hline", {"arrow_start": "arrow", "arrow_end": "arrow"}, "solid", 8, 1),
+        ("hline", {"arrow_start": "double", "arrow_end": "double"}, "solid", 8, 1),
+        ("hline", {"arrow_end": "arrow"}, "dashed", 5, 1),
+        ("hline", {"arrow_start": "arrow"}, "dotted", 3, 1),
+        ("hline", {"arrow_start": "double", "arrow_end": "arrow"}, "double", 6, 1),
+        ("vline", {"arrow_start": "arrow", "arrow_end": "arrow"}, "solid", 1, 8),
+        ("vline", {"arrow_start": "double", "arrow_end": "double"}, "solid", 1, 8),
+        ("vline", {"arrow_end": "arrow"}, "dashed", 1, 5),
+        ("vline", {"arrow_start": "arrow"}, "double", 1, 3),
+        ("hline", {"arrow_start": "arrow", "arrow_end": "arrow"}, "solid", 1, 1),  # too short
+        ("hline", {"arrow_start": "arrow", "arrow_end": "arrow"}, "solid", 2, 1),  # exactly 2
+        ("hline", {"arrow_start": "foo", "arrow_end": "bar"}, "solid", 6, 1),  # invalid
+        ("box", {"arrow_start": "arrow", "arrow_end": "double"}, "solid", 8, 3),  # not a line
+        ("button", {"arrow_start": "arrow"}, "solid", 8, 1),  # not a line
+    ]
+    for block_type, meta, base, w, h in cases:
+        blocks = [{"id": "b1", "block_type": block_type, "x": 0, "y": 0,
+                   "width": w, "height": h, "content": "",
+                   "border_style": base, "meta": meta, "order": 0}]
+        py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
+        assert render_js(blocks, 30, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 12), \
+            (block_type, meta, base)
+
+
+def test_parity_alignment():
+    """text_align / vertical_align render identically."""
+    cases = [
+        # (block_type, meta, content, border_style, width, height)
+        ("box", {"text_align": "center"}, "Hi", "solid", 10, 4),
+        ("box", {"text_align": "right"}, "Hi", "solid", 10, 4),
+        ("box", {"vertical_align": "middle"}, "Hi", "solid", 10, 5),
+        ("box", {"vertical_align": "bottom"}, "Hi", "solid", 10, 5),
+        ("box", {"text_align": "center", "vertical_align": "middle"}, "Hi", "solid", 10, 5),
+        ("box", {"text_align": "right", "vertical_align": "bottom"}, "Hello World", "solid", 10, 5),
+        ("box", {"text_align": "center", "fill": "░"}, "Hi", "solid", 10, 4),
+        ("box", {"vertical_align": "bottom", "fill": "█"}, "a\nb\nc", "solid", 10, 4),
+        ("box", {"text_align": "center"}, "Hi", "none", 10, 4),
+        ("text", {"text_align": "right", "vertical_align": "middle"}, "t", "none", 10, 5),
+        ("header", {"text_align": "center"}, "Header", "double", 20, 4),
+        ("button", {"text_align": "center"}, "Button", "solid", 14, 2),
+        ("button", {"text_align": "right"}, "Button", "dashed", 14, 3),
+        ("button", {"vertical_align": "bottom"}, "Button", "solid", 14, 3),  # no-op for buttons
+        ("hline", {"text_align": "center"}, "", "solid", 8, 1),  # lines ignore alignment
+        ("vline", {"vertical_align": "bottom"}, "", "solid", 1, 8),
+    ]
+    for block_type, meta, content, base, w, h in cases:
+        blocks = [{"id": "b1", "block_type": block_type, "x": 0, "y": 0,
+                   "width": w, "height": h, "content": content,
+                   "border_style": base, "meta": meta, "order": 0}]
+        py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
+        assert render_js(blocks, 30, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 12), \
+            (block_type, meta, content, base)
+
+
 def test_parity_text_block_size():
     """The text fit size (autosize) must agree between the renderers."""
     from boxframe.services.renderer import text_block_size

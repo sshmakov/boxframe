@@ -13,12 +13,16 @@
  *   label    — panel label
  *   kind     — number | segmented | select | charpicker | text
  *   options  — for segmented / select / charpicker
- *   icons    — optional option → glyph map (button labels)
+ *   icons    — optional option → glyph map (button labels), or a
+ *               (blockType, option) → glyph function for type-dependent
+ *               glyphs (arrow direction)
  *   group    — section name (sections = unique groups, declaration order)
  *   types    — applicable block_type; omitted = all
  *   default  — value when absent (null = inherit/none)
  *   noneValue — value applied when the "none" option is picked (null
  *               clears the meta key); omitted → "none" is stored as-is
+ *   clearDefault — true → picking the default value clears the meta key
+ *               (the default is implicit; alignment properties)
  *   min/max  — for number
  *
  * Requires core/renderer.js (PGRenderer.BORDER_STYLES).
@@ -85,6 +89,76 @@
             group: "Fill",
             types: ["box", "header", "footer", "sidebar", "content", "grid",
                     "image"],
+            default: "none",
+            noneValue: null,
+        },
+        // Text alignment (phase 3 of tasks/0051): meta.text_align /
+        // meta.vertical_align position the wrapped content inside the
+        // content area (defaults left/top render as before). Picking the
+        // default clears the meta key (clearDefault — the default is
+        // implicit). Not applicable to lines. For a button, text_align
+        // aligns the label (the label is already vertically centered).
+        {
+            key: "text_align",
+            meta: true,
+            label: "H Align",
+            kind: "segmented",
+            options: ["left", "center", "right"],
+            group: "Align",
+            types: ["box", "header", "footer", "sidebar", "content", "button",
+                    "input", "textarea", "image", "divider", "text", "grid"],
+            default: "left",
+            clearDefault: true,
+        },
+        {
+            key: "vertical_align",
+            meta: true,
+            label: "V Align",
+            kind: "segmented",
+            options: ["top", "middle", "bottom"],
+            group: "Align",
+            types: ["box", "header", "footer", "sidebar", "content", "button",
+                    "input", "textarea", "image", "divider", "text", "grid"],
+            default: "top",
+            clearDefault: true,
+        },
+        // Arrows (phase 3 of tasks/0051): meta.arrow_start / meta.arrow_end
+        // replace the end cell of an hline/vline (a line shorter than 2
+        // cells has no arrows). "none" is a display sentinel for the
+        // absent value (noneValue: null clears the meta key). The button
+        // glyphs depend on the line direction (icons as a function of the
+        // block type).
+        {
+            key: "arrow_start",
+            meta: true,
+            label: "Start",
+            kind: "segmented",
+            options: ["none", "arrow", "double"],
+            icons: (type, opt) => {
+                const g = type === "vline"
+                    ? { none: "∅", arrow: "↑", double: "↕" }
+                    : { none: "∅", arrow: "←", double: "↔" };
+                return g[opt] || opt;
+            },
+            group: "Arrows",
+            types: ["hline", "vline"],
+            default: "none",
+            noneValue: null,
+        },
+        {
+            key: "arrow_end",
+            meta: true,
+            label: "End",
+            kind: "segmented",
+            options: ["none", "arrow", "double"],
+            icons: (type, opt) => {
+                const g = type === "vline"
+                    ? { none: "∅", arrow: "↓", double: "↕" }
+                    : { none: "∅", arrow: "→", double: "↔" };
+                return g[opt] || opt;
+            },
+            group: "Arrows",
+            types: ["hline", "vline"],
             default: "none",
             noneValue: null,
         },
@@ -176,7 +250,7 @@
                           :class="{ 'style-btn--active': propActive(prop.key, opt) }"
                           :title="String(opt)"
                           @click="onPropSelect(prop, opt)"
-                          x-text="(prop.icons && prop.icons[opt]) || opt"></button>
+                          x-text="propIcon(prop, opt)"></button>
                 </template>
               </div>
             </div>

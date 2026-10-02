@@ -51,10 +51,11 @@ function stubStore(app) {
 
 // ── Schema ────────────────────────────────────────────────
 
-test("schema: the current properties are described (phase 2 set)", () => {
+test("schema: the current properties are described (phase 3 set)", () => {
     const keys = PGProperties.PROPERTY_SCHEMA.map(p => p.key);
     assert.deepEqual(keys, [
         "border_style", "border_h", "border_v", "fill",
+        "text_align", "vertical_align", "arrow_start", "arrow_end",
         "x", "y", "width", "height", "order", "content",
     ]);
     const style = PGProperties.findProperty("border_style");
@@ -90,6 +91,45 @@ test("schema: the current properties are described (phase 2 set)", () => {
     assert.ok(!fill.types.includes("button"));
     assert.ok(!fill.types.includes("text"));
     assert.ok(!fill.types.includes("hline"));
+    // Alignment (phase 3 of tasks/0051): meta keys, segmented; picking
+    // the default clears the meta key (clearDefault — the default is
+    // implicit). Not applicable to lines.
+    for (const [key, options, defaultValue] of [
+        ["text_align", ["left", "center", "right"], "left"],
+        ["vertical_align", ["top", "middle", "bottom"], "top"],
+    ]) {
+        const prop = PGProperties.findProperty(key);
+        assert.equal(prop.meta, true);
+        assert.equal(prop.kind, "segmented");
+        assert.deepEqual(prop.options, options);
+        assert.equal(prop.group, "Align");
+        assert.equal(prop.default, defaultValue);
+        assert.equal(prop.clearDefault, true);
+        assert.ok(prop.types.includes("button"));
+        assert.ok(!prop.types.includes("hline"));
+        assert.ok(!prop.types.includes("vline"));
+    }
+    // Arrows (phase 3 of tasks/0051): meta keys, segmented, lines only;
+    // "none" is a display sentinel (noneValue: null clears it); the
+    // button glyphs depend on the line direction (icons as a function)
+    for (const key of ["arrow_start", "arrow_end"]) {
+        const prop = PGProperties.findProperty(key);
+        assert.equal(prop.meta, true);
+        assert.equal(prop.kind, "segmented");
+        assert.deepEqual(prop.options, ["none", "arrow", "double"]);
+        assert.equal(prop.group, "Arrows");
+        assert.deepEqual(prop.types, ["hline", "vline"]);
+        assert.equal(prop.default, "none");
+        assert.equal(prop.noneValue, null);
+        assert.equal(typeof prop.icons, "function");
+    }
+    assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "arrow"), "←");
+    assert.equal(PGProperties.findProperty("arrow_start").icons("vline", "arrow"), "↑");
+    assert.equal(PGProperties.findProperty("arrow_end").icons("hline", "arrow"), "→");
+    assert.equal(PGProperties.findProperty("arrow_end").icons("vline", "arrow"), "↓");
+    assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "double"), "↔");
+    assert.equal(PGProperties.findProperty("arrow_end").icons("vline", "double"), "↕");
+    assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "none"), "∅");
     assert.equal(PGProperties.findProperty("x").min, 0);
     assert.equal(PGProperties.findProperty("width").min, 1);
     assert.equal(PGProperties.findProperty("content").kind, "text");
@@ -126,39 +166,57 @@ test("readPropValue: meta properties read block.meta[key], absent → default", 
 test("sectionsForType: groups in declaration order, all properties applicable", () => {
     const sections = PGProperties.sectionsForType("box");
     assert.deepEqual(sections.map(s => s.name),
-        ["Style", "Borders", "Fill", "Geometry", "Text"]);
+        ["Style", "Borders", "Fill", "Align", "Geometry", "Text"]);
     assert.deepEqual(sections[0].props.map(p => p.key), ["border_style"]);
     assert.deepEqual(sections[1].props.map(p => p.key), ["border_h", "border_v"]);
     assert.deepEqual(sections[2].props.map(p => p.key), ["fill"]);
+    assert.deepEqual(sections[3].props.map(p => p.key), ["text_align", "vertical_align"]);
     assert.deepEqual(
-        sections[3].props.map(p => p.key),
+        sections[4].props.map(p => p.key),
         ["x", "y", "width", "height", "order"],
     );
-    assert.deepEqual(sections[4].props.map(p => p.key), ["content"]);
+    assert.deepEqual(sections[5].props.map(p => p.key), ["content"]);
 });
 
-test("sectionsForType: Borders and Fill are not applicable to button and lines", () => {
+test("sectionsForType: Borders/Fill are not applicable to button and lines", () => {
     for (const type of ["button", "hline", "vline"]) {
         const sections = PGProperties.sectionsForType(type);
         assert.ok(!sections.some(s => s.name === "Borders"), type);
         assert.ok(!sections.some(s => s.name === "Fill"), type);
     }
+    // Align applies to all content types (including button — text_align
+    // aligns the label) but not to lines
+    for (const type of ["hline", "vline"]) {
+        assert.ok(!PGProperties.sectionsForType(type).some(s => s.name === "Align"), type);
+    }
+    assert.ok(PGProperties.sectionsForType("button").some(s => s.name === "Align"));
+});
+
+test("sectionsForType: Arrows are applicable to lines only", () => {
+    for (const type of ["hline", "vline"]) {
+        const arrows = PGProperties.sectionsForType(type).find(s => s.name === "Arrows");
+        assert.ok(arrows, type);
+        assert.deepEqual(arrows.props.map(p => p.key), ["arrow_start", "arrow_end"]);
+    }
+    for (const type of ["box", "button", "text"]) {
+        assert.ok(!PGProperties.sectionsForType(type).some(s => s.name === "Arrows"), type);
+    }
 });
 
 test("sectionsForType: the types filter drops inapplicable properties and empty groups", () => {
     PGProperties.PROPERTY_SCHEMA.push({
-        key: "arrow_end", meta: true, label: "Arrow End", kind: "segmented",
-        options: ["none", "arrow", "double"], group: "Arrows",
-        types: ["hline", "vline"], default: "none",
+        key: "temp_prop", meta: true, label: "Temp", kind: "segmented",
+        options: ["a", "b"], group: "TempGroup",
+        types: ["hline"], default: "a",
     });
     try {
-        // box: the Arrows group has no applicable property → dropped
-        assert.ok(!PGProperties.sectionsForType("box").some(s => s.name === "Arrows"));
-        // hline: the Arrows group appears with its single property
+        // box: the TempGroup has no applicable property → dropped
+        assert.ok(!PGProperties.sectionsForType("box").some(s => s.name === "TempGroup"));
+        // hline: the TempGroup appears with its single property
         const line = PGProperties.sectionsForType("hline");
-        const arrows = line.find(s => s.name === "Arrows");
-        assert.ok(arrows);
-        assert.deepEqual(arrows.props.map(p => p.key), ["arrow_end"]);
+        const temp = line.find(s => s.name === "TempGroup");
+        assert.ok(temp);
+        assert.deepEqual(temp.props.map(p => p.key), ["temp_prop"]);
     } finally {
         PGProperties.PROPERTY_SCHEMA.pop();
     }
@@ -188,7 +246,13 @@ test("panelSections: the sections of the primary selected block's type", () => {
     const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
     assert.deepEqual(
         app.panelSections.map(s => s.name),
-        ["Style", "Borders", "Fill", "Geometry", "Text"],
+        ["Style", "Borders", "Fill", "Align", "Geometry", "Text"],
+    );
+    // A line: no Borders/Fill/Align, but Arrows
+    const line = appWith([block("b1", "hline", 0, 0, 5, 1)], ["b1"]);
+    assert.deepEqual(
+        line.panelSections.map(s => s.name),
+        ["Style", "Arrows", "Geometry", "Text"],
     );
 });
 
@@ -393,6 +457,52 @@ test("onPropSelect: the 'none' option applies noneValue (clears the meta key)", 
     // A property without noneValue stores "none" as-is
     app.onPropSelect(PGProperties.findProperty("border_style"), "none");
     assert.deepEqual(applied, [["fill", null], ["border_style", "none"]]);
+});
+
+test("onPropSelect: picking the default clears the meta key (clearDefault)", () => {
+    const app = appWith([block("b1", "box", 3, 4, 5, 6)], ["b1"]);
+    const applied = [];
+    app.applyPropValue = (prop, value) => applied.push([prop.key, value]);
+
+    // text_align declares clearDefault — "left" (the default) clears the key
+    app.onPropSelect(PGProperties.findProperty("text_align"), "left");
+    assert.deepEqual(applied, [["text_align", null]]);
+
+    // A non-default value is stored as-is
+    app.onPropSelect(PGProperties.findProperty("text_align"), "center");
+    assert.deepEqual(applied, [["text_align", null], ["text_align", "center"]]);
+
+    // A property without clearDefault stores its default as-is
+    app.onPropSelect(PGProperties.findProperty("border_style"), "solid");
+    assert.deepEqual(applied, [
+        ["text_align", null], ["text_align", "center"],
+        ["border_style", "solid"],
+    ]);
+});
+
+test("propIcon: static icon maps and type-dependent icon functions", () => {
+    const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
+    // Static map (fill): the space button shows a glyph, the rest as-is
+    assert.equal(app.propIcon(PGProperties.findProperty("fill"), " "), "␣");
+    assert.equal(app.propIcon(PGProperties.findProperty("fill"), "none"), "∅");
+    assert.equal(app.propIcon(PGProperties.findProperty("fill"), "█"), "█");
+    // No icons at all → the option itself
+    assert.equal(app.propIcon(PGProperties.findProperty("border_style"), "solid"), "─");
+    assert.equal(app.propIcon(PGProperties.findProperty("text_align"), "center"), "center");
+
+    // Type-dependent function (arrows): the glyph follows the selected
+    // block's line direction
+    const start = PGProperties.findProperty("arrow_start");
+    const end = PGProperties.findProperty("arrow_end");
+    const hline = appWith([block("b1", "hline", 0, 0, 5, 1)], ["b1"]);
+    assert.equal(hline.propIcon(start, "arrow"), "←");
+    assert.equal(hline.propIcon(end, "arrow"), "→");
+    assert.equal(hline.propIcon(start, "double"), "↔");
+    assert.equal(hline.propIcon(start, "none"), "∅");
+    const vline = appWith([block("b1", "vline", 0, 0, 1, 5)], ["b1"]);
+    assert.equal(vline.propIcon(start, "arrow"), "↑");
+    assert.equal(vline.propIcon(end, "arrow"), "↓");
+    assert.equal(vline.propIcon(end, "double"), "↕");
 });
 
 // ── Section open/closed state (localStorage) ──────────────

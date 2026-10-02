@@ -621,6 +621,282 @@ test("hline beyond layout", () => {
     assert.equal(lines(result)[0].slice(35), "─".repeat(20));
 });
 
+// ── Line arrows (tasks/0051 phase 3) ──────────────────────
+
+test("arrowGlyph: line-end glyphs for applicable types only", () => {
+    assert.equal(PG.arrowGlyph("hline", "arrow", "start"), "←");
+    assert.equal(PG.arrowGlyph("hline", "arrow", "end"), "→");
+    assert.equal(PG.arrowGlyph("hline", "double", "start"), "↔");
+    assert.equal(PG.arrowGlyph("hline", "double", "end"), "↔");
+    assert.equal(PG.arrowGlyph("vline", "arrow", "start"), "↑");
+    assert.equal(PG.arrowGlyph("vline", "arrow", "end"), "↓");
+    assert.equal(PG.arrowGlyph("vline", "double", "start"), "↕");
+    assert.equal(PG.arrowGlyph("vline", "double", "end"), "↕");
+    // Absent / "none" / invalid → no arrow
+    for (const value of [null, "none", "", "foo", 5]) {
+        assert.equal(PG.arrowGlyph("hline", value, "start"), "");
+        assert.equal(PG.arrowGlyph("vline", value, "end"), "");
+    }
+    // Not a line type
+    assert.equal(PG.arrowGlyph("box", "arrow", "start"), "");
+});
+
+test("hline arrow both ends", () => {
+    const result = render([{
+        id: "b1", block_type: "hline",
+        x: 0, y: 0, width: 8, height: 1,
+        content: "", border_style: "solid",
+        meta: { arrow_start: "arrow", arrow_end: "arrow" },
+    }]);
+    assert.equal(lines(result)[0].slice(0, 8), "←──────→");
+});
+
+test("hline double arrow", () => {
+    const result = render([{
+        id: "b1", block_type: "hline",
+        x: 0, y: 0, width: 8, height: 1,
+        content: "", border_style: "solid",
+        meta: { arrow_start: "double", arrow_end: "double" },
+    }]);
+    assert.equal(lines(result)[0].slice(0, 8), "↔──────↔");
+});
+
+test("hline arrow one end", () => {
+    const result = render([{
+        id: "b1", block_type: "hline",
+        x: 0, y: 0, width: 8, height: 1,
+        content: "", border_style: "solid",
+        meta: { arrow_end: "arrow" },
+    }]);
+    assert.equal(lines(result)[0].slice(0, 8), "───────→");
+});
+
+test("vline arrow both ends", () => {
+    const result = render([{
+        id: "b1", block_type: "vline",
+        x: 0, y: 0, width: 1, height: 8,
+        content: "", border_style: "solid",
+        meta: { arrow_start: "arrow", arrow_end: "arrow" },
+    }]);
+    const ls = lines(result);
+    assert.equal(ls[0][0], "↑");
+    assert.equal(ls[7][0], "↓");
+    for (let i = 1; i < 7; i++) {
+        assert.equal(ls[i][0], "│");
+    }
+});
+
+test("vline double arrow", () => {
+    const result = render([{
+        id: "b1", block_type: "vline",
+        x: 0, y: 0, width: 1, height: 8,
+        content: "", border_style: "solid",
+        meta: { arrow_start: "double", arrow_end: "double" },
+    }]);
+    const ls = lines(result);
+    assert.equal(ls[0][0], "↕");
+    assert.equal(ls[7][0], "↕");
+});
+
+test("arrow short line ignored", () => {
+    // A line shorter than 2 cells has no arrows
+    const result = render([{
+        id: "b1", block_type: "hline",
+        x: 0, y: 0, width: 1, height: 1,
+        content: "", border_style: "solid",
+        meta: { arrow_start: "arrow", arrow_end: "arrow" },
+    }]);
+    assert.equal(lines(result)[0].slice(0, 1), "─");
+});
+
+test("arrow two-cell line", () => {
+    // A 2-cell line is exactly the two arrow cells
+    const result = render([{
+        id: "b1", block_type: "hline",
+        x: 0, y: 0, width: 2, height: 1,
+        content: "", border_style: "solid",
+        meta: { arrow_start: "arrow", arrow_end: "arrow" },
+    }]);
+    assert.equal(lines(result)[0].slice(0, 2), "←→");
+});
+
+test("arrow all line styles", () => {
+    const chars = { solid: "─", dashed: "┄", dotted: "┈", double: "═" };
+    for (const [style, ch] of Object.entries(chars)) {
+        const result = render([{
+            id: "b1", block_type: "hline",
+            x: 0, y: 0, width: 5, height: 1,
+            content: "", border_style: style,
+            meta: { arrow_start: "arrow", arrow_end: "arrow" },
+        }]);
+        assert.equal(lines(result)[0].slice(0, 5), "←" + ch.repeat(3) + "→");
+    }
+});
+
+test("arrow ignored for other types (matrix)", () => {
+    // Arrows apply only to hline/vline: other blocks render identically
+    // with and without meta.arrow_*
+    const cases = [
+        { block_type: "box", width: 10, height: 3, content: "x" },
+        { block_type: "button", width: 10, height: 1, content: "B" },
+        { block_type: "text", width: 10, height: 2, content: "t", border_style: "none" },
+    ];
+    const meta = { arrow_start: "arrow", arrow_end: "double" };
+    for (const c of cases) {
+        const base = { id: "b1", x: 0, y: 0, border_style: "solid", order: 0 };
+        const plain = render([Object.assign({}, c, base)]);
+        const withArrows = render([Object.assign({}, c, base, { meta })]);
+        assert.equal(withArrows, plain, c.block_type);
+    }
+});
+
+test("arrow invalid values: line unchanged", () => {
+    const plain = render([{
+        id: "b1", block_type: "hline",
+        x: 0, y: 0, width: 6, height: 1,
+        content: "", border_style: "solid",
+    }]);
+    for (const bad of ["foo", "", 5, null, "ARROW"]) {
+        assert.equal(render([{
+            id: "b1", block_type: "hline",
+            x: 0, y: 0, width: 6, height: 1,
+            content: "", border_style: "solid",
+            meta: { arrow_start: bad, arrow_end: bad },
+        }]), plain, String(bad));
+    }
+});
+
+// ── Text alignment (tasks/0051 phase 3) ───────────────────
+
+function alignBox(meta, content = "Hi", width = 10, height = 4) {
+    const data = {
+        id: "b1", block_type: "box",
+        x: 0, y: 0, width, height,
+        content, border_style: "solid",
+    };
+    if (meta != null) data.meta = meta;
+    return [data];
+}
+
+test("hAlignOffset / vAlignOffset", () => {
+    assert.equal(PG.hAlignOffset(2, 8, "left"), 0);
+    assert.equal(PG.hAlignOffset(2, 8, null), 0);
+    assert.equal(PG.hAlignOffset(2, 8, "center"), 3); // gap 6 → 3 left
+    assert.equal(PG.hAlignOffset(1, 8, "center"), 3); // gap 7 → 3 left, 4 right
+    assert.equal(PG.hAlignOffset(2, 8, "right"), 6);
+    assert.equal(PG.hAlignOffset(8, 8, "center"), 0); // fills the area
+    assert.equal(PG.hAlignOffset(9, 8, "right"), 0);  // overflow — not shifted
+
+    assert.equal(PG.vAlignOffset(1, 3, "top"), 0);
+    assert.equal(PG.vAlignOffset(1, 3, null), 0);
+    assert.equal(PG.vAlignOffset(1, 3, "middle"), 1); // (3-1)//2
+    assert.equal(PG.vAlignOffset(1, 4, "middle"), 1); // (4-1)//2 = 1
+    assert.equal(PG.vAlignOffset(1, 3, "bottom"), 2);
+    assert.equal(PG.vAlignOffset(3, 3, "middle"), 0); // fills the area
+    assert.equal(PG.vAlignOffset(5, 3, "bottom"), 0); // overflow — not shifted
+});
+
+test("text align center", () => {
+    // Each wrapped line is centered inside the content area
+    const result = render(alignBox({ text_align: "center" }));
+    const ls = lines(result);
+    // content_w = 8, "Hi" (2) → offset 3
+    assert.equal(ls[1], "│   Hi   │");
+});
+
+test("text align right", () => {
+    const result = render(alignBox({ text_align: "right" }));
+    assert.equal(lines(result)[1], "│      Hi│");
+});
+
+test("text align default left unchanged", () => {
+    // No meta / left — the current output (regression)
+    const plain = render(alignBox(null));
+    assert.equal(plain, render(alignBox({ text_align: "left" })));
+    assert.equal(lines(plain)[1], "│Hi      │");
+});
+
+test("text align wrapped lines", () => {
+    // Every wrapped line is aligned independently. content_w = 8:
+    // "Hello World" wraps to "Hello " (6) + "World" (5)
+    const result = render(alignBox({ text_align: "right" }, "Hello World"));
+    const ls = lines(result);
+    assert.equal(ls[1], "│  Hello │"); // "Hello " (6 cells) → offset 2
+    assert.equal(ls[2], "│   World│"); // "World" (5) → offset 3
+});
+
+test("vertical align middle", () => {
+    const result = render(alignBox({ vertical_align: "middle" }, "Hi", 10, 5));
+    const ls = lines(result);
+    // content_h = 3, one line → offset 1
+    assert.equal(ls[1], "│        │");
+    assert.equal(ls[2], "│Hi      │");
+    assert.equal(ls[3], "│        │");
+});
+
+test("vertical align bottom", () => {
+    const result = render(alignBox({ vertical_align: "bottom" }, "Hi", 10, 5));
+    const ls = lines(result);
+    // content_h = 3, one line → offset 2
+    assert.equal(ls[1], "│        │");
+    assert.equal(ls[2], "│        │");
+    assert.equal(ls[3], "│Hi      │");
+});
+
+test("vertical align overflow not shifted", () => {
+    // More lines than content_h: the block is not shifted (top).
+    // content_h = 2 (height 4), "a\nb\nc" → 3 lines, only 2 fit
+    const result = render(alignBox({ vertical_align: "bottom" }, "a\nb\nc", 10, 4));
+    const ls = lines(result);
+    assert.equal(ls[1], "│a       │");
+    assert.equal(ls[2], "│b       │");
+    assert.equal(ls[3], "└────────┘");
+});
+
+test("alignment with fill: content over the fill at the offset", () => {
+    // Alignment offsets position the content over the fill; the fill
+    // stays in the cells the content does not cover.
+    const result = render(alignBox({ text_align: "center", fill: "░" }));
+    const ls = lines(result);
+    // "Hi" at offset 3 over the ░ fill
+    assert.equal(ls[1], "│░░░Hi░░░│");
+});
+
+test("alignment ignored for lines (matrix)", () => {
+    // Alignment applies only to content blocks: lines render identically
+    // with and without meta.text_align / meta.vertical_align
+    const meta = { text_align: "center", vertical_align: "bottom" };
+    const cases = [
+        { block_type: "hline", width: 8, height: 1 },
+        { block_type: "vline", width: 1, height: 8 },
+    ];
+    for (const c of cases) {
+        const base = { id: "b1", x: 0, y: 0, content: "", border_style: "solid", order: 0 };
+        const plain = render([Object.assign({}, c, base)]);
+        const withAlign = render([Object.assign({}, c, base, { meta })]);
+        assert.equal(withAlign, plain, c.block_type);
+    }
+});
+
+test("button text align", () => {
+    // text_align positions the button label (the label is already
+    // vertically centered)
+    const expected = {
+        left: "│Button      │",
+        center: "│   Button   │",
+        right: "│      Button│",
+    };
+    for (const [align, exp] of Object.entries(expected)) {
+        const result = render([{
+            id: "b1", block_type: "button",
+            x: 0, y: 0, width: 14, height: 2,
+            content: "Button", border_style: "solid",
+            meta: { text_align: align },
+        }]);
+        assert.equal(lines(result)[0], exp, align);
+    }
+});
+
 // ── Button tests (tasks/0021-0030/0022-button.md) ────────
 
 function button(height, width = 16, content = "Button", border_style = "solid") {

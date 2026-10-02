@@ -2115,6 +2115,17 @@ function editorApp() {
             return !this.isMixedProp(key) && this.propValue(key) === opt;
         },
 
+        // Button label for a segmented/charpicker option: a static icon
+        // map or a type-dependent function (arrow glyphs differ for
+        // hline/vline — the primary selected block's type).
+        propIcon(prop, opt) {
+            if (typeof prop.icons === "function") {
+                const b = this.selectedBlock;
+                return prop.icons(b ? b.block_type : null, opt) || opt;
+            }
+            return (prop.icons && prop.icons[opt]) || opt;
+        },
+
         // Apply a property value to the selection. Meta properties are
         // merged into each block's current meta (the API/store replace
         // the whole meta object on update); a null value clears the meta
@@ -2181,10 +2192,16 @@ function editorApp() {
 
         onPropSelect(prop, opt) {
             // The "none" option may be a display sentinel for the absent
-            // value (fill): noneValue gives the stored value (null clears
-            // the meta key). Omitted → "none" is stored as-is.
+            // value (fill/arrows): noneValue gives the stored value (null
+            // clears the meta key). Omitted → "none" is stored as-is.
             if (opt === "none" && prop.noneValue !== undefined) {
                 this.applyPropValue(prop, prop.noneValue);
+                return;
+            }
+            // Picking the default value clears the meta key (clearDefault)
+            // — the default is implicit (alignment properties).
+            if (prop.clearDefault && opt === prop.default) {
+                this.applyPropValue(prop, null);
                 return;
             }
             this.applyPropValue(prop, opt);

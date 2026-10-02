@@ -93,6 +93,39 @@
         return "";
     }
 
+    // Arrow glyphs for line ends (meta.arrow_start / meta.arrow_end,
+    // tasks/0051 phase 3). Mirrors ARROW_GLYPHS / arrow_glyph in
+    // services/renderer.py.
+    var ARROW_GLYPHS = {
+        hline: { arrow: { start: "←", end: "→" }, double: { start: "↔", end: "↔" } },
+        vline: { arrow: { start: "↑", end: "↓" }, double: { start: "↕", end: "↕" } },
+    };
+
+    function arrowGlyph(blockType, value, end) {
+        if (value !== "arrow" && value !== "double") return "";
+        var glyphs = ARROW_GLYPHS[blockType];
+        if (!glyphs || (end !== "start" && end !== "end")) return "";
+        return glyphs[value][end];
+    }
+
+    // Port of h_align_offset in services/renderer.py: the left offset of
+    // a line inside the content area (left — 0).
+    function hAlignOffset(lineLen, width, align) {
+        if ((align !== "center" && align !== "right") || width <= 0) return 0;
+        var gap = width - lineLen;
+        if (gap <= 0) return 0;
+        return align === "center" ? Math.floor(gap / 2) : gap;
+    }
+
+    // Port of v_align_offset in services/renderer.py: the top offset of
+    // the line block inside the content area (top — 0).
+    function vAlignOffset(nLines, height, valign) {
+        if (valign !== "middle" && valign !== "bottom") return 0;
+        if (height <= 0) return 0;
+        if (valign === "middle") return Math.max(0, Math.floor((height - nLines) / 2));
+        return Math.max(0, height - nLines);
+    }
+
     // ── Text wrapping (port of PseudoGraphicRenderer._wrap_text) ──
 
     function wrapText(text, width) {
@@ -217,19 +250,37 @@
         }
     }
 
+    // Port of PseudoGraphicRenderer._draw_line: style characters + arrows
+    // (meta.arrow_start / meta.arrow_end) replacing the end cells; a line
+    // shorter than 2 cells has no arrows.
     function drawLine(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 1));
         var y = Math.max(0, Math.min(block.y, gh - 1));
+        var meta = block.meta || {};
 
         if (block.block_type === "hline") {
             var w = Math.min(block.width, gw - x);
-            for (var i = 0; i < Math.max(1, w); i++) {
+            var n = Math.max(1, w);
+            for (var i = 0; i < n; i++) {
                 setCell(grid, gw, gh, clip, x + i, y, style.h);
+            }
+            if (n >= 2) {
+                var start = arrowGlyph("hline", meta.arrow_start, "start");
+                if (start) setCell(grid, gw, gh, clip, x, y, start);
+                var end = arrowGlyph("hline", meta.arrow_end, "end");
+                if (end) setCell(grid, gw, gh, clip, x + n - 1, y, end);
             }
         } else { // vline
             var h = Math.min(block.height, gh - y);
-            for (var j = 0; j < Math.max(1, h); j++) {
+            var n2 = Math.max(1, h);
+            for (var j = 0; j < n2; j++) {
                 setCell(grid, gw, gh, clip, x, y + j, style.v);
+            }
+            if (n2 >= 2) {
+                var start2 = arrowGlyph("vline", meta.arrow_start, "start");
+                if (start2) setCell(grid, gw, gh, clip, x, y, start2);
+                var end2 = arrowGlyph("vline", meta.arrow_end, "end");
+                if (end2) setCell(grid, gw, gh, clip, x, y + n2 - 1, end2);
             }
         }
     }
@@ -272,15 +323,17 @@
             }
         }
 
-        // Label — single line, vertically centered, truncated to fit
+        // Label — single line, vertically centered, truncated to fit,
+        // horizontally aligned (meta.text_align)
         if (block.content) {
             var row = y + Math.floor((h - 1) / 2);
             var innerX = x + (framed ? 1 : 0);
             var innerW = w - (framed ? 2 : 0);
             if (innerW > 0 && row < gh) {
                 var label = String(block.content).split("\n")[0].slice(0, innerW);
+                var off = hAlignOffset(label.length, innerW, (block.meta || {}).text_align);
                 for (var c = 0; c < label.length; c++) {
-                    setCell(grid, gw, gh, clip, innerX + c, row, label[c]);
+                    setCell(grid, gw, gh, clip, innerX + off + c, row, label[c]);
                 }
             }
         }
@@ -337,13 +390,20 @@
         if (contentW <= 0 || contentH <= 0) return;
 
         var lines = wrapText(block.content, contentW);
+        // Align: each line horizontally inside contentW (meta.text_align)
+        // and the line block vertically inside contentH (meta.vertical_align).
+        // Only the line's own cells are written — the offsets leave the
+        // rest of the area untouched (fill / show-through intact).
+        var vOff = vAlignOffset(lines.length, contentH, (block.meta || {}).vertical_align);
+        var hAlign = (block.meta || {}).text_align;
         for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-            if (lineIdx >= contentH) break;
-            var row = contentY + lineIdx;
+            if (lineIdx + vOff >= contentH) break;
+            var row = contentY + lineIdx + vOff;
             if (row >= gh) break;
             var line = lines[lineIdx];
+            var off = hAlignOffset(line.length, contentW, hAlign);
             for (var colIdx = 0; colIdx < line.length; colIdx++) {
-                setCell(grid, gw, gh, clip, contentX + colIdx, row, line[colIdx]);
+                setCell(grid, gw, gh, clip, contentX + off + colIdx, row, line[colIdx]);
             }
         }
     }
@@ -747,6 +807,9 @@
         canvasSize: canvasSize,
         effectiveBorderStyles: effectiveBorderStyles,
         fillChar: fillChar,
+        arrowGlyph: arrowGlyph,
+        hAlignOffset: hAlignOffset,
+        vAlignOffset: vAlignOffset,
         wrapText: wrapText,
         textBlockSize: textBlockSize,
         toHtmlPreview: toHtmlPreview,

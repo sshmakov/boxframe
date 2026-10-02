@@ -270,10 +270,10 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 - [x] Фаза 2: fill в `_draw_content` (Python) + порт в JS
 - [x] Фаза 2: char-picker в схеме, подавление подсказки
 - [x] Фаза 2: тесты (Python + JS + parity)
-- [ ] Фаза 3: стрелки в `_draw_line` (Python) + порт в JS
-- [ ] Фаза 3: выравнивание в `_draw_content` (Python) + порт в JS
-- [ ] Фаза 3: тесты (Python + JS + parity)
-- [ ] Проверка: `pytest tests/ --ignore=tests/e2e`,
+- [x] Фаза 3: стрелки в `_draw_line` (Python) + порт в JS
+- [x] Фаза 3: выравнивание в `_draw_content` (Python) + порт в JS
+- [x] Фаза 3: тесты (Python + JS + parity)
+- [x] Проверка: `pytest tests/ --ignore=tests/e2e`,
       `node --test "tests/js/*.js"`
 
 # Исследование
@@ -377,6 +377,59 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 Приёмка: `pytest tests/ --ignore=tests/e2e` — 188 passed,
 `node --test "tests/js/*.js"` — 261 pass, `pytest tests/e2e/` — 71 passed
 (регрессий нет: дефолтные значения рендерятся побайтово как до фазы 2).
+
+## Фаза 3 (2026-10-02, ветка `feature/extprops`)
+
+- `services/renderer.py`:
+  - **Стрелки.** `ARROW_GLYPHS` (hline: arrow `←`/`→`, double `↔`/`↔`;
+    vline: arrow `↑`/`↓`, double `↕`/`↕`) + `arrow_glyph(block_type,
+    value, end)`. `_draw_line` после рисования линии символом стиля
+    заменяет крайние клетки: первый/верхний → `meta.arrow_start`,
+    последний/нижний → `meta.arrow_end`; длина < 2 — стрелки не
+    рисуются; невалидные значения и не-линии — без изменений.
+  - **Выравнивание.** `h_align_offset(line_len, width, align)`
+    (left/None → 0, center → `gap//2`, right → `gap`; `gap <= 0` → 0) и
+    `v_align_offset(n_lines, height, valign)` (top/None → 0, middle →
+    `(h-n)//2`, bottom → `h-n`; overflow → 0). `_draw_content`: после
+    `_wrap_text` блок строк сдвигается на `v_off` сверху, каждая строка —
+    на `off` слева; пишутся только собственные клетки строки (fill /
+    show-through не трогаются). `_draw_button`: label сдвигается
+    `text_align` в `inner_w` (вертикаль у label уже center —
+    `vertical_align` для button no-op).
+- `core/renderer.js`: побайтовый порт — `ARROW_GLYPHS`, `arrowGlyph()`,
+  `hAlignOffset()`, `vAlignOffset()` (Math.floor/Math.max), стрелки в
+  `drawLine`, выравнивание в `drawContent`, label-сдвиг в `drawButton`;
+  экспорт в `PGRenderer`.
+- `core/properties.js`:
+  - `text_align` (segmented left/center/right, секция «Align»,
+    `default: "left"`, `clearDefault: true`) — все типы, кроме линий;
+    `vertical_align` (top/middle/bottom, `default: "top"`,
+    `clearDefault: true`) — те же типы.
+  - `arrow_start`/`arrow_end` (segmented none/arrow/double, секция
+    «Arrows», `types: ["hline", "vline"]`, `default: "none"`,
+    `noneValue: null`); `icons` — **функция** `(blockType, opt)`: глифы
+    зависят от направления линии (hline ∅/←/→/↔, vline ∅/↑/↓/↕).
+- `editor.js`: `propIcon(prop, opt)` — статичная карта `icons` или
+  функция `(selectedBlock.block_type, opt)`; `onPropSelect`:
+  `prop.clearDefault && opt === prop.default` → применить `null`
+  (очистить meta-ключ — дефолт неявный).
+- Тесты: 15 в test_renderer.py (arrow_glyph, оба конца, double, один
+  конец, vline, короткая линия, ровно 2 клетки, все стили, не-линии,
+  невалидные; h/v_align_offset, center/right, дефолт left без изменений,
+  перенос, middle/bottom, overflow, fill+align, линии игнорируют,
+  button label left/center/right) + зеркала в js/test_renderer.js;
+  2 parity (24 кейса: стрелки + выравнивание); 1 API (arrow/align через
+  create/update/batch/export); `test_properties.js` — 14 ключей схемы,
+  секции box (6, с Align) и hline (Style/Arrows/Geometry/Text),
+  clearDefault, типозависимые иконки; e2e: порядок секций
+  Style/Borders/Fill/Align/Geometry/Text + `test_properties_panel_updates_alignment`
+  (center → meta.text_align, middle → meta.vertical_align, выбор
+  дефолта left → очистка ключа) + `test_properties_panel_updates_arrows`
+  (arrow → arrow_start, double → arrow_end, ∅ → очистка).
+
+Приёмка: `pytest tests/ --ignore=tests/e2e` — 214 passed,
+`node --test "tests/js/*.js"` — 286 pass, `pytest tests/e2e/` — 73 passed
+(регрессий нет: дефолты left/top/none рендерятся побайтово как до фазы 3).
 
 # Замечания
 

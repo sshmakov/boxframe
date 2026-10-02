@@ -742,7 +742,7 @@ def test_properties_panel_fields_in_one_row(page: Page):
 
 def test_properties_panel_section_order(page: Page):
     """Panel sections top to bottom: actions, Style, Borders, Fill,
-    Geometry, Text."""
+    Align, Geometry, Text (for a box — no Arrows)."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
@@ -750,21 +750,22 @@ def test_properties_panel_section_order(page: Page):
     expect(panel).to_be_visible()
 
     heads = panel.locator(".props-section__head")
-    expect(heads).to_have_count(5)
+    expect(heads).to_have_count(6)
     # text_content() is not affected by CSS text-transform
     titles = [
         panel.locator(".props-section__title").nth(i).text_content()
-        for i in range(5)
+        for i in range(6)
     ]
-    assert titles == ["Style", "Borders", "Fill", "Geometry", "Text"]
+    assert titles == ["Style", "Borders", "Fill", "Align", "Geometry", "Text"]
 
     sections = {
         "actions": panel.locator(".block-props__actions"),
         "style": heads.nth(0),
         "borders": heads.nth(1),
         "fill": heads.nth(2),
-        "geometry": heads.nth(3),
-        "text": heads.nth(4),
+        "align": heads.nth(3),
+        "geometry": heads.nth(4),
+        "text": heads.nth(5),
     }
     for name, loc in sections.items():
         expect(loc).to_have_count(1)
@@ -829,6 +830,115 @@ def test_properties_panel_updates_fill(page: Page):
             break
         page.wait_for_timeout(100)
     assert block["meta"].get("fill") == " "
+
+
+def _wait_block_meta(page: Page, layout_id: str, block_id: str,
+                     predicate) -> dict:
+    """Poll the API until the block's meta satisfies the predicate."""
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if predicate(block["meta"]):
+            break
+        page.wait_for_timeout(100)
+    return block
+
+
+def test_properties_panel_updates_alignment(page: Page):
+    """Picking an alignment persists to meta.text_align /
+    meta.vertical_align; picking the default clears the meta key
+    (clearDefault — the default is implicit)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    _open_section(panel, "Align")
+    align_section = panel.locator(
+        ".props-section:has(.props-section__title:text-is('Align'))"
+    )
+    # Two segmented rows: H Align (left/center/right) + V Align
+    # (top/middle/bottom)
+    expect(align_section.locator(".style-btn")).to_have_count(6)
+    # No alignment yet → the defaults are active (left / top)
+    active_titles = align_section.locator(".style-btn--active")
+    expect(active_titles).to_have_count(2)
+    assert sorted(
+        active_titles.nth(i).get_attribute("title") for i in range(2)
+    ) == ["left", "top"]
+
+    align_section.locator(".style-btn[title='center']").click()
+    block = _wait_block_meta(
+        page, layout_id, block_id,
+        lambda m: m.get("text_align") == "center",
+    )
+    assert block["meta"].get("text_align") == "center"
+    assert "vertical_align" not in block["meta"]
+
+    align_section.locator(".style-btn[title='middle']").click()
+    block = _wait_block_meta(
+        page, layout_id, block_id,
+        lambda m: m.get("vertical_align") == "middle",
+    )
+    assert block["meta"] == {"text_align": "center", "vertical_align": "middle"}
+
+    # Picking the default (left) clears the meta key
+    align_section.locator(".style-btn[title='left']").click()
+    block = _wait_block_meta(
+        page, layout_id, block_id,
+        lambda m: "text_align" not in m,
+    )
+    assert block["meta"] == {"vertical_align": "middle"}
+
+
+def test_properties_panel_updates_arrows(page: Page):
+    """Picking an arrow persists to meta.arrow_start / meta.arrow_end;
+    the ∅ option clears the meta key. The button glyphs follow the line
+    direction (hline ←/→/↔)."""
+    layout_id, [line_id] = _create_project_with_blocks(page, [
+        {"block_type": "hline", "x": 2, "y": 2, "width": 12, "height": 1},
+    ])
+    _wait_editor_ready(page, 1)
+
+    page.locator(f'.block-preview[data-block-id="{line_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+    expect(panel.locator(".block-props__type")).to_have_text("hline")
+
+    _open_section(panel, "Arrows")
+    arrows = panel.locator(
+        ".props-section:has(.props-section__title:text-is('Arrows'))"
+    )
+    # Two segmented rows: Start (∅/←/↔) + End (∅/→/↔)
+    expect(arrows.locator(".style-btn")).to_have_count(6)
+    expect(arrows.locator(".style-btn[title='arrow']")).to_have_count(2)
+    # No arrows yet → the ∅ buttons are active
+    expect(arrows.locator(".style-btn--active")).to_have_count(2)
+
+    arrows.locator(".style-btn[title='arrow']").first.click()
+    block = _wait_block_meta(
+        page, layout_id, line_id,
+        lambda m: m.get("arrow_start") == "arrow",
+    )
+    assert block["meta"].get("arrow_start") == "arrow"
+    assert "arrow_end" not in block["meta"]
+
+    arrows.locator(".style-btn[title='double']").last.click()
+    block = _wait_block_meta(
+        page, layout_id, line_id,
+        lambda m: m.get("arrow_end") == "double",
+    )
+    assert block["meta"] == {"arrow_start": "arrow", "arrow_end": "double"}
+
+    # ∅ clears the key (the meta key is removed)
+    arrows.locator(".style-btn[title='none']").first.click()
+    block = _wait_block_meta(
+        page, layout_id, line_id,
+        lambda m: "arrow_start" not in m,
+    )
+    assert block["meta"] == {"arrow_end": "double"}
 
 
 # ── Multi-selection (marquee + group operations) ──────────

@@ -171,6 +171,58 @@ def fill_char(block_type: str, meta: dict | None) -> str:
     return ""
 
 
+# Arrow glyphs for line ends (meta.arrow_start / meta.arrow_end,
+# tasks/0051 phase 3). "arrow" is a single head at the given end,
+# "double" a two-headed arrow.
+ARROW_GLYPHS: dict[str, dict[str, dict[str, str]]] = {
+    "hline": {"arrow": {"start": "←", "end": "→"}, "double": {"start": "↔", "end": "↔"}},
+    "vline": {"arrow": {"start": "↑", "end": "↓"}, "double": {"start": "↕", "end": "↕"}},
+}
+
+
+def arrow_glyph(block_type: str, value: str | None, end: str) -> str:
+    """The arrow glyph for a line end (meta.arrow_start / meta.arrow_end).
+
+    value is "arrow" or "double" (anything else — absent, "none", invalid —
+    means no arrow); end is "start" or "end". Only hline/vline have arrows.
+    """
+    if value not in ("arrow", "double"):
+        return ""
+    glyphs = ARROW_GLYPHS.get(block_type)
+    if glyphs is None or end not in ("start", "end"):
+        return ""
+    return glyphs[value][end]
+
+
+def h_align_offset(line_len: int, width: int, align: str | None) -> int:
+    """Left offset of a line inside the content area (left — 0).
+
+    center — the gap is split with the extra cell on the right; right —
+    the whole gap precedes the line. A line that fills (or overflows) the
+    area is not shifted.
+    """
+    if align not in ("center", "right") or width <= 0:
+        return 0
+    gap = width - line_len
+    if gap <= 0:
+        return 0
+    return gap // 2 if align == "center" else gap
+
+
+def v_align_offset(n_lines: int, height: int, valign: str | None) -> int:
+    """Top offset of the line block inside the content area (top — 0).
+
+    middle — the empty space is split with the extra row on the bottom;
+    bottom — all empty rows precede the block. Overflowing content is not
+    shifted (offset 0).
+    """
+    if valign not in ("middle", "bottom") or height <= 0:
+        return 0
+    if valign == "middle":
+        return max(0, (height - n_lines) // 2)
+    return max(0, height - n_lines)
+
+
 def _fmt_px(v: float) -> str:
     """Format a pixel value: integers without a decimal part."""
     if v == int(v):
@@ -429,18 +481,39 @@ class PseudoGraphicRenderer:
                 self._set(x + w - 1, y + j, vm["v"])
 
     def _draw_line(self, block: RenderBlock, style: dict[str, str]) -> None:
-        """Draw an hline (top row) or vline (left column) with style characters."""
+        """Draw an hline (top row) or vline (left column) with style characters.
+
+        Arrows (meta.arrow_start / meta.arrow_end) replace the end cells;
+        a line shorter than 2 cells has no arrows.
+        """
         x = max(0, min(block.x, self.grid_width - 1))
         y = max(0, min(block.y, self.grid_height - 1))
+        meta = block.meta or {}
 
         if block.block_type == "hline":
             w = min(block.width, self.grid_width - x)
-            for i in range(max(1, w)):
+            n = max(1, w)
+            for i in range(n):
                 self._set(x + i, y, style["h"])
+            if n >= 2:
+                start = arrow_glyph("hline", meta.get("arrow_start"), "start")
+                if start:
+                    self._set(x, y, start)
+                end = arrow_glyph("hline", meta.get("arrow_end"), "end")
+                if end:
+                    self._set(x + n - 1, y, end)
         else:  # vline
             h = min(block.height, self.grid_height - y)
-            for j in range(max(1, h)):
+            n = max(1, h)
+            for j in range(n):
                 self._set(x, y + j, style["v"])
+            if n >= 2:
+                start = arrow_glyph("vline", meta.get("arrow_start"), "start")
+                if start:
+                    self._set(x, y, start)
+                end = arrow_glyph("vline", meta.get("arrow_end"), "end")
+                if end:
+                    self._set(x, y + n - 1, end)
 
     def _draw_button(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw a button. The shape depends on the height:
@@ -485,15 +558,17 @@ class PseudoGraphicRenderer:
                     for i in range(1, w - 1):
                         self._set(x + i, y, style["h"])
 
-        # Label — single line, vertically centered, truncated to fit
+        # Label — single line, vertically centered, truncated to fit,
+        # horizontally aligned (meta.text_align)
         if block.content:
             row = y + (h - 1) // 2
             inner_x = x + (1 if framed else 0)
             inner_w = w - (2 if framed else 0)
             if inner_w > 0 and row < self.grid_height:
                 label = block.content.split("\n")[0][:inner_w]
+                off = h_align_offset(len(label), inner_w, (block.meta or {}).get("text_align"))
                 for i, ch in enumerate(label):
-                    self._set(inner_x + i, row, ch)
+                    self._set(inner_x + off + i, row, ch)
 
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""
@@ -545,16 +620,23 @@ class PseudoGraphicRenderer:
         if content_w <= 0 or content_h <= 0:
             return
 
-        # Wrap content by words to fit the content area
+        # Wrap content by words to fit the content area, then align:
+        # each line horizontally inside content_w (meta.text_align) and
+        # the line block vertically inside content_h (meta.vertical_align).
+        # Only the line's own cells are written — the offsets leave the
+        # rest of the area untouched (fill / show-through intact).
         lines = self._wrap_text(block.content, content_w)
+        v_off = v_align_offset(len(lines), content_h, (block.meta or {}).get("vertical_align"))
+        h_align = (block.meta or {}).get("text_align")
         for line_idx, line in enumerate(lines):
-            if line_idx >= content_h:
+            if line_idx + v_off >= content_h:
                 break
-            row = content_y + line_idx
+            row = content_y + line_idx + v_off
             if row >= self.grid_height:
                 break
+            off = h_align_offset(len(line), content_w, h_align)
             for col_idx, ch in enumerate(line):
-                self._set(content_x + col_idx, row, ch)
+                self._set(content_x + off + col_idx, row, ch)
 
     def _wrap_text(self, text: str, width: int) -> list[str]:
         """Wrap text by words to fit within `width` columns.
