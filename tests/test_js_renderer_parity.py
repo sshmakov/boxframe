@@ -176,6 +176,7 @@ def test_parity_fill():
         ("box", {"fill": "░"}, "", "solid"),
         ("box", {"fill": "█"}, "Hi", "solid"),
         ("box", {"fill": "·"}, "Hello World", "solid"),
+        ("box", {"fill": " "}, "", "solid"),   # space fill (erases below)
         ("box", {"fill": "▒"}, "", "none"),
         ("header", {"fill": "▒"}, "Header", "double"),
         ("footer", {"fill": "▓"}, "", "dashed"),
@@ -222,6 +223,19 @@ def test_parity_fill_children_container():
         ],
     }]
     assert render_js(js_blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8)
+
+
+def test_parity_fill_space_erases_block_below():
+    """A space fill erases the block underneath — identical in both
+    renderers (the show-through case)."""
+    js_blocks = [
+        {"id": "a", "block_type": "box", "x": 0, "y": 0, "width": 12, "height": 3,
+         "content": "ABCDEFGHIJ", "border_style": "solid", "order": 0},
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": 12, "height": 3,
+         "content": "", "border_style": "solid", "meta": {"fill": " "}, "order": 1},
+    ]
+    py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in js_blocks]
+    assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
 
 
 def test_parity_lines():

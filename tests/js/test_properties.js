@@ -74,12 +74,15 @@ test("schema: the current properties are described (phase 2 set)", () => {
         assert.ok(!prop.types.includes("hline"));
         assert.ok(!prop.types.includes("vline"));
     }
-    // Fill (phase 2 of tasks/0051): meta key, charpicker; "none" is a
-    // display sentinel for the absent value (noneValue: null clears it)
+    // Fill (phase 2 of tasks/0051): meta key, charpicker; " " (space) is a
+    // real fill value (erases the block below); "none" is a display
+    // sentinel for the absent value (noneValue: null clears it)
     const fill = PGProperties.findProperty("fill");
     assert.equal(fill.meta, true);
     assert.equal(fill.kind, "charpicker");
-    assert.deepEqual(fill.options, ["░", "▒", "▓", "█", "·", "×", "none"]);
+    assert.deepEqual(fill.options, ["░", "▒", "▓", "█", "·", "×", " ", "none"]);
+    assert.equal(fill.icons[" "], "␣"); // the space button shows a glyph
+    assert.equal(fill.icons.none, "∅");
     assert.equal(fill.group, "Fill");
     assert.equal(fill.default, "none");
     assert.equal(fill.noneValue, null);
@@ -245,6 +248,13 @@ test("propValue: meta properties read block.meta (absent → default)", () => {
     assert.equal(single.propValue("fill"), "none");
     assert.equal(single.propActive("fill", "none"), true);
     assert.equal(single.propActive("fill", "░"), false);
+
+    // Space fill is a real value (not the "none" sentinel) — it is read
+    // back and highlights its own button
+    const space = appWith([block("a", "box", 0, 0, 5, 2, { meta: { fill: " " } })], ["a"]);
+    assert.equal(space.propValue("fill"), " ");
+    assert.equal(space.propActive("fill", " "), true);
+    assert.equal(space.propActive("fill", "none"), false);
 });
 
 // ── applyPropValue ────────────────────────────────────────

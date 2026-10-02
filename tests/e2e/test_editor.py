@@ -786,8 +786,9 @@ def test_properties_panel_updates_fill(page: Page):
     fill_section = panel.locator(
         ".props-section:has(.props-section__title:text-is('Fill'))"
     )
-    # The char-picker: 6 fill characters + the ∅ (none) sentinel
-    expect(fill_section.locator(".style-btn")).to_have_count(7)
+    # The char-picker: 6 fill characters + the space (␣) + the ∅ (none)
+    # sentinel
+    expect(fill_section.locator(".style-btn")).to_have_count(8)
     # No fill yet → the ∅ button is active
     expect(fill_section.locator(".style-btn--active")).to_have_count(1)
     expect(fill_section.locator(".style-btn--active")).to_have_attribute("title", "none")
@@ -817,6 +818,17 @@ def test_properties_panel_updates_fill(page: Page):
             break
         page.wait_for_timeout(100)
     assert "fill" not in block["meta"]
+
+    # The space (␣) option stores a real " " value (erases the block below)
+    fill_section.locator(".style-btn[title=' ']").click()
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if block["meta"].get("fill") == " ":
+            break
+        page.wait_for_timeout(100)
+    assert block["meta"].get("fill") == " "
 
 
 # ── Multi-selection (marquee + group operations) ──────────

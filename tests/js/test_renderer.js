@@ -395,6 +395,7 @@ function fillBox(meta, extra) {
 test("fillChar: single-cell values for applicable types only", () => {
     assert.equal(PG.fillChar("box", { fill: "░" }), "░");
     assert.equal(PG.fillChar("image", { fill: "█" }), "█");
+    assert.equal(PG.fillChar("box", { fill: " " }), " "); // space is a valid fill
     assert.equal(PG.fillChar("box", null), "");
     assert.equal(PG.fillChar("box", {}), "");
     assert.equal(PG.fillChar("box", { fill: "" }), "");
@@ -513,6 +514,33 @@ test("fill children container: children drawn over the fill", () => {
     assert.equal(ls[3], "│" + "░".repeat(18) + "│");
     assert.equal(ls[4], "│" + "░".repeat(18) + "│");
     assert.equal(ls[5], "└" + "─".repeat(18) + "┘");
+});
+
+test("fill space: erases the block below (show-through)", () => {
+    // A space fill (meta.fill=" ") erases the block underneath. Without a
+    // fill the lower content shows through (the upper [box] hint covers the
+    // first cells, the rest stays visible); with a space fill the upper
+    // block's blank fill overwrites it (the grid is space-initialized).
+    const lower = {
+        id: "a", block_type: "box",
+        x: 0, y: 0, width: 12, height: 3,
+        content: "ABCDEFGHIJ", border_style: "solid", order: 0,
+    };
+    const showThrough = render([
+        lower,
+        Object.assign({}, lower, { id: "b", content: "", order: 1 }),
+    ]);
+    assert.ok(showThrough.includes("FGHIJ"));
+
+    const result = render([
+        lower,
+        Object.assign({}, lower, { id: "b", content: "", order: 1, meta: { fill: " " } }),
+    ]);
+    const ls = lines(result);
+    assert.equal(ls[0], "┌──────────┐");
+    assert.equal(ls[1], "│          │"); // 10 spaces — the lower content is erased
+    assert.equal(ls[2], "└──────────┘");
+    assert.ok(!result.includes("ABCDEFGHIJ"));
 });
 
 // ── Line block tests (hline / vline) ──────────────────────

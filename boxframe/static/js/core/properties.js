@@ -70,15 +70,18 @@
         },
         // Fill (phase 2 of tasks/0051): meta.fill paints the block's
         // content area; the content is drawn on top and the [type] hint
-        // is suppressed. "none" is a display sentinel for the absent
-        // value — picking it clears the meta key (noneValue: null).
+        // is suppressed. " " (space) is a real fill value — it erases the
+        // block underneath (the grid is space-initialized, so a blank fill
+        // overwrites what was drawn before). "none" is a display sentinel
+        // for the absent value — picking it clears the meta key
+        // (noneValue: null).
         {
             key: "fill",
             meta: true,
             label: "Fill",
             kind: "charpicker",
-            options: ["░", "▒", "▓", "█", "·", "×", "none"],
-            icons: { none: "∅" },
+            options: ["░", "▒", "▓", "█", "·", "×", " ", "none"],
+            icons: { none: "∅", " ": "␣" },
             group: "Fill",
             types: ["box", "header", "footer", "sidebar", "content", "grid",
                     "image"],

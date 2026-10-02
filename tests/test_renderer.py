@@ -476,6 +476,7 @@ def test_fill_char():
     from boxframe.services.renderer import fill_char
     assert fill_char("box", {"fill": "░"}) == "░"
     assert fill_char("image", {"fill": "█"}) == "█"
+    assert fill_char("box", {"fill": " "}) == " "  # space is a valid fill
     assert fill_char("box", None) == ""
     assert fill_char("box", {}) == ""
     assert fill_char("box", {"fill": ""}) == ""
@@ -606,6 +607,35 @@ def test_fill_children_container():
     assert lines[3] == "│" + "░" * 18 + "│"
     assert lines[4] == "│" + "░" * 18 + "│"
     assert lines[5] == "└" + "─" * 18 + "┘"
+
+
+def test_fill_space_erases_block_below():
+    """A space fill (meta.fill=" ") erases the block underneath — the
+    'show through' case. Without a fill the lower block's content shows
+    through the upper (empty) block; with a space fill the upper block's
+    blank fill overwrites it (the grid is space-initialized, so writing a
+    space overwrites whatever was drawn before)."""
+    lower = {
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 12, "height": 3,
+        "content": "ABCDEFGHIJ",
+        "border_style": "solid",
+        "order": 0,
+    }
+    # Upper block with no fill: the lower content shows through (the
+    # upper [box] hint covers the first cells, the rest stays visible)
+    show_through = _render([lower, dict(lower, content="", order=1)])
+    assert "FGHIJ" in show_through
+
+    # Upper block with a space fill: the lower content is erased
+    result = _render([lower, dict(lower, content="", order=1,
+                                  meta={"fill": " "})])
+    lines = result.split("\n")
+    assert lines[0] == "┌──────────┐"
+    assert lines[1] == "│          │"  # 10 spaces — the lower content is erased
+    assert lines[2] == "└──────────┘"
+    assert "ABCDEFGHIJ" not in result
 
 
 # ── Line block tests (hline / vline) ──────────────────────
