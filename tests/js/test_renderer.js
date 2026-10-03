@@ -624,16 +624,32 @@ test("hline beyond layout", () => {
 // ── Line arrows (tasks/0051 phase 3) ──────────────────────
 
 test("arrowGlyph: line-end glyphs for applicable types only", () => {
-    assert.equal(PG.arrowGlyph("hline", "arrow", "start"), "←");
-    assert.equal(PG.arrowGlyph("hline", "arrow", "end"), "→");
-    assert.equal(PG.arrowGlyph("hline", "double", "start"), "↔");
-    assert.equal(PG.arrowGlyph("hline", "double", "end"), "↔");
-    assert.equal(PG.arrowGlyph("vline", "arrow", "start"), "↑");
-    assert.equal(PG.arrowGlyph("vline", "arrow", "end"), "↓");
-    assert.equal(PG.arrowGlyph("vline", "double", "start"), "↕");
-    assert.equal(PG.arrowGlyph("vline", "double", "end"), "↕");
-    // Absent / "none" / invalid → no arrow
-    for (const value of [null, "none", "", "foo", 5]) {
+    const hline = {
+        "arrow": ["◀", "▶"],
+        "arrow-open": ["◁", "▷"],
+        "diamond": ["◆", "◆"],
+        "diamond-open": ["◇", "◇"],
+        "circle": ["●", "●"],
+        "circle-open": ["○", "○"],
+    };
+    const vline = {
+        "arrow": ["▲", "▼"],
+        "arrow-open": ["△", "▽"],
+        "diamond": ["◆", "◆"],
+        "diamond-open": ["◇", "◇"],
+        "circle": ["●", "●"],
+        "circle-open": ["○", "○"],
+    };
+    for (const [value, [start, end]] of Object.entries(hline)) {
+        assert.equal(PG.arrowGlyph("hline", value, "start"), start);
+        assert.equal(PG.arrowGlyph("hline", value, "end"), end);
+    }
+    for (const [value, [start, end]] of Object.entries(vline)) {
+        assert.equal(PG.arrowGlyph("vline", value, "start"), start);
+        assert.equal(PG.arrowGlyph("vline", value, "end"), end);
+    }
+    // Absent / "none" / invalid → no arrow (the legacy "double" is invalid)
+    for (const value of [null, "none", "", "foo", 5, "double"]) {
         assert.equal(PG.arrowGlyph("hline", value, "start"), "");
         assert.equal(PG.arrowGlyph("vline", value, "end"), "");
     }
@@ -648,17 +664,27 @@ test("hline arrow both ends", () => {
         content: "", border_style: "solid",
         meta: { arrow_start: "arrow", arrow_end: "arrow" },
     }]);
-    assert.equal(lines(result)[0].slice(0, 8), "←──────→");
+    assert.equal(lines(result)[0].slice(0, 8), "◀──────▶");
 });
 
-test("hline double arrow", () => {
-    const result = render([{
-        id: "b1", block_type: "hline",
-        x: 0, y: 0, width: 8, height: 1,
-        content: "", border_style: "solid",
-        meta: { arrow_start: "double", arrow_end: "double" },
-    }]);
-    assert.equal(lines(result)[0].slice(0, 8), "↔──────↔");
+test("hline all arrow shapes", () => {
+    const shapes = {
+        "arrow": "◀──────▶",
+        "arrow-open": "◁──────▷",
+        "diamond": "◆──────◆",
+        "diamond-open": "◇──────◇",
+        "circle": "●──────●",
+        "circle-open": "○──────○",
+    };
+    for (const [value, expected] of Object.entries(shapes)) {
+        const result = render([{
+            id: "b1", block_type: "hline",
+            x: 0, y: 0, width: 8, height: 1,
+            content: "", border_style: "solid",
+            meta: { arrow_start: value, arrow_end: value },
+        }]);
+        assert.equal(lines(result)[0].slice(0, 8), expected, value);
+    }
 });
 
 test("hline arrow one end", () => {
@@ -668,7 +694,7 @@ test("hline arrow one end", () => {
         content: "", border_style: "solid",
         meta: { arrow_end: "arrow" },
     }]);
-    assert.equal(lines(result)[0].slice(0, 8), "───────→");
+    assert.equal(lines(result)[0].slice(0, 8), "───────▶");
 });
 
 test("vline arrow both ends", () => {
@@ -679,23 +705,33 @@ test("vline arrow both ends", () => {
         meta: { arrow_start: "arrow", arrow_end: "arrow" },
     }]);
     const ls = lines(result);
-    assert.equal(ls[0][0], "↑");
-    assert.equal(ls[7][0], "↓");
+    assert.equal(ls[0][0], "▲");
+    assert.equal(ls[7][0], "▼");
     for (let i = 1; i < 7; i++) {
         assert.equal(ls[i][0], "│");
     }
 });
 
-test("vline double arrow", () => {
-    const result = render([{
-        id: "b1", block_type: "vline",
-        x: 0, y: 0, width: 1, height: 8,
-        content: "", border_style: "solid",
-        meta: { arrow_start: "double", arrow_end: "double" },
-    }]);
-    const ls = lines(result);
-    assert.equal(ls[0][0], "↕");
-    assert.equal(ls[7][0], "↕");
+test("vline all arrow shapes", () => {
+    const shapes = {
+        "arrow": ["▲", "▼"],
+        "arrow-open": ["△", "▽"],
+        "diamond": ["◆", "◆"],
+        "diamond-open": ["◇", "◇"],
+        "circle": ["●", "●"],
+        "circle-open": ["○", "○"],
+    };
+    for (const [value, [top, bottom]] of Object.entries(shapes)) {
+        const result = render([{
+            id: "b1", block_type: "vline",
+            x: 0, y: 0, width: 1, height: 8,
+            content: "", border_style: "solid",
+            meta: { arrow_start: value, arrow_end: value },
+        }]);
+        const ls = lines(result);
+        assert.equal(ls[0][0], top, value);
+        assert.equal(ls[7][0], bottom, value);
+    }
 });
 
 test("arrow short line ignored", () => {
@@ -717,7 +753,7 @@ test("arrow two-cell line", () => {
         content: "", border_style: "solid",
         meta: { arrow_start: "arrow", arrow_end: "arrow" },
     }]);
-    assert.equal(lines(result)[0].slice(0, 2), "←→");
+    assert.equal(lines(result)[0].slice(0, 2), "◀▶");
 });
 
 test("arrow all line styles", () => {
@@ -729,7 +765,7 @@ test("arrow all line styles", () => {
             content: "", border_style: style,
             meta: { arrow_start: "arrow", arrow_end: "arrow" },
         }]);
-        assert.equal(lines(result)[0].slice(0, 5), "←" + ch.repeat(3) + "→");
+        assert.equal(lines(result)[0].slice(0, 5), "◀" + ch.repeat(3) + "▶");
     }
 });
 
@@ -741,7 +777,7 @@ test("arrow ignored for other types (matrix)", () => {
         { block_type: "button", width: 10, height: 1, content: "B" },
         { block_type: "text", width: 10, height: 2, content: "t", border_style: "none" },
     ];
-    const meta = { arrow_start: "arrow", arrow_end: "double" };
+    const meta = { arrow_start: "arrow", arrow_end: "diamond" };
     for (const c of cases) {
         const base = { id: "b1", x: 0, y: 0, border_style: "solid", order: 0 };
         const plain = render([Object.assign({}, c, base)]);
@@ -756,7 +792,7 @@ test("arrow invalid values: line unchanged", () => {
         x: 0, y: 0, width: 6, height: 1,
         content: "", border_style: "solid",
     }]);
-    for (const bad of ["foo", "", 5, null, "ARROW"]) {
+    for (const bad of ["foo", "", 5, null, "ARROW", "double"]) {
         assert.equal(render([{
             id: "b1", block_type: "hline",
             x: 0, y: 0, width: 6, height: 1,

@@ -42,8 +42,8 @@ Order, Content), одинаковая для всех 14 типов блоков
 | `fill` | str | `░ ▒ ▓ █ · ×` | отсутствует (none) | `meta.fill` |
 | `text_align` | str | `left / center / right` | `left` | `meta.text_align` |
 | `vertical_align` | str | `top / middle / bottom` | `top` | `meta.vertical_align` |
-| `arrow_start` | str | `none / arrow / double` | `none` | `meta.arrow_start` |
-| `arrow_end` | str | `none / arrow / double` | `none` | `meta.arrow_end` |
+| `arrow_start` | str | `none / arrow / arrow-open / diamond / diamond-open / circle / circle-open` | `none` | `meta.arrow_start` |
+| `arrow_end` | str | `none / arrow / arrow-open / diamond / diamond-open / circle / circle-open` | `none` | `meta.arrow_end` |
 
 **Эффективный стиль стороны** (решается в рендерере):
 - top/bottom = `meta.border_h ?? border_style`;
@@ -92,9 +92,16 @@ segmented-кнопки.
 
 ### Стрелки (`arrow_start` / `arrow_end`)
 
-Enum `none / arrow / double` на каждый конец, только `hline`/`vline`.
+Enum из 6 форм наконечника на каждый конец (дефолт `none`), только
+`hline`/`vline`.
 
-- Символы: hline `← →` / `↔`, vline `↑ ↓` / `↕`.
+| type  | конец       | `arrow` | `arrow-open` | `diamond` | `diamond-open` | `circle` | `circle-open` |
+|-------|-------------|---------|--------------|-----------|----------------|----------|---------------|
+| hline | arrow_start | `◀`     | `◁`          | `◆`       | `◇`            | `●`      | `○`           |
+| hline | arrow_end   | `▶`     | `▷`          | `◆`       | `◇`            | `●`      | `○`           |
+| vline | arrow_start | `▲`     | `△`          | `◆`       | `◇`            | `●`      | `○`           |
+| vline | arrow_end   | `▼`     | `▽`          | `◆`       | `◇`            | `●`      | `○`           |
+
 - Стрелка = замена крайнего символа линии.
 - Линия короче 2 клеток — стрелки игнорируются.
 
@@ -148,7 +155,7 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 - После рисования линии символом стиля заменить крайний символ:
   - hline: первый символ → `arrow_start`, последний → `arrow_end`;
   - vline: верхний → `arrow_start`, нижний → `arrow_end`.
-- `none` — без замены. `arrow`/`double` — символы из таблицы выше.
+- `none` — без замены; одна из 6 форм — символ из таблицы выше.
 - Длина линии < 2 — стрелки не рисуются.
 
 ## Матрица применимости
@@ -381,12 +388,13 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 ## Фаза 3 (2026-10-02, ветка `feature/extprops`)
 
 - `services/renderer.py`:
-  - **Стрелки.** `ARROW_GLYPHS` (hline: arrow `←`/`→`, double `↔`/`↔`;
-    vline: arrow `↑`/`↓`, double `↕`/`↕`) + `arrow_glyph(block_type,
-    value, end)`. `_draw_line` после рисования линии символом стиля
-    заменяет крайние клетки: первый/верхний → `meta.arrow_start`,
-    последний/нижний → `meta.arrow_end`; длина < 2 — стрелки не
-    рисуются; невалидные значения и не-линии — без изменений.
+  - **Стрелки.** `ARROW_GLYPHS` — 6 форм наконечника на направление
+    (hline: `◀▶ ◁▷ ◆◇ ●○`, vline: `▲▼ △▽ ◆◇ ●○`; значения `arrow,
+    arrow-open, diamond, diamond-open, circle, circle-open`) +
+    `arrow_glyph(block_type, value, end)`. `_draw_line` после рисования
+    линии символом стиля заменяет крайние клетки: первый/верхний →
+    `meta.arrow_start`, последний/нижний → `meta.arrow_end`; длина < 2 —
+    стрелки не рисуются; невалидные значения и не-линии — без изменений.
   - **Выравнивание.** `h_align_offset(line_len, width, align)`
     (left/None → 0, center → `gap//2`, right → `gap`; `gap <= 0` → 0) и
     `v_align_offset(n_lines, height, valign)` (top/None → 0, middle →
@@ -405,27 +413,34 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
     `default: "left"`, `clearDefault: true`) — все типы, кроме линий;
     `vertical_align` (top/middle/bottom, `default: "top"`,
     `clearDefault: true`) — те же типы.
-  - `arrow_start`/`arrow_end` (segmented none/arrow/double, секция
+  - `arrow_start`/`arrow_end` (segmented none + 6 форм, секция
     «Arrows», `types: ["hline", "vline"]`, `default: "none"`,
     `noneValue: null`); `icons` — **функция** `(blockType, opt)`: глифы
-    зависят от направления линии (hline ∅/←/→/↔, vline ∅/↑/↓/↕).
+    зависят от направления линии (hline ∅/◀/▶/◆/◇/●/○,
+    vline ∅/▲/▼/◆/◇/●/○).
 - `editor.js`: `propIcon(prop, opt)` — статичная карта `icons` или
   функция `(selectedBlock.block_type, opt)`; `onPropSelect`:
   `prop.clearDefault && opt === prop.default` → применить `null`
   (очистить meta-ключ — дефолт неявный).
-- Тесты: 15 в test_renderer.py (arrow_glyph, оба конца, double, один
-  конец, vline, короткая линия, ровно 2 клетки, все стили, не-линии,
-  невалидные; h/v_align_offset, center/right, дефолт left без изменений,
-  перенос, middle/bottom, overflow, fill+align, линии игнорируют,
-  button label left/center/right) + зеркала в js/test_renderer.js;
-  2 parity (24 кейса: стрелки + выравнивание); 1 API (arrow/align через
+- Тесты: 15 в test_renderer.py (arrow_glyph — 6 форм × 2 направления,
+  оба конца, все 6 форм hline/vline, один конец, короткая линия, ровно 2
+  клетки, все стили, не-линии, невалидные (включая legacy `double`);
+  h/v_align_offset, center/right, дефолт left без изменений, перенос,
+  middle/bottom, overflow, fill+align, линии игнорируют, button label
+  left/center/right) + зеркала в js/test_renderer.js;
+  2 parity (25 кейсов: стрелки + выравнивание); 1 API (arrow/align через
   create/update/batch/export); `test_properties.js` — 14 ключей схемы,
   секции box (6, с Align) и hline (Style/Arrows/Geometry/Text),
   clearDefault, типозависимые иконки; e2e: порядок секций
   Style/Borders/Fill/Align/Geometry/Text + `test_properties_panel_updates_alignment`
   (center → meta.text_align, middle → meta.vertical_align, выбор
   дефолта left → очистка ключа) + `test_properties_panel_updates_arrows`
-  (arrow → arrow_start, double → arrow_end, ∅ → очистка).
+  (arrow → arrow_start, diamond → arrow_end, ∅ → очистка).
+- **Смена глифов стрелок (2026-10-02).** Набор `none/arrow/double`
+  (`←→ ↔`, `↑↓ ↕`) заменён на 6 форм наконечника: `arrow` (◀▶ ▲▼),
+  `arrow-open` (◁▷ △▽), `diamond` (◆), `diamond-open` (◇), `circle` (●),
+  `circle-open` (○) — таблица в разделе «Стрелки». Legacy-значение
+  `double` стало невалидным (стрелка не рисуется).
 
 Приёмка: `pytest tests/ --ignore=tests/e2e` — 214 passed,
 `node --test "tests/js/*.js"` — 286 pass, `pytest tests/e2e/` — 73 passed

@@ -734,16 +734,30 @@ def test_hline_beyond_layout():
 
 def test_arrow_glyph():
     from boxframe.services.renderer import arrow_glyph
-    assert arrow_glyph("hline", "arrow", "start") == "←"
-    assert arrow_glyph("hline", "arrow", "end") == "→"
-    assert arrow_glyph("hline", "double", "start") == "↔"
-    assert arrow_glyph("hline", "double", "end") == "↔"
-    assert arrow_glyph("vline", "arrow", "start") == "↑"
-    assert arrow_glyph("vline", "arrow", "end") == "↓"
-    assert arrow_glyph("vline", "double", "start") == "↕"
-    assert arrow_glyph("vline", "double", "end") == "↕"
-    # Absent / "none" / invalid → no arrow
-    for value in [None, "none", "", "foo", 5]:
+    hline = {
+        "arrow": ("◀", "▶"),
+        "arrow-open": ("◁", "▷"),
+        "diamond": ("◆", "◆"),
+        "diamond-open": ("◇", "◇"),
+        "circle": ("●", "●"),
+        "circle-open": ("○", "○"),
+    }
+    vline = {
+        "arrow": ("▲", "▼"),
+        "arrow-open": ("△", "▽"),
+        "diamond": ("◆", "◆"),
+        "diamond-open": ("◇", "◇"),
+        "circle": ("●", "●"),
+        "circle-open": ("○", "○"),
+    }
+    for value, (start, end) in hline.items():
+        assert arrow_glyph("hline", value, "start") == start
+        assert arrow_glyph("hline", value, "end") == end
+    for value, (start, end) in vline.items():
+        assert arrow_glyph("vline", value, "start") == start
+        assert arrow_glyph("vline", value, "end") == end
+    # Absent / "none" / invalid → no arrow (the legacy "double" is invalid)
+    for value in [None, "none", "", "foo", 5, "double"]:
         assert arrow_glyph("hline", value, "start") == ""
         assert arrow_glyph("vline", value, "end") == ""
     # Not a line type
@@ -759,19 +773,28 @@ def test_hline_arrow_both_ends():
         "border_style": "solid",
         "meta": {"arrow_start": "arrow", "arrow_end": "arrow"},
     }])
-    assert result.split("\n")[0][:8] == "←──────→"
+    assert result.split("\n")[0][:8] == "◀──────▶"
 
 
-def test_hline_double_arrow():
-    result = _render([{
-        "block_type": "hline",
-        "x": 0, "y": 0,
-        "width": 8, "height": 1,
-        "content": "",
-        "border_style": "solid",
-        "meta": {"arrow_start": "double", "arrow_end": "double"},
-    }])
-    assert result.split("\n")[0][:8] == "↔──────↔"
+def test_hline_all_arrow_shapes():
+    shapes = {
+        "arrow": "◀──────▶",
+        "arrow-open": "◁──────▷",
+        "diamond": "◆──────◆",
+        "diamond-open": "◇──────◇",
+        "circle": "●──────●",
+        "circle-open": "○──────○",
+    }
+    for value, expected in shapes.items():
+        result = _render([{
+            "block_type": "hline",
+            "x": 0, "y": 0,
+            "width": 8, "height": 1,
+            "content": "",
+            "border_style": "solid",
+            "meta": {"arrow_start": value, "arrow_end": value},
+        }])
+        assert result.split("\n")[0][:8] == expected, value
 
 
 def test_hline_arrow_one_end():
@@ -783,7 +806,7 @@ def test_hline_arrow_one_end():
         "border_style": "solid",
         "meta": {"arrow_end": "arrow"},
     }])
-    assert result.split("\n")[0][:8] == "───────→"
+    assert result.split("\n")[0][:8] == "───────▶"
 
 
 def test_vline_arrow_both_ends():
@@ -796,24 +819,33 @@ def test_vline_arrow_both_ends():
         "meta": {"arrow_start": "arrow", "arrow_end": "arrow"},
     }])
     lines = result.split("\n")
-    assert lines[0][0] == "↑"
-    assert lines[7][0] == "↓"
+    assert lines[0][0] == "▲"
+    assert lines[7][0] == "▼"
     for i in range(1, 7):
         assert lines[i][0] == "│"
 
 
-def test_vline_double_arrow():
-    result = _render([{
-        "block_type": "vline",
-        "x": 0, "y": 0,
-        "width": 1, "height": 8,
-        "content": "",
-        "border_style": "solid",
-        "meta": {"arrow_start": "double", "arrow_end": "double"},
-    }])
-    lines = result.split("\n")
-    assert lines[0][0] == "↕"
-    assert lines[7][0] == "↕"
+def test_vline_all_arrow_shapes():
+    shapes = {
+        "arrow": ("▲", "▼"),
+        "arrow-open": ("△", "▽"),
+        "diamond": ("◆", "◆"),
+        "diamond-open": ("◇", "◇"),
+        "circle": ("●", "●"),
+        "circle-open": ("○", "○"),
+    }
+    for value, (top, bottom) in shapes.items():
+        result = _render([{
+            "block_type": "vline",
+            "x": 0, "y": 0,
+            "width": 1, "height": 8,
+            "content": "",
+            "border_style": "solid",
+            "meta": {"arrow_start": value, "arrow_end": value},
+        }])
+        lines = result.split("\n")
+        assert lines[0][0] == top, value
+        assert lines[7][0] == bottom, value
 
 
 def test_arrow_short_line_ignored():
@@ -839,7 +871,7 @@ def test_arrow_two_cell_line():
         "border_style": "solid",
         "meta": {"arrow_start": "arrow", "arrow_end": "arrow"},
     }])
-    assert result.split("\n")[0][:2] == "←→"
+    assert result.split("\n")[0][:2] == "◀▶"
 
 
 def test_arrow_all_line_styles():
@@ -853,7 +885,7 @@ def test_arrow_all_line_styles():
             "border_style": style,
             "meta": {"arrow_start": "arrow", "arrow_end": "arrow"},
         }])
-        assert result.split("\n")[0][:5] == "←" + ch * 3 + "→"
+        assert result.split("\n")[0][:5] == "◀" + ch * 3 + "▶"
 
 
 def test_arrow_ignored_for_other_types():
@@ -865,7 +897,7 @@ def test_arrow_ignored_for_other_types():
         {"block_type": "text", "width": 10, "height": 2, "content": "t",
          "border_style": "none"},
     ]
-    meta = {"arrow_start": "arrow", "arrow_end": "double"}
+    meta = {"arrow_start": "arrow", "arrow_end": "diamond"}
     for case in cases:
         base = {"x": 0, "y": 0, "border_style": "solid", "order": 0}
         plain = _render([dict(case, **base)])
@@ -874,7 +906,8 @@ def test_arrow_ignored_for_other_types():
 
 
 def test_arrow_invalid_values():
-    """Invalid meta.arrow_* (not arrow/double) → the line is unchanged."""
+    """Invalid meta.arrow_* (not one of the six shapes) → the line is
+    unchanged (the legacy "double" is invalid)."""
     plain = _render([{
         "block_type": "hline",
         "x": 0, "y": 0,
@@ -882,7 +915,7 @@ def test_arrow_invalid_values():
         "content": "",
         "border_style": "solid",
     }])
-    for bad in ["foo", "", 5, None, "ARROW"]:
+    for bad in ["foo", "", 5, None, "ARROW", "double"]:
         assert _render([{
             "block_type": "hline",
             "x": 0, "y": 0,

@@ -95,17 +95,32 @@
 
     // Arrow glyphs for line ends (meta.arrow_start / meta.arrow_end,
     // tasks/0051 phase 3). Mirrors ARROW_GLYPHS / arrow_glyph in
-    // services/renderer.py.
+    // services/renderer.py: six head shapes per line direction; "none"
+    // (or an absent/invalid value) means no arrow.
     var ARROW_GLYPHS = {
-        hline: { arrow: { start: "←", end: "→" }, double: { start: "↔", end: "↔" } },
-        vline: { arrow: { start: "↑", end: "↓" }, double: { start: "↕", end: "↕" } },
+        hline: {
+            "arrow": { start: "◀", end: "▶" },
+            "arrow-open": { start: "◁", end: "▷" },
+            "diamond": { start: "◆", end: "◆" },
+            "diamond-open": { start: "◇", end: "◇" },
+            "circle": { start: "●", end: "●" },
+            "circle-open": { start: "○", end: "○" },
+        },
+        vline: {
+            "arrow": { start: "▲", end: "▼" },
+            "arrow-open": { start: "△", end: "▽" },
+            "diamond": { start: "◆", end: "◆" },
+            "diamond-open": { start: "◇", end: "◇" },
+            "circle": { start: "●", end: "●" },
+            "circle-open": { start: "○", end: "○" },
+        },
     };
 
     function arrowGlyph(blockType, value, end) {
-        if (value !== "arrow" && value !== "double") return "";
+        if (typeof value !== "string") return "";
         var glyphs = ARROW_GLYPHS[blockType];
         if (!glyphs || (end !== "start" && end !== "end")) return "";
-        return glyphs[value][end];
+        return glyphs[value] ? glyphs[value][end] : "";
     }
 
     // Port of h_align_offset in services/renderer.py: the left offset of

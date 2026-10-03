@@ -896,7 +896,7 @@ def test_properties_panel_updates_alignment(page: Page):
 def test_properties_panel_updates_arrows(page: Page):
     """Picking an arrow persists to meta.arrow_start / meta.arrow_end;
     the ∅ option clears the meta key. The button glyphs follow the line
-    direction (hline ←/→/↔)."""
+    direction (hline ◀/▶/◆/◇/●/○)."""
     layout_id, [line_id] = _create_project_with_blocks(page, [
         {"block_type": "hline", "x": 2, "y": 2, "width": 12, "height": 1},
     ])
@@ -911,8 +911,8 @@ def test_properties_panel_updates_arrows(page: Page):
     arrows = panel.locator(
         ".props-section:has(.props-section__title:text-is('Arrows'))"
     )
-    # Two segmented rows: Start (∅/←/↔) + End (∅/→/↔)
-    expect(arrows.locator(".style-btn")).to_have_count(6)
+    # Two segmented rows: Start (∅ + 6 shapes) + End (∅ + 6 shapes)
+    expect(arrows.locator(".style-btn")).to_have_count(14)
     expect(arrows.locator(".style-btn[title='arrow']")).to_have_count(2)
     # No arrows yet → the ∅ buttons are active
     expect(arrows.locator(".style-btn--active")).to_have_count(2)
@@ -925,12 +925,12 @@ def test_properties_panel_updates_arrows(page: Page):
     assert block["meta"].get("arrow_start") == "arrow"
     assert "arrow_end" not in block["meta"]
 
-    arrows.locator(".style-btn[title='double']").last.click()
+    arrows.locator(".style-btn[title='diamond']").last.click()
     block = _wait_block_meta(
         page, layout_id, line_id,
-        lambda m: m.get("arrow_end") == "double",
+        lambda m: m.get("arrow_end") == "diamond",
     )
-    assert block["meta"] == {"arrow_start": "arrow", "arrow_end": "double"}
+    assert block["meta"] == {"arrow_start": "arrow", "arrow_end": "diamond"}
 
     # ∅ clears the key (the meta key is removed)
     arrows.locator(".style-btn[title='none']").first.click()
@@ -938,7 +938,7 @@ def test_properties_panel_updates_arrows(page: Page):
         page, layout_id, line_id,
         lambda m: "arrow_start" not in m,
     )
-    assert block["meta"] == {"arrow_end": "double"}
+    assert block["meta"] == {"arrow_end": "diamond"}
 
 
 # ── Multi-selection (marquee + group operations) ──────────

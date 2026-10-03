@@ -110,25 +110,31 @@ test("schema: the current properties are described (phase 3 set)", () => {
         assert.ok(!prop.types.includes("vline"));
     }
     // Arrows (phase 3 of tasks/0051): meta keys, segmented, lines only;
-    // "none" is a display sentinel (noneValue: null clears it); the
-    // button glyphs depend on the line direction (icons as a function)
+    // six head shapes; "none" is a display sentinel (noneValue: null
+    // clears it); the button glyphs depend on the line direction (icons
+    // as a function)
     for (const key of ["arrow_start", "arrow_end"]) {
         const prop = PGProperties.findProperty(key);
         assert.equal(prop.meta, true);
         assert.equal(prop.kind, "segmented");
-        assert.deepEqual(prop.options, ["none", "arrow", "double"]);
+        assert.deepEqual(prop.options, ["none", "arrow", "arrow-open", "diamond",
+            "diamond-open", "circle", "circle-open"]);
         assert.equal(prop.group, "Arrows");
         assert.deepEqual(prop.types, ["hline", "vline"]);
         assert.equal(prop.default, "none");
         assert.equal(prop.noneValue, null);
         assert.equal(typeof prop.icons, "function");
     }
-    assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "arrow"), "←");
-    assert.equal(PGProperties.findProperty("arrow_start").icons("vline", "arrow"), "↑");
-    assert.equal(PGProperties.findProperty("arrow_end").icons("hline", "arrow"), "→");
-    assert.equal(PGProperties.findProperty("arrow_end").icons("vline", "arrow"), "↓");
-    assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "double"), "↔");
-    assert.equal(PGProperties.findProperty("arrow_end").icons("vline", "double"), "↕");
+    assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "arrow"), "◀");
+    assert.equal(PGProperties.findProperty("arrow_start").icons("vline", "arrow"), "▲");
+    assert.equal(PGProperties.findProperty("arrow_end").icons("hline", "arrow"), "▶");
+    assert.equal(PGProperties.findProperty("arrow_end").icons("vline", "arrow"), "▼");
+    assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "arrow-open"), "◁");
+    assert.equal(PGProperties.findProperty("arrow_end").icons("vline", "arrow-open"), "▽");
+    assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "diamond"), "◆");
+    assert.equal(PGProperties.findProperty("arrow_end").icons("vline", "diamond-open"), "◇");
+    assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "circle"), "●");
+    assert.equal(PGProperties.findProperty("arrow_end").icons("vline", "circle-open"), "○");
     assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "none"), "∅");
     assert.equal(PGProperties.findProperty("x").min, 0);
     assert.equal(PGProperties.findProperty("width").min, 1);
@@ -495,14 +501,14 @@ test("propIcon: static icon maps and type-dependent icon functions", () => {
     const start = PGProperties.findProperty("arrow_start");
     const end = PGProperties.findProperty("arrow_end");
     const hline = appWith([block("b1", "hline", 0, 0, 5, 1)], ["b1"]);
-    assert.equal(hline.propIcon(start, "arrow"), "←");
-    assert.equal(hline.propIcon(end, "arrow"), "→");
-    assert.equal(hline.propIcon(start, "double"), "↔");
+    assert.equal(hline.propIcon(start, "arrow"), "◀");
+    assert.equal(hline.propIcon(end, "arrow"), "▶");
+    assert.equal(hline.propIcon(start, "diamond"), "◆");
     assert.equal(hline.propIcon(start, "none"), "∅");
     const vline = appWith([block("b1", "vline", 0, 0, 1, 5)], ["b1"]);
-    assert.equal(vline.propIcon(start, "arrow"), "↑");
-    assert.equal(vline.propIcon(end, "arrow"), "↓");
-    assert.equal(vline.propIcon(end, "double"), "↕");
+    assert.equal(vline.propIcon(start, "arrow"), "▲");
+    assert.equal(vline.propIcon(end, "arrow"), "▼");
+    assert.equal(vline.propIcon(end, "circle"), "●");
 });
 
 // ── Section open/closed state (localStorage) ──────────────

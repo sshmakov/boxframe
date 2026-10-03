@@ -1063,11 +1063,11 @@ def test_block_meta_arrows_and_alignment_pass_through_api(client: TestClient):
     # Create an hline with arrows and a box with alignment
     r = client.post(f"/api/layouts/{layout_id}/blocks", json={
         "block_type": "hline", "x": 0, "y": 0, "width": 8, "height": 1,
-        "meta": {"arrow_start": "arrow", "arrow_end": "double"},
+        "meta": {"arrow_start": "arrow", "arrow_end": "diamond"},
     })
     assert r.status_code == 200
     line_id = r.json()["id"]
-    assert r.json()["meta"] == {"arrow_start": "arrow", "arrow_end": "double"}
+    assert r.json()["meta"] == {"arrow_start": "arrow", "arrow_end": "diamond"}
 
     r = client.post(f"/api/layouts/{layout_id}/blocks", json={
         "block_type": "box", "x": 0, "y": 2, "width": 10, "height": 4,

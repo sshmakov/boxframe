@@ -124,20 +124,23 @@
         },
         // Arrows (phase 3 of tasks/0051): meta.arrow_start / meta.arrow_end
         // replace the end cell of an hline/vline (a line shorter than 2
-        // cells has no arrows). "none" is a display sentinel for the
-        // absent value (noneValue: null clears the meta key). The button
-        // glyphs depend on the line direction (icons as a function of the
-        // block type).
+        // cells has no arrows). Six head shapes per line direction; "none"
+        // is a display sentinel for the absent value (noneValue: null
+        // clears the meta key). The button glyphs depend on the line
+        // direction (icons as a function of the block type).
         {
             key: "arrow_start",
             meta: true,
             label: "Start",
             kind: "segmented",
-            options: ["none", "arrow", "double"],
+            options: ["none", "arrow", "arrow-open", "diamond",
+                      "diamond-open", "circle", "circle-open"],
             icons: (type, opt) => {
                 const g = type === "vline"
-                    ? { none: "∅", arrow: "↑", double: "↕" }
-                    : { none: "∅", arrow: "←", double: "↔" };
+                    ? { none: "∅", arrow: "▲", "arrow-open": "△", diamond: "◆",
+                        "diamond-open": "◇", circle: "●", "circle-open": "○" }
+                    : { none: "∅", arrow: "◀", "arrow-open": "◁", diamond: "◆",
+                        "diamond-open": "◇", circle: "●", "circle-open": "○" };
                 return g[opt] || opt;
             },
             group: "Arrows",
@@ -150,11 +153,14 @@
             meta: true,
             label: "End",
             kind: "segmented",
-            options: ["none", "arrow", "double"],
+            options: ["none", "arrow", "arrow-open", "diamond",
+                      "diamond-open", "circle", "circle-open"],
             icons: (type, opt) => {
                 const g = type === "vline"
-                    ? { none: "∅", arrow: "↓", double: "↕" }
-                    : { none: "∅", arrow: "→", double: "↔" };
+                    ? { none: "∅", arrow: "▼", "arrow-open": "▽", diamond: "◆",
+                        "diamond-open": "◇", circle: "●", "circle-open": "○" }
+                    : { none: "∅", arrow: "▶", "arrow-open": "▷", diamond: "◆",
+                        "diamond-open": "◇", circle: "●", "circle-open": "○" };
                 return g[opt] || opt;
             },
             group: "Arrows",

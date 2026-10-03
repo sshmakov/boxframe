@@ -172,26 +172,42 @@ def fill_char(block_type: str, meta: dict | None) -> str:
 
 
 # Arrow glyphs for line ends (meta.arrow_start / meta.arrow_end,
-# tasks/0051 phase 3). "arrow" is a single head at the given end,
-# "double" a two-headed arrow.
+# tasks/0051 phase 3). Six head shapes per line direction (arrow,
+# arrow-open, diamond, diamond-open, circle, circle-open); "none" (or an
+# absent/invalid value) means no arrow.
 ARROW_GLYPHS: dict[str, dict[str, dict[str, str]]] = {
-    "hline": {"arrow": {"start": "←", "end": "→"}, "double": {"start": "↔", "end": "↔"}},
-    "vline": {"arrow": {"start": "↑", "end": "↓"}, "double": {"start": "↕", "end": "↕"}},
+    "hline": {
+        "arrow": {"start": "◀", "end": "▶"},
+        "arrow-open": {"start": "◁", "end": "▷"},
+        "diamond": {"start": "◆", "end": "◆"},
+        "diamond-open": {"start": "◇", "end": "◇"},
+        "circle": {"start": "●", "end": "●"},
+        "circle-open": {"start": "○", "end": "○"},
+    },
+    "vline": {
+        "arrow": {"start": "▲", "end": "▼"},
+        "arrow-open": {"start": "△", "end": "▽"},
+        "diamond": {"start": "◆", "end": "◆"},
+        "diamond-open": {"start": "◇", "end": "◇"},
+        "circle": {"start": "●", "end": "●"},
+        "circle-open": {"start": "○", "end": "○"},
+    },
 }
 
 
 def arrow_glyph(block_type: str, value: str | None, end: str) -> str:
     """The arrow glyph for a line end (meta.arrow_start / meta.arrow_end).
 
-    value is "arrow" or "double" (anything else — absent, "none", invalid —
-    means no arrow); end is "start" or "end". Only hline/vline have arrows.
+    value is one of the six head shapes (anything else — absent, "none",
+    invalid — means no arrow); end is "start" or "end". Only hline/vline
+    have arrows.
     """
-    if value not in ("arrow", "double"):
+    if not isinstance(value, str):
         return ""
     glyphs = ARROW_GLYPHS.get(block_type)
     if glyphs is None or end not in ("start", "end"):
         return ""
-    return glyphs[value][end]
+    return glyphs.get(value, {}).get(end, "")
 
 
 def h_align_offset(line_len: int, width: int, align: str | None) -> int:

@@ -256,18 +256,20 @@ def test_parity_arrows():
     cases = [
         # (block_type, meta, border_style, width, height)
         ("hline", {"arrow_start": "arrow", "arrow_end": "arrow"}, "solid", 8, 1),
-        ("hline", {"arrow_start": "double", "arrow_end": "double"}, "solid", 8, 1),
-        ("hline", {"arrow_end": "arrow"}, "dashed", 5, 1),
-        ("hline", {"arrow_start": "arrow"}, "dotted", 3, 1),
-        ("hline", {"arrow_start": "double", "arrow_end": "arrow"}, "double", 6, 1),
+        ("hline", {"arrow_start": "arrow-open", "arrow_end": "arrow-open"}, "solid", 8, 1),
+        ("hline", {"arrow_start": "diamond", "arrow_end": "diamond-open"}, "solid", 8, 1),
+        ("hline", {"arrow_end": "circle"}, "dashed", 5, 1),
+        ("hline", {"arrow_start": "circle-open"}, "dotted", 3, 1),
+        ("hline", {"arrow_start": "diamond", "arrow_end": "arrow"}, "double", 6, 1),
         ("vline", {"arrow_start": "arrow", "arrow_end": "arrow"}, "solid", 1, 8),
-        ("vline", {"arrow_start": "double", "arrow_end": "double"}, "solid", 1, 8),
-        ("vline", {"arrow_end": "arrow"}, "dashed", 1, 5),
-        ("vline", {"arrow_start": "arrow"}, "double", 1, 3),
+        ("vline", {"arrow_start": "arrow-open", "arrow_end": "circle"}, "solid", 1, 8),
+        ("vline", {"arrow_end": "diamond"}, "dashed", 1, 5),
+        ("vline", {"arrow_start": "circle-open"}, "double", 1, 3),
         ("hline", {"arrow_start": "arrow", "arrow_end": "arrow"}, "solid", 1, 1),  # too short
-        ("hline", {"arrow_start": "arrow", "arrow_end": "arrow"}, "solid", 2, 1),  # exactly 2
+        ("hline", {"arrow_start": "diamond", "arrow_end": "diamond"}, "solid", 2, 1),  # exactly 2
         ("hline", {"arrow_start": "foo", "arrow_end": "bar"}, "solid", 6, 1),  # invalid
-        ("box", {"arrow_start": "arrow", "arrow_end": "double"}, "solid", 8, 3),  # not a line
+        ("hline", {"arrow_start": "double", "arrow_end": "double"}, "solid", 6, 1),  # legacy value
+        ("box", {"arrow_start": "arrow", "arrow_end": "diamond"}, "solid", 8, 3),  # not a line
         ("button", {"arrow_start": "arrow"}, "solid", 8, 1),  # not a line
     ]
     for block_type, meta, base, w, h in cases:
