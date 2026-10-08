@@ -755,10 +755,11 @@ class PseudoGraphicRenderer:
         """Convenience method: render from raw dicts.
 
         width/height may be None — unset dimensions fall back to the
-        default canvas size (80×24).
+        default canvas size (80×24). Children nest at arbitrary depth
+        (each dict may carry its own `children` list).
         """
-        blocks = []
-        for bd in blocks_data:
+
+        def to_render_block(bd: dict) -> RenderBlock:
             rb = RenderBlock(
                 x=bd.get("x", 0),
                 y=bd.get("y", 0),
@@ -770,26 +771,11 @@ class PseudoGraphicRenderer:
                 order=bd.get("order", 0),
                 meta=bd.get("meta") or {},
             )
-            children = bd.get("children", [])
-            if children:
-                rb.children = [
-                    RenderBlock(
-                        x=c.get("x", 0),
-                        y=c.get("y", 0),
-                        width=c.get("width", 10),
-                        height=c.get("height", 1),
-                        block_type=c.get("block_type", "box"),
-                        content=c.get("content", ""),
-                        border_style=c.get("border_style", "solid"),
-                        order=c.get("order", 0),
-                        meta=c.get("meta") or {},
-                    )
-                    for c in children
-                ]
-            blocks.append(rb)
+            rb.children = [to_render_block(c) for c in bd.get("children", [])]
+            return rb
 
         renderer = cls(width, height)
-        return renderer.render(blocks)
+        return renderer.render([to_render_block(bd) for bd in blocks_data])
 
     @classmethod
     def render_html_preview(

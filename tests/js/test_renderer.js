@@ -91,6 +91,33 @@ test("nested blocks", () => {
     assert.ok(ls[2].includes("Hello"));
 });
 
+test("deep nesting (grandchildren)", () => {
+    // Three levels: a grandchild is drawn inside its container
+    const result = render([
+        {
+            id: "p", block_type: "box",
+            x: 0, y: 0, width: 24, height: 10,
+            content: "", border_style: "solid",
+        },
+        {
+            id: "c", block_type: "box",
+            x: 1, y: 1, width: 16, height: 6,
+            content: "", border_style: "solid",
+            parent_id: "p",
+        },
+        {
+            id: "g", block_type: "text",
+            x: 1, y: 1, width: 6, height: 1,
+            content: "Deep", border_style: "none",
+            parent_id: "c",
+        },
+    ]);
+    const ls = lines(result);
+    // Child absolute position: (0+1+1, 0+1+1) = (2, 2); grandchild:
+    // (2+1+1, 2+1+1) = (4, 4)
+    assert.ok(ls[4].includes("Deep"));
+});
+
 test("border styles", () => {
     const corners = {
         solid: ["┌", "┐"],
