@@ -87,6 +87,35 @@ def test_nested_blocks():
     assert "Hello" in lines[2]
 
 
+def test_render_simple_deep_nesting():
+    """render_simple recurses at arbitrary depth — a grandchild is drawn."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 24, "height": 10,
+        "content": "",
+        "border_style": "solid",
+        "children": [{
+            "block_type": "box",
+            "x": 1, "y": 1,
+            "width": 16, "height": 6,
+            "content": "",
+            "border_style": "solid",
+            "children": [{
+                "block_type": "text",
+                "x": 1, "y": 1,
+                "width": 6, "height": 1,
+                "content": "Deep",
+                "border_style": "none",
+            }],
+        }],
+    }])
+    lines = result.split("\n")
+    # Child absolute position: (0+1+1, 0+1+1) = (2, 2); grandchild:
+    # (2+1+1, 2+1+1) = (4, 4)
+    assert "Deep" in lines[4]
+
+
 def test_border_styles():
     corners = {
         "solid": ("┌", "┐"),

@@ -341,6 +341,34 @@ def test_render_nested_three_levels_html_preview(client: TestClient):
     assert "overflow:hidden" in html
 
 
+def test_render_nested_three_levels_ascii(client: TestClient):
+    """The ASCII render nests children at arbitrary depth — a grandchild two
+    levels deep is drawn inside its container (the service tree must not be
+    truncated at two levels)."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10,
+    })
+    parent_id = r.json()["id"]
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 1, "y": 1, "width": 20, "height": 6,
+        "parent_id": parent_id,
+    })
+    child_id = r.json()["id"]
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "text", "x": 1, "y": 1, "content": "Deep",
+        "parent_id": child_id,
+    })
+
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert r.status_code == 200
+    ascii_art = r.json()["ascii"]
+    # The grandchild text lands at absolute (4, 4): parent (0,0) + pad 1 +
+    # child (1,1) + pad 1 + grandchild (1,1)
+    lines = ascii_art.split("\n")
+    assert "Deep" in lines[4]
+
+
 def test_export_layout(client: TestClient):
     """Test exporting a layout."""
     _, layout_id = _create_project_with_layout(client)

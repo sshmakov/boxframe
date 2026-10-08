@@ -435,14 +435,19 @@ class LayoutService:
         return PseudoGraphicRenderer.canvas_size(blocks, layout.width, layout.height)
 
     def _build_render_blocks(self, blocks: list[Block]) -> list[RenderBlock]:
-        """Convert ORM blocks to RenderBlocks, handling nesting."""
-        root_blocks = []
+        """Convert ORM blocks to RenderBlocks, handling nesting at arbitrary depth.
+
+        The tree is built from the flat list via a parent index — the ORM
+        `children` relationship is only eager-loaded two levels deep, so it
+        cannot be used for deep nesting. A block whose parent is missing
+        from the set is treated as a root.
+        """
         by_id = {b.id: b for b in blocks}
+        children_by_parent: dict[str | None, list[Block]] = {}
+        for b in blocks:
+            children_by_parent.setdefault(b.parent_id, []).append(b)
 
-        for block in blocks:
-            if block.parent_id and block.parent_id in by_id:
-                continue  # Will be added as child
-
+        def build(block: Block, is_root: bool) -> RenderBlock:
             rb = RenderBlock(
                 x=block.x,
                 y=block.y,
@@ -452,16 +457,12 @@ class LayoutService:
                 content=block.content,
                 border_style=block.border_style,
                 order=block.order,
-                is_root=True,
+                is_root=is_root,
             )
+            rb.children = [build(c, False) for c in children_by_parent.get(block.id, [])]
+            return rb
 
-            # Add children
-            child_blocks = [b for b in blocks if b.parent_id == block.id]
-            rb.children = self._build_render_blocks(child_blocks)
-
-            root_blocks.append(rb)
-
-        return root_blocks
+        return [build(b, True) for b in blocks if not b.parent_id or b.parent_id not in by_id]
 
     # ── Export ────────────────────────────────────────────────
 
