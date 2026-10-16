@@ -314,23 +314,13 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    box-sizing: border-box;
 }
 
-/* Per-side border overlay (tasks/0051, phase 1): each axis gets its
-   effective style (meta.border_h / meta.border_v ?? border_style). A
-   "none" side keeps the faint dashed affordance so borderless blocks
-   stay visible and selectable. */
-.block-border--h-solid { border-top: 1px solid rgba(136, 136, 170, 0.5); border-bottom: 1px solid rgba(136, 136, 170, 0.5); }
-.block-border--h-dashed { border-top: 1px dashed rgba(136, 136, 170, 0.5); border-bottom: 1px dashed rgba(136, 136, 170, 0.5); }
-.block-border--h-dotted { border-top: 1px dotted rgba(136, 136, 170, 0.5); border-bottom: 1px dotted rgba(136, 136, 170, 0.5); }
-.block-border--h-double { border-top: 3px double rgba(136, 136, 170, 0.5); border-bottom: 3px double rgba(136, 136, 170, 0.5); }
-.block-border--h-none { border-top: 1px dashed rgba(136, 136, 170, 0.3); border-bottom: 1px dashed rgba(136, 136, 170, 0.3); }
-.block-border--v-solid { border-left: 1px solid rgba(136, 136, 170, 0.5); border-right: 1px solid rgba(136, 136, 170, 0.5); }
-.block-border--v-dashed { border-left: 1px dashed rgba(136, 136, 170, 0.5); border-right: 1px dashed rgba(136, 136, 170, 0.5); }
-.block-border--v-dotted { border-left: 1px dotted rgba(136, 136, 170, 0.5); border-right: 1px dotted rgba(136, 136, 170, 0.5); }
-.block-border--v-double { border-left: 3px double rgba(136, 136, 170, 0.5); border-right: 3px double rgba(136, 136, 170, 0.5); }
-.block-border--v-none { border-left: 1px dashed rgba(136, 136, 170, 0.3); border-right: 1px dashed rgba(136, 136, 170, 0.3); }
+.block-border--solid { outline: 1px solid rgba(136, 136, 170, 0.5); }
+.block-border--dashed { outline: 1px dashed rgba(136, 136, 170, 0.5); }
+.block-border--dotted { outline: 1px dotted rgba(136, 136, 170, 0.5); }
+.block-border--double { outline: 2px double rgba(136, 136, 170, 0.5); }
+.block-border--none { outline: 1px dashed rgba(136, 136, 170, 0.3); }
 
 /* Line blocks (hline / vline) */
 .block-line {

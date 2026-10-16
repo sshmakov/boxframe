@@ -273,218 +273,6 @@ def test_double_border():
     assert all(c == "═" for c in lines[0][1:5])
 
 
-# ── Per-side border tests (tasks/0051, phase 1) ───────────
-
-
-def _ps_box(meta=None, border_style="solid", width=8, height=4, content=""):
-    data = {
-        "block_type": "box",
-        "x": 0, "y": 0,
-        "width": width, "height": height,
-        "content": content,
-        "border_style": border_style,
-    }
-    if meta is not None:
-        data["meta"] = meta
-    return [data]
-
-
-def test_effective_border_styles():
-    from boxframe.services.renderer import effective_border_styles
-    assert effective_border_styles("solid", None) == ("solid", "solid")
-    assert effective_border_styles("solid", {}) == ("solid", "solid")
-    assert effective_border_styles("solid", {"border_h": "dashed"}) == ("dashed", "solid")
-    assert effective_border_styles("solid", {"border_v": "none"}) == ("solid", "none")
-    assert effective_border_styles("none", {"border_v": "double"}) == ("none", "double")
-    # An empty string inherits the base style
-    assert effective_border_styles("dotted", {"border_h": ""}) == ("dotted", "dotted")
-
-
-def test_per_side_solid_dashed():
-    """H=solid, V=dashed: solid horizontals, dashed verticals, solid corners.
-    The empty box shows the [box] type hint on the first content row."""
-    result = _render(_ps_box({"border_h": "solid", "border_v": "dashed"}))
-    lines = result.split("\n")
-    assert lines[0] == "┌──────┐"
-    assert lines[1] == "┆[box] ┆"
-    assert lines[2] == "┆      ┆"
-    assert lines[3] == "└──────┘"
-
-
-def test_per_side_solid_double():
-    """H=solid, V=double (spec example): double corners (double wins)."""
-    result = _render(_ps_box({"border_h": "solid", "border_v": "double"}))
-    lines = result.split("\n")
-    assert lines[0] == "╔──────╗"
-    assert lines[1] == "║[box] ║"
-    assert lines[2] == "║      ║"
-    assert lines[3] == "╚──────╝"
-
-
-def test_per_side_dashed_double_corners():
-    """H=dashed, V=double: corners are double, edges keep their styles."""
-    result = _render(_ps_box({"border_h": "dashed", "border_v": "double"}))
-    lines = result.split("\n")
-    assert lines[0] == "╔┄┄┄┄┄┄╗"
-    assert lines[1] == "║[box] ║"
-    assert lines[3] == "╚┄┄┄┄┄┄╝"
-
-
-def test_per_side_h_none():
-    """H=none: no top/bottom edges and no corners, verticals run end to end.
-    The hint sits at the content origin (no top inset)."""
-    result = _render(_ps_box({"border_h": "none"}))
-    lines = result.split("\n")
-    assert lines[0] == "│[box] │"  # no top edge, hint on the first row
-    assert lines[1] == "│      │"
-    assert lines[2] == "│      │"
-    assert lines[3] == "│      │"  # no bottom edge, verticals span full height
-
-
-def test_per_side_v_none():
-    """V=none: no left/right edges and no corners, horizontals intact.
-    The hint sits at the content origin (no left inset)."""
-    result = _render(_ps_box({"border_v": "none"}))
-    lines = result.split("\n")
-    assert lines[0] == "─" * 8
-    assert lines[1] == "[box]"
-    assert lines[2] == ""
-    assert lines[3] == "─" * 8
-
-
-def test_per_side_double_h_only():
-    """H=double, V=none: double horizontals, no corners or verticals."""
-    result = _render(_ps_box({"border_h": "double", "border_v": "none"}))
-    lines = result.split("\n")
-    assert lines[0] == "═" * 8
-    assert lines[1] == "[box]"
-    assert lines[3] == "═" * 8
-
-
-def test_per_side_both_none():
-    """Both axes none (base solid): no border, no type hint."""
-    result = _render(_ps_box({"border_h": "none", "border_v": "none"}))
-    assert result.strip() == ""
-
-
-def test_per_side_base_none_v_override():
-    """border_style=none + meta.border_v=solid: verticals only, the type
-    hint sits at the content origin (no top inset)."""
-    result = _render(_ps_box({"border_v": "solid"}, border_style="none"))
-    lines = result.split("\n")
-    assert lines[0] == "│[box] │"  # hint at the content origin
-    assert lines[1] == "│      │"
-    assert lines[2] == "│      │"
-    assert lines[3] == "│      │"
-
-
-def test_per_side_content_inset_per_side():
-    """Content is inset only where a border is drawn (H=none → no top inset)."""
-    result = _render(_ps_box({"border_h": "none"}, content="Hi"))
-    lines = result.split("\n")
-    assert lines[0] == "│Hi    │"  # content on the first row (no top inset)
-    assert lines[1] == "│      │"
-    assert lines[2] == "│      │"
-    assert lines[3] == "│      │"
-
-
-def test_per_side_empty_meta_inherits_base():
-    """An empty meta renders exactly like no meta at all."""
-    plain = _render(_ps_box(None))
-    empty_meta = _render(_ps_box({}))
-    assert plain == empty_meta
-
-
-def test_per_side_button_ignores_meta():
-    """Buttons keep the global border_style (their shapes don't map to sides)."""
-    plain = _render([{
-        "block_type": "button", "x": 0, "y": 0,
-        "width": 16, "height": 3, "content": "Button", "border_style": "solid",
-    }])
-    with_meta = _render([{
-        "block_type": "button", "x": 0, "y": 0,
-        "width": 16, "height": 3, "content": "Button", "border_style": "solid",
-        "meta": {"border_h": "dashed", "border_v": "dotted"},
-    }])
-    assert with_meta == plain
-
-
-def test_per_side_lines_ignore_meta():
-    """hline/vline keep the global line style."""
-    plain = _render([{
-        "block_type": "hline", "x": 0, "y": 0,
-        "width": 8, "height": 1, "content": "", "border_style": "solid",
-    }])
-    with_meta = _render([{
-        "block_type": "hline", "x": 0, "y": 0,
-        "width": 8, "height": 1, "content": "", "border_style": "solid",
-        "meta": {"border_h": "double", "border_v": "dashed"},
-    }])
-    assert with_meta == plain
-
-
-def test_per_side_children_container():
-    """A per-side container still clips and pads its children (1 cell)."""
-    result = _render([{
-        "block_type": "box",
-        "x": 0, "y": 0,
-        "width": 20, "height": 6,
-        "content": "",
-        "border_style": "solid",
-        "meta": {"border_v": "none"},
-        "children": [{
-            "block_type": "text",
-            "x": 1, "y": 1,
-            "width": 8, "height": 1,
-            "content": "Hello",
-            "border_style": "none",
-        }],
-    }])
-    lines = result.split("\n")
-    assert lines[0] == "─" * 20  # top edge end to end (V=none → no corners)
-    assert lines[2] == "  Hello"  # child at parent origin + 1-cell padding
-    assert lines[5] == "─" * 20  # bottom edge end to end
-
-
-def test_per_side_html_preview():
-    """HTML preview: per-side classes from meta.border_h / meta.border_v."""
-    html = PseudoGraphicRenderer.render_html_preview([{
-        "id": "b1",
-        "x": 0, "y": 0,
-        "width": 10, "height": 4,
-        "block_type": "box",
-        "content": "",
-        "border_style": "solid",
-        "meta": {"border_h": "dashed", "border_v": "double"},
-    }])
-    assert 'class="block-border block-border--h-dashed block-border--v-double"' in html
-
-
-def test_per_side_html_preview_to_html_preview():
-    """to_html_preview: meta.border_h=none → h-none, v inherits the base."""
-    rb = RenderBlock(
-        x=0, y=0, width=10, height=4,
-        block_type="box", content="", border_style="solid",
-        meta={"border_h": "none"},
-    )
-    html = rb.to_html_preview("b1")
-    assert 'class="block-border block-border--h-none block-border--v-solid"' in html
-
-
-def test_per_side_html_preview_lines_keep_global_style():
-    """Lines keep the global style class (no per-side split)."""
-    html = PseudoGraphicRenderer.render_html_preview([{
-        "id": "l1",
-        "x": 0, "y": 0,
-        "width": 10, "height": 1,
-        "block_type": "hline",
-        "content": "",
-        "border_style": "dashed",
-        "meta": {"border_h": "double"},
-    }])
-    assert 'class="block-line block-line--h block-line--dashed"' in html
-
-
 # ── Fill tests (tasks/0051, phase 2) ──────────────────────
 
 
@@ -556,17 +344,6 @@ def test_fill_no_border_fills_whole_area():
     assert lines[0] == "▒▒▒▒▒▒"
     assert lines[1] == "▒▒▒▒▒▒"
     assert lines[2] == "▒▒▒▒▒▒"
-
-
-def test_fill_respects_per_side_inset():
-    """The fill area is inset only where a border is drawn (H=none → no
-    top/bottom inset)."""
-    result = _render(_fill_box({"fill": "░", "border_h": "none"}))
-    lines = result.split("\n")
-    assert lines[0] == "│░░░░░░│"
-    assert lines[1] == "│░░░░░░│"
-    assert lines[2] == "│░░░░░░│"
-    assert lines[3] == "│░░░░░░│"
 
 
 def test_fill_ignored_for_other_types():
@@ -1528,7 +1305,7 @@ def test_render_html_preview_dashed_border():
         "content": "",
         "border_style": "dashed",
     }])
-    assert 'class="block-border block-border--h-dashed block-border--v-dashed"' in html
+    assert 'class="block-border block-border--dashed"' in html
 
 
 def test_render_html_preview_double_border():
@@ -1540,7 +1317,7 @@ def test_render_html_preview_double_border():
         "content": "",
         "border_style": "double",
     }])
-    assert 'class="block-border block-border--h-double block-border--v-double"' in html
+    assert 'class="block-border block-border--double"' in html
 
 
 def test_render_html_preview_hline():
@@ -1589,7 +1366,7 @@ def test_render_html_preview_border_none():
         "content": "",
         "border_style": "none",
     }])
-    assert 'class="block-border block-border--h-none block-border--v-none"' in html
+    assert 'class="block-border block-border--none"' in html
 
 
 # ── Order / z-index tests ──────────────────────────────────

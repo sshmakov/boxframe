@@ -1063,10 +1063,10 @@ def test_block_meta_fill_passes_through_api(client: TestClient):
 
     # Update: the meta object is replaced (the client sends the merged meta)
     r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
-        "meta": {"fill": "░", "border_h": "dashed"},
+        "meta": {"fill": "░", "text_align": "center"},
     })
     assert r.status_code == 200
-    assert r.json()["meta"] == {"fill": "░", "border_h": "dashed"}
+    assert r.json()["meta"] == {"fill": "░", "text_align": "center"}
 
     # Batch update: meta passes through
     r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={

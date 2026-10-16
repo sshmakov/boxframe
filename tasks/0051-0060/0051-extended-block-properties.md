@@ -1,10 +1,18 @@
+> **Удалено (2026-10-16): per-side границы.** Фаза 1 (`meta.border_h` /
+> `meta.border_v` — разные стили горизонтальных и вертикальных сторон)
+> **отменена без обратной совместимости**: ключи `border_h`/`border_v`
+> больше не читаются рендерером, панелью и CSS-оверлеем; секция «Borders»
+> убрана. Рамка блока определяется единственным `border_style` (как до
+> фазы 1). Существующие макеты, содержащие `meta.border_h`/`border_v`,
+> рендерятся по `border_style` — старые ключи игнорируются. Ниже в тексте
+> описания фазы 1 помечены как отменённые.
+
 # Суть проблемы
 
 Панель свойств — плоская 2-колоночная сетка (действия, Line Style, X/Y/W/H,
 Order, Content), одинаковая для всех 14 типов блоков. В ней невозможно
 выразить свойства, которые естественно живут в псевдографике:
 
-- разные стили границ для горизонтальных и вертикальных сторон;
 - заполнение внутренней области (fill) символом;
 - выравнивание текста по горизонтали и вертикали;
 - стрелки на концах линий (`hline`/`vline`).
@@ -31,44 +39,23 @@ Order, Content), одинаковая для всех 14 типов блоков
 
 ## Модель данных
 
-Все новые свойства — в `meta` JSON (без миграции). Существующая колонка
-`border_style` остаётся базовым значением «все стороны»; `meta` несёт
-опциональные переопределения и новые свойства.
+Все новые свойства — в `meta` JSON (без миграции). Рамка блока задаётся
+единой колонкой `border_style` (все стороны одинаково); `meta` несёт
+новые свойства (fill, выравнивание, стрелки).
 
 | Поле | Тип | Значения | Дефолт | Хранение |
 |---|---|---|---|---|
-| `border_h` | str | `BORDER_STYLES` | `border_style` (inherit) | `meta.border_h` |
-| `border_v` | str | `BORDER_STYLES` | `border_style` (inherit) | `meta.border_v` |
 | `fill` | str | `░ ▒ ▓ █ · ×` | отсутствует (none) | `meta.fill` |
 | `text_align` | str | `left / center / right` | `left` | `meta.text_align` |
 | `vertical_align` | str | `top / middle / bottom` | `top` | `meta.vertical_align` |
 | `arrow_start` | str | `none / arrow / arrow-open / diamond / diamond-open / circle / circle-open` | `none` | `meta.arrow_start` |
 | `arrow_end` | str | `none / arrow / arrow-open / diamond / diamond-open / circle / circle-open` | `none` | `meta.arrow_end` |
 
-**Эффективный стиль стороны** (решается в рендерере):
-- top/bottom = `meta.border_h ?? border_style`;
-- left/right = `meta.border_v ?? border_style`.
-
-Отсутствие ключа в `meta` = inherit от `border_style`. Стари́е макеты
-(без `meta`) рендерятся без изменений.
-
 Свободный ввод символов **не** поддерживается: `fill` — фиксированный
 набор, стрелки — enum. Валидация тривиальна, панель — char-picker /
 segmented-кнопки.
 
 ## Свойства и семантика
-
-### Per-side границы (`border_h` / `border_v`)
-
-Двухзначная модель: горизонталь (top+bottom) и вертикаль (left+right).
-Смешанные углы запрещены — независимых значений ровно два.
-
-- Применяется к блокам, рендеримых прямоугольной рамкой
-  (`_draw_border`): `box, header, footer, sidebar, content, grid, input,
-  textarea, text, divider`.
-- **`button` исключён**: его формы (h=1 `[label]`, h=2 без верхней рамки)
-  не маппятся на 4 стороны — остаётся глобальный `border_style`.
-- **`hline`/`vline`** — у них и так глобальный стиль линии (`_draw_line`).
 
 ### Fill (`fill`)
 
@@ -107,31 +94,6 @@ Enum из 6 форм наконечника на каждый конец (деф
 
 ## Правила рендера
 
-### Per-side borders (`_draw_border`)
-
-Пусть H = эффективный стиль top/bottom, V = эффективный стиль left/right.
-
-- Верхняя/нижняя кромка рисуется, если H ≠ `none` (символ `h` карты H).
-- Левая/правая кромка рисуется, если V ≠ `none` (символ `v` карты V).
-- Угол рисуется, только если **обе** прилегающие стороны ≠ `none`
-  (например, TL — если H ≠ none и V ≠ none).
-- Символ угла: если H == `double` **или** V == `double` → двойной угол
-  (`╔ ╗ ╚ ╝`), иначе — обычный (`┌ ┐ └ ┘`).
-
-Примеры:
-
-```
-H=solid, V=dashed:      H=solid, V=double:
-┌──────┐                ╔────────╗
-┆      ┆                ║        ║
-└──────┘                ╚────────╝
-```
-
-Визуальная оговорка: при H=solid, V=double угол `╔` «ждёт» двойную
-горизонталь, а кромка одна (`─`). Это известное ограничение правила
-«double выигрывает»; при желании позже можно перейти на свет-дубл
-box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замечания.
-
 ### Fill (`_draw_content`)
 
 Порядок в content-области:
@@ -162,7 +124,6 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 
 | Свойство | Типы |
 |---|---|
-| `border_h` / `border_v` | `box, header, footer, sidebar, content, grid, input, textarea, text, divider` (все через `_draw_border`, кроме `button` и линий) |
 | `fill` | `box, header, footer, sidebar, content, grid, image` |
 | `text_align` / `vertical_align` | все, кроме `hline`, `vline` |
 | `arrow_start` / `arrow_end` | `hline`, `vline` |
@@ -178,12 +139,12 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 
 ```js
 {
-  key: "border_h",        // ключ данных
+  key: "fill",            // ключ данных
   meta: true,             // true → block.meta[key], false → block[key]
-  label: "H",
-  kind: "segmented",      // number | segmented | select | charpicker | text
-  options: BORDER_STYLES, // для segmented/select/charpicker
-  group: "Borders",       // имя секции
+  label: "Fill",
+  kind: "charpicker",     // number | segmented | select | charpicker | text
+  options: FILL_CHARS,    // для segmented/select/charpicker
+  group: "Fill",          // имя секции
   types: ["box", ...],    // применимые block_type; опущено = все
   default: null,          // значение при отсутствии (null = inherit/none)
   min: 0, max: 100        // для number
@@ -240,8 +201,9 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 - **Фаза 0 — инфраструктура.** Схема `core/properties.js`, генератор
   секций, mixed-отображение, max-height/скролл, унификация web/static
   маркапа. Без новых свойств — только реорганизация текущих.
-- **Фаза 1 — per-side границы.** `border_h`/`border_v`, правило углов,
-  оверлей CSS (outline → per-side border).
+- ~~**Фаза 1 — per-side границы.** `border_h`/`border_v`, правило углов,
+  оверлей CSS (outline → per-side border).~~ **Отменена (2026-10-16)
+  без обратной совместимости** — см. заметку в начале документа.
 - **Фаза 2 — fill.** `fill`, char-picker, рендер fill+контент.
 - **Фаза 3 — стрелки + выравнивание.** `arrow_start`/`arrow_end`,
   `text_align`/`vertical_align`.
@@ -254,7 +216,8 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 - Значения по умолчанию дают вывод, идентичный текущему (регрессий нет).
 - Панель: секции по типу блока, mixed для multi-selection, состояние
   секций в localStorage, внутренний скролл.
-- `button` не получает per-side границы; `hline`/`vline` — только стрелки.
+- `hline`/`vline` — только стрелки; рамка всех блоков — единый
+  `border_style` (per-side границы отменены).
 - `pytest tests/ --ignore=tests/e2e` и `node --test "tests/js/*.js"` —
   зелёные.
 
@@ -269,11 +232,13 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 - [x] Фаза 0: унификация маркапа web/static-редакторов
 - [x] Фаза 0: персист состояния секций в localStorage
 - [x] Фаза 0: e2e-тесты обновлены под секционный маркап
-- [x] Фаза 1: `meta` в `RenderBlock` + эффективные стили (Python)
-- [x] Фаза 1: `_draw_border` per-side + правило углов (Python)
-- [x] Фаза 1: порт per-side borders в `core/renderer.js`
-- [x] Фаза 1: оверлей CSS (per-side border вместо outline)
-- [x] Фаза 1: тесты (test_renderer.py, js/test_renderer.js, parity)
+- [ ] ~~Фаза 1: `meta` в `RenderBlock` + эффективные стили (Python)~~
+- [ ] ~~Фаза 1: `_draw_border` per-side + правило углов (Python)~~
+- [ ] ~~Фаза 1: порт per-side borders в `core/renderer.js`~~
+- [ ] ~~Фаза 1: оверлей CSS (per-side border вместо outline)~~
+- [ ] ~~Фаза 1: тесты (test_renderer.py, js/test_renderer.js, parity)~~
+- [x] Фаза 1 отменена (2026-10-16): per-side границы удалены без
+      обратной совместимости (рендерер Python/JS, панель, CSS, тесты)
 - [x] Фаза 2: fill в `_draw_content` (Python) + порт в JS
 - [x] Фаза 2: char-picker в схеме, подавление подсказки
 - [x] Фаза 2: тесты (Python + JS + parity)
@@ -290,23 +255,19 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
    схемы API (`meta: dict`), экспорт (`"metadata": b.meta`) и импорт
    (`parseLayoutJson` читает `b.metadata`/`b.meta`). Миграция не нужна.
 2. **Рендер — два слоя.** Канвас = ASCII-арт (текстовый слой) +
-   полупрозрачный CSS-оверлей (`.block-border--*` на `outline`). Всё, что
-   попадает в ASCII (fill, стрелки, выравнивание, per-side границы),
-   автоматически видно через оверлей. Оверлей нужно править **только** для
-   per-side границ (outline → `border-top/right/bottom/left`).
-3. **Углы.** В текущем `BORDERS`-мапе solid/dashed/dotted уже делят
-   углы `┌┐└┘` (отличается только `double` — `╔╗╚╝`). Поэтому
-   «смешанный угол» на практике возможен только с участием double.
-   Правило «double выигрывает» покрывает все случаи одним условием.
-4. **`_draw_border`** сейчас использует одну карту символов на все 4
-   стороны. Per-side = 2 эффективных стиля (H/V) + правило угла.
-   `_draw_content` пишет контент сверху — fill вставляется прогонкой **до**
-   контента. `_draw_line` рисует линию одним символом — стрелки = замена
-   крайних символов.
-5. **`button`** имеет особую логику (`_draw_button`, формы по высоте) —
-   per-side к нему неприменим. **`divider`** сейчас рендерится как обычный
-   box (без особой обработки) — его переклассификация открыта и не
-   блокирует остальные свойства.
+   полупрозрачный CSS-оверлей (`.block-border--{style}` на `outline`).
+   Всё, что попадает в ASCII (fill, стрелки, выравнивание), автоматически
+   видно через оверлей; оверлей повторяет единый стиль рамки блока.
+3. **Углы.** В текущем `BORDERS`-мапе solid/dashed/dotted делят углы
+   `┌┐└┘` (отличается только `double` — `╔╗╚╝`); рамка блока всегда
+   рисуется одним стилем, смешанных углов нет.
+4. **`_draw_border`** использует одну карту символов на все 4 стороны
+   (единый `border_style`). `_draw_content` пишет контент сверху — fill
+   вставляется прогонкой **до** контента. `_draw_line` рисует линию одним
+   символом — стрелки = замена крайних символов.
+5. **`button`** имеет особую логику (`_draw_button`, формы по высоте).
+   **`divider`** сейчас рендерится как обычный box (без особой обработки) —
+   его переклассификация открыта и не блокирует остальные свойства.
 6. **`text_block_size`** (autosize text-блока) размер не меняет от
    выравнивания и fill (padding внутренний) — конфликтов нет.
 
@@ -352,11 +313,12 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
   1 клетка (широкие символы запрещены — ломают моноширинную сетку);
   `_draw_content` закрашивает content-область fill **до** контента
   (контент выигрывает), подавляет подсказку `[type]`; блок без рамки
-  заливает всю область; fill-область учитывает per-side inset (фаза 1).
+  заливает всю область; fill-область учитывает inset рамки (1 клетка при
+  `border_style` ≠ none).
 - `core/renderer.js`: порт `fillChar()` + fill в `drawContent`
   (побайтовый parity, экспорт `fillChar`).
 - `core/properties.js`: свойство `fill` — charpicker `░ ▒ ▓ █ · × ␣` + ∅
-  (none), секция «Fill» (после «Borders»), `types` по матрице,
+  (none), секция «Fill» (после «Style»), `types` по матрице,
   `default: "none"` (∅ подсвечен, когда fill отсутствует),
   `noneValue: null` — опция «none» — display-сентинел: применение
   удаляет ключ meta.fill.
@@ -371,11 +333,11 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
   undefined` → применить `noneValue` (null = очистить ключ).
 - Тесты: 11 в test_renderer.py + 11 в js/test_renderer.js (fill_char,
   пустой блок, подавление подсказки, контент поверх fill, перенос,
-  без рамки, per-side inset, матрица неприменимых типов, невалидные
+  без рамки, inset рамки, матрица неприменимых типов, невалидные
   значения, image, контейнер с детьми, **fill пробелом затирает блок
   снизу (show-through)**), 3 parity (23 кейса + контейнер + show-through),
   1 API (meta.fill через create/update/batch/export), e2e: порядок
-  секций Style/Borders/Fill/Geometry/Text + fill-пикер (символ →
+  секций Style/Fill/Geometry/Text + fill-пикер (символ →
   meta.fill, ∅ → очистка, ␣ → meta.fill=" ").
 - Нюанс: wrap сохраняет хвостовой пробел перенесённой строки (пробелы —
   форматирование) — он рисуется поверх fill как любая клетка контента
@@ -429,13 +391,14 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
   middle/bottom, overflow, fill+align, линии игнорируют, button label
   left/center/right) + зеркала в js/test_renderer.js;
   2 parity (25 кейсов: стрелки + выравнивание); 1 API (arrow/align через
-  create/update/batch/export); `test_properties.js` — 14 ключей схемы,
-  секции box (6, с Align) и hline (Style/Arrows/Geometry/Text),
-  clearDefault, типозависимые иконки; e2e: порядок секций
-  Style/Borders/Fill/Align/Geometry/Text + `test_properties_panel_updates_alignment`
-  (center → meta.text_align, middle → meta.vertical_align, выбор
-  дефолта left → очистка ключа) + `test_properties_panel_updates_arrows`
-  (arrow → arrow_start, diamond → arrow_end, ∅ → очистка).
+  create/update/batch/export); `test_properties.js` — 12 ключей схемы,
+  секции box (5: Style/Fill/Align/Geometry/Text) и hline
+  (Style/Arrows/Geometry/Text), clearDefault, типозависимые иконки; e2e:
+  порядок секций Style/Fill/Align/Geometry/Text +
+  `test_properties_panel_updates_alignment` (center → meta.text_align,
+  middle → meta.vertical_align, выбор дефолта left → очистка ключа) +
+  `test_properties_panel_updates_arrows` (arrow → arrow_start, diamond →
+  arrow_end, ∅ → очистка).
 - **Смена глифов стрелок (2026-10-02).** Набор `none/arrow/double`
   (`←→ ↔`, `↑↓ ↕`) заменён на 6 форм наконечника: `arrow` (◀▶ ▲▼),
   `arrow-open` (◁▷ △▽), `diamond` (◆), `diamond-open` (◇), `circle` (●),
@@ -448,11 +411,12 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
 
 # Замечания
 
-1. **Визуальный компромисс угла.** При H=solid, V=double угол `╔`
-   соединяется с одиночной горизонтальной кромкой `─`. Если захотим
-   «чистый» вид — переход на свет-дубл box-drawing символы
-   (`╒ ╤ ╞ ╡` и т.п.), но это усложняет мапу и оба рендерера. Решение —
-   позже, по необходимости.
+1. **Per-side границы отменены (2026-10-16).** Фаза 1 (`meta.border_h` /
+   `meta.border_v`) удалена без обратной совместимости: рендерер (Python и
+   JS), панель свойств и CSS-оверлей снова используют единый
+   `border_style` на все стороны. Ключи `border_h`/`border_v` в старых
+   макетах игнорируются. Вопрос «визуального компромисса угла» и
+   «кромок без углов» (бывшие пункты 1, 8, 9) снят.
 2. **`divider` открыт.** Сейчас — box с рамкой. Варианты: оставить как есть
    (стрелки не применяются) или сделать линией (тогда применяются стрелки
    и стили линий, меняется существующий вывод). Не блокирует фазы 0–3.
@@ -480,13 +444,3 @@ box-drawing символы (`╒ ╤ ╞ ╡` и т.п.) — см. Замеча�
    «повесить» на несуществующий layout (HTTP 200). Вне скоупа фазы 0;
    починить отдельной задачей (404 в `create_block`/`update_block`/
    `delete_block`).
-8. **Кромки без углов (решение фазы 1).** Когда одна ось `none`, углов
-   нет, и кромка другой оси рисуется **сквозь весь блок** (от края до
-   края), а не только между позициями углов: `V=none` → верхняя/нижняя
-   линия на всю ширину, `H=none` → левая/правая на всю высоту. Иначе
-   кромка «обрезалась» бы у краёв (пустые концевые клетки). Зафиксировано
-   в `_draw_border` (Python) / `drawBorder` (JS) и покрыто тестами.
-9. **Опечатка в примере спеки (исправлена в фазе 1).** В примере
-   «H=solid, V=dashed» горизонтали были нарисованы пунктиром (`┄`), хотя
-   по правилу top/bottom берут символ H (solid `─`). Картинка поправлена
-   под правило; реализация следовала правилу, а не картинке.

@@ -54,7 +54,7 @@ function stubStore(app) {
 test("schema: the current properties are described (phase 3 set)", () => {
     const keys = PGProperties.PROPERTY_SCHEMA.map(p => p.key);
     assert.deepEqual(keys, [
-        "border_style", "border_h", "border_v", "fill",
+        "border_style", "fill",
         "text_align", "vertical_align", "arrow_start", "arrow_end",
         "x", "y", "width", "height", "order", "content",
     ]);
@@ -62,19 +62,6 @@ test("schema: the current properties are described (phase 3 set)", () => {
     assert.equal(style.kind, "segmented");
     assert.deepEqual(style.options, PGRenderer.BORDER_STYLES);
     assert.equal(style.group, "Style");
-    // Per-side border overrides (phase 1 of tasks/0051): meta keys,
-    // absent = inherit the base border_style
-    for (const key of ["border_h", "border_v"]) {
-        const prop = PGProperties.findProperty(key);
-        assert.equal(prop.meta, true);
-        assert.equal(prop.kind, "segmented");
-        assert.deepEqual(prop.options, PGRenderer.BORDER_STYLES);
-        assert.equal(prop.group, "Borders");
-        assert.equal(prop.default, null);
-        assert.ok(!prop.types.includes("button"));
-        assert.ok(!prop.types.includes("hline"));
-        assert.ok(!prop.types.includes("vline"));
-    }
     // Fill (phase 2 of tasks/0051): meta key, charpicker; " " (space) is a
     // real fill value (erases the block below); "none" is a display
     // sentinel for the absent value (noneValue: null clears it)
@@ -172,22 +159,20 @@ test("readPropValue: meta properties read block.meta[key], absent → default", 
 test("sectionsForType: groups in declaration order, all properties applicable", () => {
     const sections = PGProperties.sectionsForType("box");
     assert.deepEqual(sections.map(s => s.name),
-        ["Style", "Borders", "Fill", "Align", "Geometry", "Text"]);
+        ["Style", "Fill", "Align", "Geometry", "Text"]);
     assert.deepEqual(sections[0].props.map(p => p.key), ["border_style"]);
-    assert.deepEqual(sections[1].props.map(p => p.key), ["border_h", "border_v"]);
-    assert.deepEqual(sections[2].props.map(p => p.key), ["fill"]);
-    assert.deepEqual(sections[3].props.map(p => p.key), ["text_align", "vertical_align"]);
+    assert.deepEqual(sections[1].props.map(p => p.key), ["fill"]);
+    assert.deepEqual(sections[2].props.map(p => p.key), ["text_align", "vertical_align"]);
     assert.deepEqual(
-        sections[4].props.map(p => p.key),
+        sections[3].props.map(p => p.key),
         ["x", "y", "width", "height", "order"],
     );
-    assert.deepEqual(sections[5].props.map(p => p.key), ["content"]);
+    assert.deepEqual(sections[4].props.map(p => p.key), ["content"]);
 });
 
-test("sectionsForType: Borders/Fill are not applicable to button and lines", () => {
+test("sectionsForType: Fill is not applicable to button and lines", () => {
     for (const type of ["button", "hline", "vline"]) {
         const sections = PGProperties.sectionsForType(type);
-        assert.ok(!sections.some(s => s.name === "Borders"), type);
         assert.ok(!sections.some(s => s.name === "Fill"), type);
     }
     // Align applies to all content types (including button — text_align
@@ -252,9 +237,9 @@ test("panelSections: the sections of the primary selected block's type", () => {
     const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
     assert.deepEqual(
         app.panelSections.map(s => s.name),
-        ["Style", "Borders", "Fill", "Align", "Geometry", "Text"],
+        ["Style", "Fill", "Align", "Geometry", "Text"],
     );
-    // A line: no Borders/Fill/Align, but Arrows
+    // A line: no Fill/Align, but Arrows
     const line = appWith([block("b1", "hline", 0, 0, 5, 1)], ["b1"]);
     assert.deepEqual(
         line.panelSections.map(s => s.name),

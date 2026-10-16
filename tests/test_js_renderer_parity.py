@@ -116,59 +116,6 @@ def test_parity_all_border_styles():
         assert render_js(blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8), style
 
 
-def test_parity_per_side_borders():
-    """Per-side border styles (meta.border_h / meta.border_v) render identically."""
-    cases = [
-        # (meta, base style)
-        ({"border_h": "solid", "border_v": "dashed"}, "solid"),
-        ({"border_h": "solid", "border_v": "double"}, "solid"),
-        ({"border_h": "dashed", "border_v": "double"}, "solid"),
-        ({"border_h": "none"}, "solid"),
-        ({"border_v": "none"}, "solid"),
-        ({"border_h": "double", "border_v": "none"}, "solid"),
-        ({"border_h": "none", "border_v": "none"}, "solid"),
-        ({"border_v": "solid"}, "none"),
-        ({}, "dotted"),
-        ({}, "none"),
-    ]
-    for meta, base in cases:
-        blocks = [{"id": "b1", "block_type": "box", "x": 0, "y": 0, "width": 12, "height": 5,
-                   "content": "per-side", "border_style": base, "meta": meta, "order": 0}]
-        py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
-        assert render_js(blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8), (meta, base)
-
-
-def test_parity_per_side_content_inset():
-    """Content origin/inset depends on which sides have borders — in both renderers."""
-    blocks = [
-        {"id": "b1", "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 4,
-         "content": "Hi", "border_style": "solid", "meta": {"border_h": "none"}, "order": 0},
-        {"id": "b2", "block_type": "box", "x": 0, "y": 6, "width": 10, "height": 4,
-         "content": "Hi", "border_style": "solid", "meta": {"border_v": "none"}, "order": 1},
-    ]
-    py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
-    assert render_js(blocks, 30, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 12)
-
-
-def test_parity_per_side_children_container():
-    """A container with per-side borders clips its children identically."""
-    js_blocks = [
-        {"id": "p", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 6,
-         "content": "", "border_style": "solid", "meta": {"border_v": "none"}, "order": 0},
-        {"id": "c", "block_type": "text", "x": 1, "y": 1, "width": 8, "height": 1,
-         "content": "Hello", "border_style": "none", "parent_id": "p", "order": 0},
-    ]
-    py_blocks = [{
-        "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 6,
-        "content": "", "border_style": "solid", "meta": {"border_v": "none"}, "order": 0,
-        "children": [
-            {"block_type": "text", "x": 1, "y": 1, "width": 8, "height": 1,
-             "content": "Hello", "border_style": "none", "order": 0},
-        ],
-    }]
-    assert render_js(js_blocks, 30, 8) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 8)
-
-
 def test_parity_fill():
     """Fill (meta.fill) renders identically in both renderers."""
     cases = [
@@ -184,9 +131,7 @@ def test_parity_fill():
         ("content", {"fill": "×"}, "Some content here that wraps", "solid"),
         ("grid", {"fill": "░"}, "", "dotted"),
         ("image", {"fill": "█"}, "", "solid"),
-        ("box", {"fill": "░", "border_h": "none"}, "", "solid"),
-        ("box", {"fill": "▒", "border_v": "none"}, "Hi", "solid"),
-        ("box", {"fill": "░", "border_h": "none", "border_v": "none"}, "x", "none"),
+        ("box", {"fill": "░"}, "x", "none"),
         ("box", {"fill": "ab"}, "x", "solid"),  # invalid: more than one cell
         ("box", {"fill": ""}, "", "solid"),     # invalid: empty
         ("box", {"fill": 5}, "", "solid"),      # invalid: not a string
@@ -504,19 +449,5 @@ def test_parity_html_preview_child_bigger_than_parent():
          "content": "", "border_style": "solid", "order": 0},
         {"id": "big", "block_type": "box", "x": 2, "y": 1, "width": 30, "height": 10,
          "content": "", "border_style": "dashed", "parent_id": "parent", "order": 0},
-    ]
-    assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(to_nested(blocks))
-
-
-def test_parity_html_preview_per_side_borders():
-    """HTML preview: per-side border classes (meta.border_h / meta.border_v)."""
-    blocks = [
-        {"id": "b1", "block_type": "box", "x": 0, "y": 0, "width": 12, "height": 4,
-         "content": "", "border_style": "solid",
-         "meta": {"border_h": "dashed", "border_v": "double"}, "order": 0},
-        {"id": "b2", "block_type": "box", "x": 0, "y": 6, "width": 12, "height": 4,
-         "content": "", "border_style": "solid", "meta": {"border_h": "none"}, "order": 1},
-        {"id": "b3", "block_type": "box", "x": 0, "y": 12, "width": 12, "height": 4,
-         "content": "", "border_style": "dotted", "order": 2},
     ]
     assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(to_nested(blocks))

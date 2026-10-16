@@ -60,18 +60,6 @@
     var DEFAULT_CANVAS_WIDTH = 80;
     var DEFAULT_CANVAS_HEIGHT = 24;
 
-    // Port of effective_border_styles in services/renderer.py: the
-    // effective per-side styles (H, V) for top/bottom and left/right.
-    // meta.border_h / meta.border_v override the base border_style per
-    // axis; an absent (or empty) key inherits the base, so old layouts
-    // without meta render unchanged.
-    function effectiveBorderStyles(borderStyle, meta) {
-        meta = meta || {};
-        var h = meta.border_h || borderStyle;
-        var v = meta.border_v || borderStyle;
-        return [h, v];
-    }
-
     // Block types whose content area can be painted with a fill character
     // (meta.fill, tasks/0051 phase 2). Mirrors FILL_TYPES in
     // services/renderer.py.
@@ -218,12 +206,8 @@
         grid[y][x] = ch;
     }
 
-    // Port of PseudoGraphicRenderer._draw_border: per-side styles. H
-    // (top/bottom) and V (left/right) may differ (meta.border_h /
-    // meta.border_v). An edge is drawn only if its style is not "none";
-    // a corner only if BOTH adjacent sides are drawn. A corner takes the
-    // double glyph when either adjacent style is double (double wins).
-    function drawBorder(block, hStyle, vStyle, grid, gw, gh, clip) {
+    // Port of PseudoGraphicRenderer._draw_border
+    function drawBorder(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
         var w = Math.min(block.width, gw - x);
@@ -231,37 +215,22 @@
 
         if (w < 2 || h < 2) return;
 
-        var hm = BORDERS[hStyle] || BORDERS.solid;
-        var vm = BORDERS[vStyle] || BORDERS.solid;
-        var hasH = hStyle !== "none";
-        var hasV = vStyle !== "none";
-        var corner = (hStyle === "double" || vStyle === "double") ? BORDERS.double : BORDERS.solid;
+        // Corners
+        setCell(grid, gw, gh, clip, x, y, style.tl);
+        setCell(grid, gw, gh, clip, x + w - 1, y, style.tr);
+        setCell(grid, gw, gh, clip, x, y + h - 1, style.bl);
+        setCell(grid, gw, gh, clip, x + w - 1, y + h - 1, style.br);
 
-        if (hasH && hasV) {
-            setCell(grid, gw, gh, clip, x, y, corner.tl);
-            setCell(grid, gw, gh, clip, x + w - 1, y, corner.tr);
-            setCell(grid, gw, gh, clip, x, y + h - 1, corner.bl);
-            setCell(grid, gw, gh, clip, x + w - 1, y + h - 1, corner.br);
+        // Top and bottom edges
+        for (var i = 1; i < w - 1; i++) {
+            setCell(grid, gw, gh, clip, x + i, y, style.h);
+            setCell(grid, gw, gh, clip, x + i, y + h - 1, style.h);
         }
-        // Edges span the full extent of the block on their axis; where a
-        // corner is drawn it occupies the end cell, so the edge fills the
-        // interior. Without corners (the adjacent axis is "none") the edge
-        // runs end to end.
-        if (hasH) {
-            var hStart = hasV ? 1 : 0;
-            var hEnd = hasV ? w - 1 : w;
-            for (var i = hStart; i < hEnd; i++) {
-                setCell(grid, gw, gh, clip, x + i, y, hm.h);
-                setCell(grid, gw, gh, clip, x + i, y + h - 1, hm.h);
-            }
-        }
-        if (hasV) {
-            var vStart = hasH ? 1 : 0;
-            var vEnd = hasH ? h - 1 : h;
-            for (var j = vStart; j < vEnd; j++) {
-                setCell(grid, gw, gh, clip, x, y + j, vm.v);
-                setCell(grid, gw, gh, clip, x + w - 1, y + j, vm.v);
-            }
+
+        // Left and right edges
+        for (var j = 1; j < h - 1; j++) {
+            setCell(grid, gw, gh, clip, x, y + j, style.v);
+            setCell(grid, gw, gh, clip, x + w - 1, y + j, style.v);
         }
     }
 
@@ -362,18 +331,14 @@
 
         if (w < 1 || h < 1) return;
 
-        // Per-side border: the content is inset by one cell only where a
-        // border is drawn (meta.border_h / meta.border_v ?? border_style)
-        var styles = effectiveBorderStyles(block.border_style, block.meta);
-        var hasH = styles[0] !== "none";
-        var hasV = styles[1] !== "none";
-        var hasBorder = hasH || hasV;
+        // The content is inset by one cell where a border is drawn
+        var hasBorder = block.border_style !== "none";
         if (hasBorder && (w < 2 || h < 2)) return;
 
-        var contentX = x + (hasV ? 1 : 0);
-        var contentY = y + (hasH ? 1 : 0);
-        var contentW = w - (hasV ? 2 : 0);
-        var contentH = h - (hasH ? 2 : 0);
+        var contentX = x + (hasBorder ? 1 : 0);
+        var contentY = y + (hasBorder ? 1 : 0);
+        var contentW = w - (hasBorder ? 2 : 0);
+        var contentH = h - (hasBorder ? 2 : 0);
 
         // Fill (meta.fill) paints the content area first; the content is
         // drawn on top (content wins) and the [type] hint is suppressed.
@@ -490,12 +455,11 @@
             return;
         }
 
-        var styles = effectiveBorderStyles(block.border_style, block.meta);
-        var hasBorder = (styles[0] !== "none" || styles[1] !== "none")
+        var hasBorder = block.border_style !== "none"
             && block.width >= 2 && block.height >= 2;
 
         if (hasBorder) {
-            drawBorder(block, styles[0], styles[1], grid, gw, gh, clip);
+            drawBorder(block, style, grid, gw, gh, clip);
             drawContent(block, grid, gw, gh, clip);
             var hasChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
             if (hasChildren) {
@@ -597,11 +561,7 @@
             return '<div class="block-line block-line--' + direction + " block-line--" + style + '"></div>';
         }
 
-        // Per-side border classes (meta.border_h / meta.border_v ?? border_style)
-        var styles = effectiveBorderStyles(block.border_style, block.meta);
-        var h = styleMap[styles[0]] || "solid";
-        var v = styleMap[styles[1]] || "solid";
-        return '<div class="block-border block-border--h-' + h + ' block-border--v-' + v +
+        return '<div class="block-border block-border--' + style +
             '" style="width:100%;height:100%;"></div>';
     }
 
@@ -645,11 +605,7 @@
             var direction = blockType === "hline" ? "h" : "v";
             borderHtml = '<div class="block-line block-line--' + direction + ' block-line--' + bs + '"></div>';
         } else {
-            // Per-side border classes (meta.border_h / meta.border_v ?? border_style)
-            var styles = effectiveBorderStyles(borderStyle, bd.meta);
-            var h = borderMap[styles[0]] || "solid";
-            var v = borderMap[styles[1]] || "solid";
-            borderHtml = '<div class="block-border block-border--h-' + h + ' block-border--v-' + v +
+            borderHtml = '<div class="block-border block-border--' + bs +
                 '" style="width:100%;height:100%;"></div>';
         }
 
@@ -820,7 +776,6 @@
         BORDER_STYLES: BORDER_STYLES,
         render: render,
         canvasSize: canvasSize,
-        effectiveBorderStyles: effectiveBorderStyles,
         fillChar: fillChar,
         arrowGlyph: arrowGlyph,
         hAlignOffset: hAlignOffset,

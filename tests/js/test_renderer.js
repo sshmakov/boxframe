@@ -257,158 +257,6 @@ test("double border", () => {
     assert.ok([...ls[0].slice(1, 5)].every(c => c === "═"));
 });
 
-// ── Per-side border tests (tasks/0051, phase 1) ───────────
-
-function psBox(meta, extra) {
-    return Object.assign({
-        id: "b1", block_type: "box",
-        x: 0, y: 0, width: 8, height: 4,
-        content: "", border_style: "solid",
-    }, meta ? { meta } : {}, extra || {});
-}
-
-test("effectiveBorderStyles: absent keys inherit the base style", () => {
-    assert.deepEqual(PG.effectiveBorderStyles("solid", null), ["solid", "solid"]);
-    assert.deepEqual(PG.effectiveBorderStyles("solid", {}), ["solid", "solid"]);
-    assert.deepEqual(PG.effectiveBorderStyles("solid", { border_h: "dashed" }), ["dashed", "solid"]);
-    assert.deepEqual(PG.effectiveBorderStyles("solid", { border_v: "none" }), ["solid", "none"]);
-    assert.deepEqual(PG.effectiveBorderStyles("none", { border_v: "double" }), ["none", "double"]);
-    // An empty string inherits the base style
-    assert.deepEqual(PG.effectiveBorderStyles("dotted", { border_h: "" }), ["dotted", "dotted"]);
-});
-
-test("per-side solid/dashed: solid horizontals, dashed verticals", () => {
-    const result = render([psBox({ border_h: "solid", border_v: "dashed" })]);
-    const ls = lines(result);
-    assert.equal(ls[0], "┌──────┐");
-    assert.equal(ls[1], "┆[box] ┆");
-    assert.equal(ls[2], "┆      ┆");
-    assert.equal(ls[3], "└──────┘");
-});
-
-test("per-side solid/double (spec example): double corners win", () => {
-    const result = render([psBox({ border_h: "solid", border_v: "double" })]);
-    const ls = lines(result);
-    assert.equal(ls[0], "╔──────╗");
-    assert.equal(ls[1], "║[box] ║");
-    assert.equal(ls[2], "║      ║");
-    assert.equal(ls[3], "╚──────╝");
-});
-
-test("per-side dashed/double: double corners, styled edges", () => {
-    const result = render([psBox({ border_h: "dashed", border_v: "double" })]);
-    const ls = lines(result);
-    assert.equal(ls[0], "╔┄┄┄┄┄┄╗");
-    assert.equal(ls[1], "║[box] ║");
-    assert.equal(ls[3], "╚┄┄┄┄┄┄╝");
-});
-
-test("per-side h=none: no top/bottom edges or corners, verticals end to end", () => {
-    const result = render([psBox({ border_h: "none" })]);
-    const ls = lines(result);
-    assert.equal(ls[0], "│[box] │"); // no top edge, hint on the first row
-    assert.equal(ls[1], "│      │");
-    assert.equal(ls[2], "│      │");
-    assert.equal(ls[3], "│      │"); // no bottom edge, verticals span full height
-});
-
-test("per-side v=none: no left/right edges or corners", () => {
-    const result = render([psBox({ border_v: "none" })]);
-    const ls = lines(result);
-    assert.equal(ls[0], "─".repeat(8));
-    assert.equal(ls[1], "[box]");
-    assert.equal(ls[2], "");
-    assert.equal(ls[3], "─".repeat(8));
-});
-
-test("per-side double h only: no corners or verticals", () => {
-    const result = render([psBox({ border_h: "double", border_v: "none" })]);
-    const ls = lines(result);
-    assert.equal(ls[0], "═".repeat(8));
-    assert.equal(ls[1], "[box]");
-    assert.equal(ls[3], "═".repeat(8));
-});
-
-test("per-side both none: no border, no type hint", () => {
-    const result = render([psBox({ border_h: "none", border_v: "none" })]);
-    assert.equal(result.trim(), "");
-});
-
-test("per-side base none + v override: verticals only, hint at content origin", () => {
-    const result = render([psBox({ border_v: "solid" }, { border_style: "none" })]);
-    const ls = lines(result);
-    assert.equal(ls[0], "│[box] │");
-    assert.equal(ls[1], "│      │");
-    assert.equal(ls[2], "│      │");
-    assert.equal(ls[3], "│      │");
-});
-
-test("per-side content inset only where a border is drawn", () => {
-    const result = render([psBox({ border_h: "none" }, { content: "Hi" })]);
-    const ls = lines(result);
-    assert.equal(ls[0], "│Hi    │"); // content on the first row (no top inset)
-    assert.equal(ls[1], "│      │");
-    assert.equal(ls[2], "│      │");
-    assert.equal(ls[3], "│      │");
-});
-
-test("per-side empty meta inherits the base style", () => {
-    const plain = render([psBox(null)]);
-    const emptyMeta = render([psBox({})]);
-    assert.equal(plain, emptyMeta);
-});
-
-test("per-side button ignores meta (global border_style)", () => {
-    const plain = render([{
-        id: "b1", block_type: "button",
-        x: 0, y: 0, width: 16, height: 3,
-        content: "Button", border_style: "solid",
-    }]);
-    const withMeta = render([{
-        id: "b1", block_type: "button",
-        x: 0, y: 0, width: 16, height: 3,
-        content: "Button", border_style: "solid",
-        meta: { border_h: "dashed", border_v: "dotted" },
-    }]);
-    assert.equal(withMeta, plain);
-});
-
-test("per-side lines ignore meta (global line style)", () => {
-    const plain = render([{
-        id: "b1", block_type: "hline",
-        x: 0, y: 0, width: 8, height: 1,
-        content: "", border_style: "solid",
-    }]);
-    const withMeta = render([{
-        id: "b1", block_type: "hline",
-        x: 0, y: 0, width: 8, height: 1,
-        content: "", border_style: "solid",
-        meta: { border_h: "double", border_v: "dashed" },
-    }]);
-    assert.equal(withMeta, plain);
-});
-
-test("per-side children container: 1-cell padding and clip", () => {
-    const result = render([
-        {
-            id: "p", block_type: "box",
-            x: 0, y: 0, width: 20, height: 6,
-            content: "", border_style: "solid",
-            meta: { border_v: "none" },
-        },
-        {
-            id: "c", block_type: "text",
-            x: 1, y: 1, width: 8, height: 1,
-            content: "Hello", border_style: "none",
-            parent_id: "p",
-        },
-    ]);
-    const ls = lines(result);
-    assert.equal(ls[0], "─".repeat(20)); // top edge end to end (V=none → no corners)
-    assert.equal(ls[2], "  Hello");      // child at parent origin + 1-cell padding
-    assert.equal(ls[5], "─".repeat(20)); // bottom edge end to end
-});
-
 // ── Fill tests (tasks/0051, phase 2) ──────────────────────
 
 function fillBox(meta, extra) {
@@ -470,15 +318,6 @@ test("fill no border: the whole area is filled", () => {
     assert.equal(ls[0], "▒▒▒▒▒▒");
     assert.equal(ls[1], "▒▒▒▒▒▒");
     assert.equal(ls[2], "▒▒▒▒▒▒");
-});
-
-test("fill respects the per-side inset (H=none → no top/bottom inset)", () => {
-    const result = render([fillBox({ fill: "░", border_h: "none" })]);
-    const ls = lines(result);
-    assert.equal(ls[0], "│░░░░░░│");
-    assert.equal(ls[1], "│░░░░░░│");
-    assert.equal(ls[2], "│░░░░░░│");
-    assert.equal(ls[3], "│░░░░░░│");
 });
 
 test("fill ignored for other types (matrix)", () => {
@@ -1446,37 +1285,27 @@ test("renderHtmlPreview child bigger than parent", () => {
     assert.ok(bigTag.includes("height:144px"));  // 10*14.4
 });
 
-test("renderHtmlPreview per-side border classes", () => {
-    // No meta: both axes inherit the base style
+test("renderHtmlPreview border classes", () => {
     const dashed = PG.renderHtmlPreview([{
         id: "b1", block_type: "box",
         x: 0, y: 0, width: 10, height: 4,
         content: "", border_style: "dashed",
     }]);
-    assert.ok(dashed.includes('class="block-border block-border--h-dashed block-border--v-dashed"'));
+    assert.ok(dashed.includes('class="block-border block-border--dashed"'));
 
     const double = PG.renderHtmlPreview([{
         id: "b1", block_type: "box",
         x: 0, y: 0, width: 10, height: 4,
         content: "", border_style: "double",
     }]);
-    assert.ok(double.includes('class="block-border block-border--h-double block-border--v-double"'));
+    assert.ok(double.includes('class="block-border block-border--double"'));
 
     const none = PG.renderHtmlPreview([{
         id: "b1", block_type: "box",
         x: 0, y: 0, width: 10, height: 4,
         content: "", border_style: "none",
     }]);
-    assert.ok(none.includes('class="block-border block-border--h-none block-border--v-none"'));
-
-    // meta overrides each axis independently
-    const perSide = PG.renderHtmlPreview([{
-        id: "b1", block_type: "box",
-        x: 0, y: 0, width: 10, height: 4,
-        content: "", border_style: "solid",
-        meta: { border_h: "dashed", border_v: "double" },
-    }]);
-    assert.ok(perSide.includes('class="block-border block-border--h-dashed block-border--v-double"'));
+    assert.ok(none.includes('class="block-border block-border--none"'));
 });
 
 test("renderHtmlPreview line blocks", () => {

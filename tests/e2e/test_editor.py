@@ -741,7 +741,7 @@ def test_properties_panel_fields_in_one_row(page: Page):
 
 
 def test_properties_panel_section_order(page: Page):
-    """Panel sections top to bottom: actions, Style, Borders, Fill,
+    """Panel sections top to bottom: actions, Style, Fill,
     Align, Geometry, Text (for a box — no Arrows)."""
     layout_id, block_id = _create_project_with_block(page)
 
@@ -750,22 +750,21 @@ def test_properties_panel_section_order(page: Page):
     expect(panel).to_be_visible()
 
     heads = panel.locator(".props-section__head")
-    expect(heads).to_have_count(6)
+    expect(heads).to_have_count(5)
     # text_content() is not affected by CSS text-transform
     titles = [
         panel.locator(".props-section__title").nth(i).text_content()
-        for i in range(6)
+        for i in range(5)
     ]
-    assert titles == ["Style", "Borders", "Fill", "Align", "Geometry", "Text"]
+    assert titles == ["Style", "Fill", "Align", "Geometry", "Text"]
 
     sections = {
         "actions": panel.locator(".block-props__actions"),
         "style": heads.nth(0),
-        "borders": heads.nth(1),
-        "fill": heads.nth(2),
-        "align": heads.nth(3),
-        "geometry": heads.nth(4),
-        "text": heads.nth(5),
+        "fill": heads.nth(1),
+        "align": heads.nth(2),
+        "geometry": heads.nth(3),
+        "text": heads.nth(4),
     }
     for name, loc in sections.items():
         expect(loc).to_have_count(1)
