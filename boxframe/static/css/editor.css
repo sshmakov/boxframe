@@ -621,24 +621,31 @@
 }
 
 /* Icon buttons (the Align row, schema iconPrefix): the label is an SVG
-   file (static/icons/) applied as a CSS mask over currentColor, so the
-   icon tints like the glyph buttons (muted → accent when active). The
-   url() resolves against THIS stylesheet, which sits at the same
-   relative path in the web editor (/static/css/) and the static editor
-   (file://.../static/css/).
+   applied as a CSS mask over currentColor, so the icon tints like the
+   glyph buttons (muted → accent when active).
+
+   The SVG is inlined as a data: URI, NOT a url("../icons/…") file
+   reference. A file:// page is an opaque origin ('null'), and some
+   Chrome configs block file:// image subresources (a CSS mask) by CORS
+   while still allowing <img> — that split left the buttons EMPTY (the
+   <img> probe in editor.js passed, so the text was hidden, but the
+   mask failed and a failed mask renders fully transparent). A data:
+   URI makes NO cross-origin request (data: is in the allowed-scheme
+   list), so the mask works from file:// in any config. The canonical,
+   inspectable icons live in static/icons/align-*.svg; regenerate these
+   data: URIs with tmp/gen_icon_datauris.py after editing an SVG.
 
    FALLBACK: the option text stays in the button and is the visible
-   label until the editor verifies the mask image actually loads
-   (editor.js flips `align-icons-ok` on the editor root after an
-   <img> test of the computed mask URL). Only then is the text hidden
-   (font-size: 0) and the masked ::before shown. If the mask can't
-   load (file:// with restricted subresource access, a missing
-   icons/ dir, an unsupported mask), the buttons keep their text.
+   label until the editor verifies the mask (editor.js flips
+   `align-icons-ok` on the editor root after an <img> test of the
+   computed mask URL). Only then is the text hidden (font-size: 0) and
+   the masked ::before shown. A data: URI can't fail to load, so the
+   probe now only guards against a browser without CSS-mask support
+   (computed mask 'none' → class never set → the text stays).
    The mask rules are NOT gated on the class: the ::before has no
    `content` until the class is set (so nothing renders before
-   verification — no solid square on a failed image), and the editor
-   reads the mask URL from the computed ::before of a throwaway
-   button, which needs the rules present. */
+   verification), and the editor reads the mask URL from the computed
+   ::before of a throwaway button, which needs the rules present. */
 .align-icons-ok .style-btn--icon {
     font-size: 0;
 }
@@ -651,28 +658,28 @@
     background-color: currentColor;
 }
 .style-btn--align-left::before {
-    -webkit-mask: url("../icons/align-left.svg") center / contain no-repeat;
-    mask: url("../icons/align-left.svg") center / contain no-repeat;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='4' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='4' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
 }
 .style-btn--align-center::before {
-    -webkit-mask: url("../icons/align-center.svg") center / contain no-repeat;
-    mask: url("../icons/align-center.svg") center / contain no-repeat;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='7' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='7' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='7' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='7' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
 }
 .style-btn--align-right::before {
-    -webkit-mask: url("../icons/align-right.svg") center / contain no-repeat;
-    mask: url("../icons/align-right.svg") center / contain no-repeat;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='10' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='10' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='10' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='10' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
 }
 .style-btn--align-top::before {
-    -webkit-mask: url("../icons/align-top.svg") center / contain no-repeat;
-    mask: url("../icons/align-top.svg") center / contain no-repeat;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='4' y='8' width='16' height='2' rx='1'/%3E %3Crect x='4' y='12' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='4' y='8' width='16' height='2' rx='1'/%3E %3Crect x='4' y='12' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
 }
 .style-btn--align-middle::before {
-    -webkit-mask: url("../icons/align-middle.svg") center / contain no-repeat;
-    mask: url("../icons/align-middle.svg") center / contain no-repeat;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='7' width='16' height='2' rx='1'/%3E %3Crect x='4' y='11' width='16' height='2' rx='1'/%3E %3Crect x='4' y='15' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='7' width='16' height='2' rx='1'/%3E %3Crect x='4' y='11' width='16' height='2' rx='1'/%3E %3Crect x='4' y='15' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
 }
 .style-btn--align-bottom::before {
-    -webkit-mask: url("../icons/align-bottom.svg") center / contain no-repeat;
-    mask: url("../icons/align-bottom.svg") center / contain no-repeat;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='10' width='16' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='18' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='10' width='16' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='18' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
 }
 
 /* Number fields: label to the left of the input (one grid cell each) */

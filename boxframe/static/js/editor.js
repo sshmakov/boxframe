@@ -2108,9 +2108,17 @@ function editorApp() {
         },
 
         // The mask image URL from a computed mask value
-        // ('url("file:///...")' → 'file:///...'); null when absent.
+        // ('url("…")' → '…'); null when absent. The URL may itself
+        // contain the OTHER quote type (a data: URI inlined with
+        // single-quoted SVG attributes), so match the outer quoting:
+        // double-quoted, then single-quoted, then unquoted.
         maskUrlFromComputed(mask) {
-            const m = (mask || "").match(/url\(["']?([^"')]+)["']?\)/);
+            if (!mask) return null;
+            let m = mask.match(/url\("([^"]*)"\)/);
+            if (m) return m[1];
+            m = mask.match(/url\('([^']*)'\)/);
+            if (m) return m[1];
+            m = mask.match(/url\(([^)\s]+)\)/);
             return m ? m[1] : null;
         },
 

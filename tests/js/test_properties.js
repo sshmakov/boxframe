@@ -609,6 +609,17 @@ test("maskUrlFromComputed: extracts the mask image URL (icon fallback)", () => {
         app.maskUrlFromComputed("url(http://127.0.0.1:8000/static/icons/align-left.svg)"),
         "http://127.0.0.1:8000/static/icons/align-left.svg");
     assert.equal(app.maskUrlFromComputed("url('a/b.svg')"), "a/b.svg");
+    // A data: URI inlined with single-quoted SVG attributes: the URL
+    // contains single quotes, so the outer double quoting must win
+    // (a naive [^"')]+ match would truncate at the first ')
+    const dataUri =
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24'/%3E";
+    assert.equal(
+        app.maskUrlFromComputed(`url("${dataUri}")`),
+        dataUri);
+    assert.equal(
+        app.maskUrlFromComputed(`url('${dataUri.replace(/'/g, '"')}')`),
+        dataUri.replace(/'/g, '"'));
     // No url() → null (the fallback text stays)
     assert.equal(app.maskUrlFromComputed("none"), null);
     assert.equal(app.maskUrlFromComputed(""), null);
