@@ -20,9 +20,13 @@
  *   iconPrefix — optional: the button shows an SVG icon instead of a
  *               glyph — the option gets the `style-btn--<iconPrefix>-
  *               <option>` CSS class (the mask of static/icons/
- *               <iconPrefix>-<option>.svg, see editor.css) and the
- *               button text is empty (the title attribute names the
- *               option)
+ *               <iconPrefix>-<option>.svg, see editor.css). The option
+ *               text stays in the button as a FALLBACK: it is hidden
+ *               (font-size: 0) only after the editor verifies the mask
+ *               image actually loads (the `align-icons-ok` class on the
+ *               editor root, editor.js) — on file:// with restricted
+ *               subresource access, or a missing icons/ dir, the
+ *               buttons keep their text
  *   group    — section name (sections = unique groups, declaration order)
  *   row      — row name: consecutive properties sharing a row render as
  *               ONE grid row with a button group per property (the
@@ -299,7 +303,7 @@
                               :class="styleBtnClasses(prop, opt)"
                               :title="String(opt)"
                               @click="onPropSelect(prop, opt)"
-                              x-text="prop.iconPrefix ? '' : propIcon(prop, opt)"></button>
+                              x-text="propIcon(prop, opt)"></button>
                     </template>
                   </div>
                 </template>
@@ -324,7 +328,7 @@
                           :class="styleBtnClasses(row.prop, opt)"
                           :title="String(opt)"
                           @click="onPropSelect(row.prop, opt)"
-                          x-text="row.prop.iconPrefix ? '' : propIcon(row.prop, opt)"></button>
+                          x-text="propIcon(row.prop, opt)"></button>
                 </template>
               </div>
             </div>

@@ -625,9 +625,24 @@
    icon tints like the glyph buttons (muted → accent when active). The
    url() resolves against THIS stylesheet, which sits at the same
    relative path in the web editor (/static/css/) and the static editor
-   (file://.../static/css/). The button text is empty (the title
-   attribute names the option). */
-.style-btn--icon::before {
+   (file://.../static/css/).
+
+   FALLBACK: the option text stays in the button and is the visible
+   label until the editor verifies the mask image actually loads
+   (editor.js flips `align-icons-ok` on the editor root after an
+   <img> test of the computed mask URL). Only then is the text hidden
+   (font-size: 0) and the masked ::before shown. If the mask can't
+   load (file:// with restricted subresource access, a missing
+   icons/ dir, an unsupported mask), the buttons keep their text.
+   The mask rules are NOT gated on the class: the ::before has no
+   `content` until the class is set (so nothing renders before
+   verification — no solid square on a failed image), and the editor
+   reads the mask URL from the computed ::before of a throwaway
+   button, which needs the rules present. */
+.align-icons-ok .style-btn--icon {
+    font-size: 0;
+}
+.align-icons-ok .style-btn--icon::before {
     content: "";
     display: block;
     width: 16px;

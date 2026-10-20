@@ -837,6 +837,10 @@ def test_properties_panel_updates_alignment(page: Page):
     expect(align_section.locator(".style-btn--icon")).to_have_count(6)
     expect(align_section.locator(".style-btn--align-center")).to_have_count(1)
     expect(align_section.locator(".style-btn--align-middle")).to_have_count(1)
+    # The icons load in the web editor — the editor flips `align-icons-ok`
+    # on the root (the fallback option text is hidden by CSS)
+    expect(page.locator(".editor-root")).to_have_class(
+        re.compile("align-icons-ok"))
     # No alignment yet → the defaults are active (left / top)
     active_titles = align_section.locator(".style-btn--active")
     expect(active_titles).to_have_count(2)
@@ -1539,6 +1543,11 @@ def test_static_editor_panel_matches_web_layout(page: Page):
     expect(
         panel.locator('.props-section[data-section="Style"] .style-btn')
     ).to_have_count(5)
+
+    # Align: the SVG icons load in the static editor too (served over
+    # HTTP here) — the editor flips `align-icons-ok` on the root
+    expect(page.locator(".editor-root")).to_have_class(
+        re.compile("align-icons-ok"))
 
     # Geometry: X/Y/W/H/Order in a three-column grid
     inputs = panel.locator(".props-section__body input[type=number]")

@@ -230,6 +230,10 @@ function editorApp() {
             // of truth for both editors.
             this.propsPanelHTML = PGProperties.buildPropsPanelHTML();
 
+            // Verify the Align SVG icons load (flips `align-icons-ok`;
+            // the option text stays the fallback label until then)
+            this._verifyAlignIcons();
+
             // Web mode: the server-rendered page sets data-layout-id → talk
             // to the API. Static mode (no layout id) → localStorage store
             // (the layout survives page reloads).
@@ -2091,8 +2095,9 @@ function editorApp() {
         // style-btn classes: the active state, plus for iconPrefix
         // properties (the Align row) the SVG-icon classes — the
         // `style-btn--<iconPrefix>-<opt>` class selects the CSS mask
-        // (static/icons/<iconPrefix>-<opt>.svg, see editor.css) and the
-        // button text is left empty.
+        // (static/icons/<iconPrefix>-<opt>.svg, see editor.css). The
+        // option text stays in the button as a fallback (hidden by CSS
+        // only after _verifyAlignIcons flips `align-icons-ok`).
         styleBtnClasses(prop, opt) {
             const cls = { 'style-btn--active': this.propActive(prop.key, opt) };
             if (prop.iconPrefix) {
@@ -2100,6 +2105,38 @@ function editorApp() {
                 cls['style-btn--' + prop.iconPrefix + '-' + opt] = true;
             }
             return cls;
+        },
+
+        // The mask image URL from a computed mask value
+        // ('url("file:///...")' → 'file:///...'); null when absent.
+        maskUrlFromComputed(mask) {
+            const m = (mask || "").match(/url\(["']?([^"')]+)["']?\)/);
+            return m ? m[1] : null;
+        },
+
+        // Verify the Align SVG icons (CSS mask, static/icons/) actually
+        // load, then flip `align-icons-ok` on the editor root — the CSS
+        // hides the fallback text and shows the masked ::before only
+        // with that class. The mask URL is read from the computed
+        // ::before of a throwaway button, so the CSS stays the single
+        // source of the icon path (it resolves differently in the web
+        // editor and the static file:// editor). If the image test
+        // fails (restricted file:// subresource access, a missing
+        // icons/ dir, an unsupported mask) the class is never set and
+        // the buttons keep their option text.
+        _verifyAlignIcons() {
+            const probe = document.createElement("button");
+            probe.className = "style-btn style-btn--icon style-btn--align-left";
+            probe.style.display = "none";
+            this.$el.appendChild(probe);
+            const cs = getComputedStyle(probe, "::before");
+            const mask = cs.maskImage || cs.webkitMaskImage || "";
+            this.$el.removeChild(probe);
+            const url = this.maskUrlFromComputed(mask);
+            if (!url) return; // no mask rule — keep the text
+            const img = new Image();
+            img.onload = () => this.$el.classList.add("align-icons-ok");
+            img.src = url;
         },
 
         // Apply a property value to the selection. Meta properties are

@@ -288,11 +288,12 @@ test("buildPropsPanelHTML: the markup binds to the editor app's state", () => {
     // Group rows bind per property (the inner x-for's loop variable)
     assert.ok(html.includes("onPropSelect(prop, opt)"));
     // Button classes come from styleBtnClasses (active state + the SVG
-    // icon class for iconPrefix properties); icon buttons render no
-    // text (the title attribute names the option)
+    // icon class for iconPrefix properties); the option text stays in
+    // the button as a fallback (hidden by CSS only after the editor
+    // verifies the mask image loads — the `align-icons-ok` class)
     assert.ok(html.includes("styleBtnClasses(prop, opt)"));
     assert.ok(html.includes("styleBtnClasses(row.prop, opt)"));
-    assert.ok(html.includes("prop.iconPrefix ? '' : propIcon(prop, opt)"));
+    assert.ok(html.includes('x-text="propIcon(prop, opt)"'));
     // Select options show the icon glyphs (arrow heads)
     assert.ok(html.includes('x-text="propIcon(row.prop, opt)"'));
 });
@@ -596,5 +597,21 @@ test("styleBtnClasses: active state + the SVG icon classes (iconPrefix)", () => 
         { "style-btn--active": true });
     assert.deepEqual(app.styleBtnClasses(style, "dashed"),
         { "style-btn--active": false });
+});
+
+test("maskUrlFromComputed: extracts the mask image URL (icon fallback)", () => {
+    const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
+    // Computed mask values (browser-quoted and bare) → the URL
+    assert.equal(
+        app.maskUrlFromComputed('url("file:///a/static/icons/align-left.svg")'),
+        "file:///a/static/icons/align-left.svg");
+    assert.equal(
+        app.maskUrlFromComputed("url(http://127.0.0.1:8000/static/icons/align-left.svg)"),
+        "http://127.0.0.1:8000/static/icons/align-left.svg");
+    assert.equal(app.maskUrlFromComputed("url('a/b.svg')"), "a/b.svg");
+    // No url() → null (the fallback text stays)
+    assert.equal(app.maskUrlFromComputed("none"), null);
+    assert.equal(app.maskUrlFromComputed(""), null);
+    assert.equal(app.maskUrlFromComputed(null), null);
 });
 
