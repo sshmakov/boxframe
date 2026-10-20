@@ -60,6 +60,75 @@
     var DEFAULT_CANVAS_WIDTH = 80;
     var DEFAULT_CANVAS_HEIGHT = 24;
 
+    // Block types whose content area can be painted with a fill character
+    // (meta.fill, tasks/0051 phase 2). Mirrors FILL_TYPES in
+    // services/renderer.py.
+    var FILL_TYPES = {
+        box: true, header: true, footer: true, sidebar: true,
+        content: true, grid: true, image: true,
+    };
+
+    // Port of fill_char in services/renderer.py: the block's fill
+    // character (meta.fill), if applicable. fill applies only to
+    // FILL_TYPES; the value must be exactly one cell (a wide character
+    // would break the monospace grid). An absent or invalid value means
+    // no fill.
+    function fillChar(blockType, meta) {
+        if (!FILL_TYPES[blockType]) return "";
+        meta = meta || {};
+        var fill = meta.fill;
+        if (typeof fill === "string" && fill.length === 1) return fill;
+        return "";
+    }
+
+    // Arrow glyphs for line ends (meta.arrow_start / meta.arrow_end,
+    // tasks/0051 phase 3). Mirrors ARROW_GLYPHS / arrow_glyph in
+    // services/renderer.py: six head shapes per line direction; "none"
+    // (or an absent/invalid value) means no arrow.
+    var ARROW_GLYPHS = {
+        hline: {
+            "arrow": { start: "◀", end: "▶" },
+            "arrow-open": { start: "◁", end: "▷" },
+            "diamond": { start: "◆", end: "◆" },
+            "diamond-open": { start: "◇", end: "◇" },
+            "circle": { start: "●", end: "●" },
+            "circle-open": { start: "○", end: "○" },
+        },
+        vline: {
+            "arrow": { start: "▲", end: "▼" },
+            "arrow-open": { start: "△", end: "▽" },
+            "diamond": { start: "◆", end: "◆" },
+            "diamond-open": { start: "◇", end: "◇" },
+            "circle": { start: "●", end: "●" },
+            "circle-open": { start: "○", end: "○" },
+        },
+    };
+
+    function arrowGlyph(blockType, value, end) {
+        if (typeof value !== "string") return "";
+        var glyphs = ARROW_GLYPHS[blockType];
+        if (!glyphs || (end !== "start" && end !== "end")) return "";
+        return glyphs[value] ? glyphs[value][end] : "";
+    }
+
+    // Port of h_align_offset in services/renderer.py: the left offset of
+    // a line inside the content area (left — 0).
+    function hAlignOffset(lineLen, width, align) {
+        if ((align !== "center" && align !== "right") || width <= 0) return 0;
+        var gap = width - lineLen;
+        if (gap <= 0) return 0;
+        return align === "center" ? Math.floor(gap / 2) : gap;
+    }
+
+    // Port of v_align_offset in services/renderer.py: the top offset of
+    // the line block inside the content area (top — 0).
+    function vAlignOffset(nLines, height, valign) {
+        if (valign !== "middle" && valign !== "bottom") return 0;
+        if (height <= 0) return 0;
+        if (valign === "middle") return Math.max(0, Math.floor((height - nLines) / 2));
+        return Math.max(0, height - nLines);
+    }
+
     // ── Text wrapping (port of PseudoGraphicRenderer._wrap_text) ──
 
     function wrapText(text, width) {
@@ -137,6 +206,7 @@
         grid[y][x] = ch;
     }
 
+    // Port of PseudoGraphicRenderer._draw_border
     function drawBorder(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
@@ -145,34 +215,56 @@
 
         if (w < 2 || h < 2) return;
 
+        // Corners
         setCell(grid, gw, gh, clip, x, y, style.tl);
         setCell(grid, gw, gh, clip, x + w - 1, y, style.tr);
         setCell(grid, gw, gh, clip, x, y + h - 1, style.bl);
         setCell(grid, gw, gh, clip, x + w - 1, y + h - 1, style.br);
 
+        // Top and bottom edges
         for (var i = 1; i < w - 1; i++) {
             setCell(grid, gw, gh, clip, x + i, y, style.h);
             setCell(grid, gw, gh, clip, x + i, y + h - 1, style.h);
         }
+
+        // Left and right edges
         for (var j = 1; j < h - 1; j++) {
             setCell(grid, gw, gh, clip, x, y + j, style.v);
             setCell(grid, gw, gh, clip, x + w - 1, y + j, style.v);
         }
     }
 
+    // Port of PseudoGraphicRenderer._draw_line: style characters + arrows
+    // (meta.arrow_start / meta.arrow_end) replacing the end cells; a line
+    // shorter than 2 cells has no arrows.
     function drawLine(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 1));
         var y = Math.max(0, Math.min(block.y, gh - 1));
+        var meta = block.meta || {};
 
         if (block.block_type === "hline") {
             var w = Math.min(block.width, gw - x);
-            for (var i = 0; i < Math.max(1, w); i++) {
+            var n = Math.max(1, w);
+            for (var i = 0; i < n; i++) {
                 setCell(grid, gw, gh, clip, x + i, y, style.h);
+            }
+            if (n >= 2) {
+                var start = arrowGlyph("hline", meta.arrow_start, "start");
+                if (start) setCell(grid, gw, gh, clip, x, y, start);
+                var end = arrowGlyph("hline", meta.arrow_end, "end");
+                if (end) setCell(grid, gw, gh, clip, x + n - 1, y, end);
             }
         } else { // vline
             var h = Math.min(block.height, gh - y);
-            for (var j = 0; j < Math.max(1, h); j++) {
+            var n2 = Math.max(1, h);
+            for (var j = 0; j < n2; j++) {
                 setCell(grid, gw, gh, clip, x, y + j, style.v);
+            }
+            if (n2 >= 2) {
+                var start2 = arrowGlyph("vline", meta.arrow_start, "start");
+                if (start2) setCell(grid, gw, gh, clip, x, y, start2);
+                var end2 = arrowGlyph("vline", meta.arrow_end, "end");
+                if (end2) setCell(grid, gw, gh, clip, x, y + n2 - 1, end2);
             }
         }
     }
@@ -215,15 +307,17 @@
             }
         }
 
-        // Label — single line, vertically centered, truncated to fit
+        // Label — single line, vertically centered, truncated to fit,
+        // horizontally aligned (meta.text_align)
         if (block.content) {
             var row = y + Math.floor((h - 1) / 2);
             var innerX = x + (framed ? 1 : 0);
             var innerW = w - (framed ? 2 : 0);
             if (innerW > 0 && row < gh) {
                 var label = String(block.content).split("\n")[0].slice(0, innerW);
+                var off = hAlignOffset(label.length, innerW, (block.meta || {}).text_align);
                 for (var c = 0; c < label.length; c++) {
-                    setCell(grid, gw, gh, clip, innerX + c, row, label[c]);
+                    setCell(grid, gw, gh, clip, innerX + off + c, row, label[c]);
                 }
             }
         }
@@ -237,38 +331,59 @@
 
         if (w < 1 || h < 1) return;
 
+        // The content is inset by one cell where a border is drawn
         var hasBorder = block.border_style !== "none";
         if (hasBorder && (w < 2 || h < 2)) return;
-
-        if (!block.content) {
-            // Show type hint if no content
-            if (hasBorder && w >= 4) {
-                var hint = "[" + block.block_type + "]";
-                var hx = x + 1, hy = y + 1;
-                for (var i = 0; i < hint.length; i++) {
-                    if (hx + i < x + w - 1 && hy < gh) {
-                        setCell(grid, gw, gh, clip, hx + i, hy, hint[i]);
-                    }
-                }
-            }
-            return;
-        }
 
         var contentX = x + (hasBorder ? 1 : 0);
         var contentY = y + (hasBorder ? 1 : 0);
         var contentW = w - (hasBorder ? 2 : 0);
         var contentH = h - (hasBorder ? 2 : 0);
 
+        // Fill (meta.fill) paints the content area first; the content is
+        // drawn on top (content wins) and the [type] hint is suppressed.
+        // A block without a border fills its whole area.
+        var fill = fillChar(block.block_type, block.meta);
+        if (fill && contentW > 0 && contentH > 0) {
+            for (var fj = 0; fj < contentH; fj++) {
+                var frow = contentY + fj;
+                if (frow >= gh) break;
+                for (var fi = 0; fi < contentW; fi++) {
+                    setCell(grid, gw, gh, clip, contentX + fi, frow, fill);
+                }
+            }
+        }
+
+        if (!block.content) {
+            // Show type hint if no content and no fill
+            if (hasBorder && w >= 4 && !fill) {
+                var hint = "[" + block.block_type + "]";
+                for (var i = 0; i < hint.length; i++) {
+                    if (contentX + i < contentX + contentW && contentY < gh) {
+                        setCell(grid, gw, gh, clip, contentX + i, contentY, hint[i]);
+                    }
+                }
+            }
+            return;
+        }
+
         if (contentW <= 0 || contentH <= 0) return;
 
         var lines = wrapText(block.content, contentW);
+        // Align: each line horizontally inside contentW (meta.text_align)
+        // and the line block vertically inside contentH (meta.vertical_align).
+        // Only the line's own cells are written — the offsets leave the
+        // rest of the area untouched (fill / show-through intact).
+        var vOff = vAlignOffset(lines.length, contentH, (block.meta || {}).vertical_align);
+        var hAlign = (block.meta || {}).text_align;
         for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-            if (lineIdx >= contentH) break;
-            var row = contentY + lineIdx;
+            if (lineIdx + vOff >= contentH) break;
+            var row = contentY + lineIdx + vOff;
             if (row >= gh) break;
             var line = lines[lineIdx];
+            var off = hAlignOffset(line.length, contentW, hAlign);
             for (var colIdx = 0; colIdx < line.length; colIdx++) {
-                setCell(grid, gw, gh, clip, contentX + colIdx, row, line[colIdx]);
+                setCell(grid, gw, gh, clip, contentX + off + colIdx, row, line[colIdx]);
             }
         }
     }
@@ -317,6 +432,7 @@
                 block_type: child.block_type,
                 content: child.content,
                 border_style: child.border_style,
+                meta: child.meta,
                 order: child.order,
                 parent_id: child.parent_id,
             };
@@ -339,7 +455,8 @@
             return;
         }
 
-        var hasBorder = block.border_style !== "none" && block.width >= 2 && block.height >= 2;
+        var hasBorder = block.border_style !== "none"
+            && block.width >= 2 && block.height >= 2;
 
         if (hasBorder) {
             drawBorder(block, style, grid, gw, gh, clip);
@@ -488,7 +605,8 @@
             var direction = blockType === "hline" ? "h" : "v";
             borderHtml = '<div class="block-line block-line--' + direction + ' block-line--' + bs + '"></div>';
         } else {
-            borderHtml = '<div class="block-border block-border--' + bs + '" style="width:100%;height:100%;"></div>';
+            borderHtml = '<div class="block-border block-border--' + bs +
+                '" style="width:100%;height:100%;"></div>';
         }
 
         var childrenHtml = "";
@@ -538,6 +656,7 @@
                 width: b.width, height: b.height,
                 block_type: b.block_type,
                 border_style: b.border_style,
+                meta: b.meta,
                 order: b.order,
                 children: [],
             });
@@ -657,6 +776,10 @@
         BORDER_STYLES: BORDER_STYLES,
         render: render,
         canvasSize: canvasSize,
+        fillChar: fillChar,
+        arrowGlyph: arrowGlyph,
+        hAlignOffset: hAlignOffset,
+        vAlignOffset: vAlignOffset,
         wrapText: wrapText,
         textBlockSize: textBlockSize,
         toHtmlPreview: toHtmlPreview,

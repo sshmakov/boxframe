@@ -21,6 +21,8 @@ const { test } = require("node:test");
 const assert = require("node:assert");
 // renderer.js sets global.PGRenderer, which selectionToAscii uses
 require("../../boxframe/static/js/core/renderer.js");
+// properties.js sets global.PGProperties (the panel's declarative schema)
+require("../../boxframe/static/js/core/properties.js");
 const {
     editorApp,
     selectionToAscii,
@@ -688,7 +690,7 @@ test("_blockAt: a child clipped past the container border is not picked there", 
     assert.equal(app._blockAt(9, 9).id, "p");
 });
 
-test("updateSelectedBlock: an order change re-sorts the block list", async () => {
+test("applyPropValue: an order change re-sorts the block list", async () => {
     const app = appWith([
         block("a", "box", 0, 0, 10, 4),
         block("b", "box", 0, 0, 10, 4),
@@ -697,10 +699,11 @@ test("updateSelectedBlock: an order change re-sorts the block list", async () =>
     app._reorderBlocks();
     const calls = stubStore(app);
     app.selectedIds = ["a"];
-    await app.updateSelectedBlock({ order: 5 });
+    await app.applyPropValue(PGProperties.findProperty("order"), 5);
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].id, "a");
+    assert.deepEqual(calls[0].props, { order: 5 });
     // "a" is the top layer now — the list leads with it
     assert.equal(app.blocks[0].id, "a");
     assert.equal(app.blocks[0].order, 5);

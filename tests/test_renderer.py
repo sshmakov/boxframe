@@ -273,6 +273,177 @@ def test_double_border():
     assert all(c == "═" for c in lines[0][1:5])
 
 
+# ── Fill tests (tasks/0051, phase 2) ──────────────────────
+
+
+def _fill_box(meta=None, border_style="solid", width=8, height=4, content=""):
+    data = {
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": width, "height": height,
+        "content": content,
+        "border_style": border_style,
+    }
+    if meta is not None:
+        data["meta"] = meta
+    return [data]
+
+
+def test_fill_char():
+    from boxframe.services.renderer import fill_char
+    assert fill_char("box", {"fill": "░"}) == "░"
+    assert fill_char("image", {"fill": "█"}) == "█"
+    assert fill_char("box", {"fill": " "}) == " "  # space is a valid fill
+    assert fill_char("box", None) == ""
+    assert fill_char("box", {}) == ""
+    assert fill_char("box", {"fill": ""}) == ""
+    assert fill_char("box", {"fill": "ab"}) == ""  # more than one cell
+    assert fill_char("box", {"fill": 5}) == ""     # not a string
+    # Not in the fill matrix
+    for t in ["button", "input", "textarea", "text", "divider", "hline", "vline"]:
+        assert fill_char(t, {"fill": "░"}) == ""
+
+
+def test_fill_empty_box():
+    """fill paints the content area; the [type] hint is suppressed."""
+    result = _render(_fill_box({"fill": "░"}))
+    lines = result.split("\n")
+    assert lines[0] == "┌──────┐"
+    assert lines[1] == "│░░░░░░│"
+    assert lines[2] == "│░░░░░░│"
+    assert lines[3] == "└──────┘"
+
+
+def test_fill_suppresses_type_hint():
+    result = _render(_fill_box({"fill": "█"}))
+    assert "[box]" not in result
+
+
+def test_fill_content_on_top():
+    """Content is drawn over the fill (content wins)."""
+    result = _render(_fill_box({"fill": "░"}, content="Hi"))
+    lines = result.split("\n")
+    assert lines[1] == "│Hi░░░░│"
+    assert lines[2] == "│░░░░░░│"
+
+
+def test_fill_wrapped_content():
+    """Wrapped lines are each drawn over the fill. The wrap keeps the
+    trailing space of the first line (spaces are formatting) — it is
+    drawn over the fill like any content cell."""
+    result = _render(_fill_box({"fill": "·"}, content="Hello World"))
+    lines = result.split("\n")
+    assert lines[1] == "│Hello │"  # trailing space overwrites the fill
+    assert lines[2] == "│World·│"
+
+
+def test_fill_no_border_fills_whole_area():
+    """A block without a border fills its whole area."""
+    result = _render(_fill_box({"fill": "▒"}, border_style="none", width=6, height=3))
+    lines = result.split("\n")
+    assert lines[0] == "▒▒▒▒▒▒"
+    assert lines[1] == "▒▒▒▒▒▒"
+    assert lines[2] == "▒▒▒▒▒▒"
+
+
+def test_fill_ignored_for_other_types():
+    """fill applies only to the spec's types (matrix): button/text/input/
+    divider/lines render identically with and without meta.fill."""
+    cases = [
+        {"block_type": "button", "width": 12, "height": 3, "content": "Btn"},
+        {"block_type": "text", "width": 10, "height": 2, "content": "t",
+         "border_style": "none"},
+        {"block_type": "input", "width": 10, "height": 2, "content": ""},
+        {"block_type": "divider", "width": 10, "height": 1, "content": ""},
+        {"block_type": "hline", "width": 10, "height": 1, "content": ""},
+        {"block_type": "vline", "width": 1, "height": 5, "content": ""},
+    ]
+    for case in cases:
+        base = {"x": 0, "y": 0, "border_style": "solid", "order": 0}
+        plain = _render([dict(case, **base)])
+        with_fill = _render([dict(case, **base, meta={"fill": "░"})])
+        assert with_fill == plain, case["block_type"]
+
+
+def test_fill_invalid_values():
+    """Invalid meta.fill (multi-char, empty, non-string) → no fill."""
+    plain = _render(_fill_box(None))
+    for bad in ["ab", "", 5, None]:
+        assert _render(_fill_box({"fill": bad})) == plain, bad
+
+
+def test_fill_image_block():
+    """image is in the fill matrix: the hint is suppressed, the area filled."""
+    result = _render([{
+        "block_type": "image",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"fill": "█"},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "┌────────┐"
+    assert lines[1] == "│████████│"
+    assert lines[2] == "│████████│"
+    assert lines[3] == "└────────┘"
+
+
+def test_fill_children_container():
+    """A filled container: children are drawn on top of the fill."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 20, "height": 6,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"fill": "░"},
+        "children": [{
+            "block_type": "text",
+            "x": 1, "y": 1,
+            "width": 8, "height": 1,
+            "content": "Hello",
+            "border_style": "none",
+        }],
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[1] == "│" + "░" * 18 + "│"
+    assert lines[2] == "│░Hello" + "░" * 12 + "│"
+    assert lines[3] == "│" + "░" * 18 + "│"
+    assert lines[4] == "│" + "░" * 18 + "│"
+    assert lines[5] == "└" + "─" * 18 + "┘"
+
+
+def test_fill_space_erases_block_below():
+    """A space fill (meta.fill=" ") erases the block underneath — the
+    'show through' case. Without a fill the lower block's content shows
+    through the upper (empty) block; with a space fill the upper block's
+    blank fill overwrites it (the grid is space-initialized, so writing a
+    space overwrites whatever was drawn before)."""
+    lower = {
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 12, "height": 3,
+        "content": "ABCDEFGHIJ",
+        "border_style": "solid",
+        "order": 0,
+    }
+    # Upper block with no fill: the lower content shows through (the
+    # upper [box] hint covers the first cells, the rest stays visible)
+    show_through = _render([lower, dict(lower, content="", order=1)])
+    assert "FGHIJ" in show_through
+
+    # Upper block with a space fill: the lower content is erased
+    result = _render([lower, dict(lower, content="", order=1,
+                                  meta={"fill": " "})])
+    lines = result.split("\n")
+    assert lines[0] == "┌──────────┐"
+    assert lines[1] == "│          │"  # 10 spaces — the lower content is erased
+    assert lines[2] == "└──────────┘"
+    assert "ABCDEFGHIJ" not in result
+
+
 # ── Line block tests (hline / vline) ──────────────────────
 
 
@@ -362,6 +533,342 @@ def test_hline_beyond_layout():
     }], width=40, height=12)
     lines = result.split("\n")
     assert lines[0][35:] == "─" * 20  # canvas is the 80×24 default floor
+
+
+# ── Line arrows (tasks/0051 phase 3) ──────────────────────
+
+
+def test_arrow_glyph():
+    from boxframe.services.renderer import arrow_glyph
+    hline = {
+        "arrow": ("◀", "▶"),
+        "arrow-open": ("◁", "▷"),
+        "diamond": ("◆", "◆"),
+        "diamond-open": ("◇", "◇"),
+        "circle": ("●", "●"),
+        "circle-open": ("○", "○"),
+    }
+    vline = {
+        "arrow": ("▲", "▼"),
+        "arrow-open": ("△", "▽"),
+        "diamond": ("◆", "◆"),
+        "diamond-open": ("◇", "◇"),
+        "circle": ("●", "●"),
+        "circle-open": ("○", "○"),
+    }
+    for value, (start, end) in hline.items():
+        assert arrow_glyph("hline", value, "start") == start
+        assert arrow_glyph("hline", value, "end") == end
+    for value, (start, end) in vline.items():
+        assert arrow_glyph("vline", value, "start") == start
+        assert arrow_glyph("vline", value, "end") == end
+    # Absent / "none" / invalid → no arrow (the legacy "double" is invalid)
+    for value in [None, "none", "", "foo", 5, "double"]:
+        assert arrow_glyph("hline", value, "start") == ""
+        assert arrow_glyph("vline", value, "end") == ""
+    # Not a line type
+    assert arrow_glyph("box", "arrow", "start") == ""
+
+
+def test_hline_arrow_both_ends():
+    result = _render([{
+        "block_type": "hline",
+        "x": 0, "y": 0,
+        "width": 8, "height": 1,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"arrow_start": "arrow", "arrow_end": "arrow"},
+    }])
+    assert result.split("\n")[0][:8] == "◀──────▶"
+
+
+def test_hline_all_arrow_shapes():
+    shapes = {
+        "arrow": "◀──────▶",
+        "arrow-open": "◁──────▷",
+        "diamond": "◆──────◆",
+        "diamond-open": "◇──────◇",
+        "circle": "●──────●",
+        "circle-open": "○──────○",
+    }
+    for value, expected in shapes.items():
+        result = _render([{
+            "block_type": "hline",
+            "x": 0, "y": 0,
+            "width": 8, "height": 1,
+            "content": "",
+            "border_style": "solid",
+            "meta": {"arrow_start": value, "arrow_end": value},
+        }])
+        assert result.split("\n")[0][:8] == expected, value
+
+
+def test_hline_arrow_one_end():
+    result = _render([{
+        "block_type": "hline",
+        "x": 0, "y": 0,
+        "width": 8, "height": 1,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"arrow_end": "arrow"},
+    }])
+    assert result.split("\n")[0][:8] == "───────▶"
+
+
+def test_vline_arrow_both_ends():
+    result = _render([{
+        "block_type": "vline",
+        "x": 0, "y": 0,
+        "width": 1, "height": 8,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"arrow_start": "arrow", "arrow_end": "arrow"},
+    }])
+    lines = result.split("\n")
+    assert lines[0][0] == "▲"
+    assert lines[7][0] == "▼"
+    for i in range(1, 7):
+        assert lines[i][0] == "│"
+
+
+def test_vline_all_arrow_shapes():
+    shapes = {
+        "arrow": ("▲", "▼"),
+        "arrow-open": ("△", "▽"),
+        "diamond": ("◆", "◆"),
+        "diamond-open": ("◇", "◇"),
+        "circle": ("●", "●"),
+        "circle-open": ("○", "○"),
+    }
+    for value, (top, bottom) in shapes.items():
+        result = _render([{
+            "block_type": "vline",
+            "x": 0, "y": 0,
+            "width": 1, "height": 8,
+            "content": "",
+            "border_style": "solid",
+            "meta": {"arrow_start": value, "arrow_end": value},
+        }])
+        lines = result.split("\n")
+        assert lines[0][0] == top, value
+        assert lines[7][0] == bottom, value
+
+
+def test_arrow_short_line_ignored():
+    """A line shorter than 2 cells has no arrows."""
+    result = _render([{
+        "block_type": "hline",
+        "x": 0, "y": 0,
+        "width": 1, "height": 1,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"arrow_start": "arrow", "arrow_end": "arrow"},
+    }])
+    assert result.split("\n")[0][:1] == "─"
+
+
+def test_arrow_two_cell_line():
+    """A 2-cell line is exactly the two arrow cells."""
+    result = _render([{
+        "block_type": "hline",
+        "x": 0, "y": 0,
+        "width": 2, "height": 1,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"arrow_start": "arrow", "arrow_end": "arrow"},
+    }])
+    assert result.split("\n")[0][:2] == "◀▶"
+
+
+def test_arrow_all_line_styles():
+    chars = {"solid": "─", "dashed": "┄", "dotted": "┈", "double": "═"}
+    for style, ch in chars.items():
+        result = _render([{
+            "block_type": "hline",
+            "x": 0, "y": 0,
+            "width": 5, "height": 1,
+            "content": "",
+            "border_style": style,
+            "meta": {"arrow_start": "arrow", "arrow_end": "arrow"},
+        }])
+        assert result.split("\n")[0][:5] == "◀" + ch * 3 + "▶"
+
+
+def test_arrow_ignored_for_other_types():
+    """Arrows apply only to hline/vline: other blocks render identically
+    with and without meta.arrow_*."""
+    cases = [
+        {"block_type": "box", "width": 10, "height": 3, "content": "x"},
+        {"block_type": "button", "width": 10, "height": 1, "content": "B"},
+        {"block_type": "text", "width": 10, "height": 2, "content": "t",
+         "border_style": "none"},
+    ]
+    meta = {"arrow_start": "arrow", "arrow_end": "diamond"}
+    for case in cases:
+        base = {"x": 0, "y": 0, "border_style": "solid", "order": 0}
+        plain = _render([dict(case, **base)])
+        with_arrows = _render([dict(case, **base, meta=meta)])
+        assert with_arrows == plain, case["block_type"]
+
+
+def test_arrow_invalid_values():
+    """Invalid meta.arrow_* (not one of the six shapes) → the line is
+    unchanged (the legacy "double" is invalid)."""
+    plain = _render([{
+        "block_type": "hline",
+        "x": 0, "y": 0,
+        "width": 6, "height": 1,
+        "content": "",
+        "border_style": "solid",
+    }])
+    for bad in ["foo", "", 5, None, "ARROW", "double"]:
+        assert _render([{
+            "block_type": "hline",
+            "x": 0, "y": 0,
+            "width": 6, "height": 1,
+            "content": "",
+            "border_style": "solid",
+            "meta": {"arrow_start": bad, "arrow_end": bad},
+        }]) == plain, bad
+
+
+# ── Text alignment (tasks/0051 phase 3) ───────────────────
+
+
+def _align_box(meta: dict | None, content: str = "Hi",
+               width: int = 10, height: int = 4) -> list[dict]:
+    data = {
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": width, "height": height,
+        "content": content,
+        "border_style": "solid",
+    }
+    if meta is not None:
+        data["meta"] = meta
+    return [data]
+
+
+def test_h_align_offset():
+    from boxframe.services.renderer import h_align_offset
+    assert h_align_offset(2, 8, "left") == 0
+    assert h_align_offset(2, 8, None) == 0
+    assert h_align_offset(2, 8, "center") == 3   # gap 6 → 3 left
+    assert h_align_offset(1, 8, "center") == 3   # gap 7 → 3 left, 4 right
+    assert h_align_offset(2, 8, "right") == 6
+    assert h_align_offset(8, 8, "center") == 0   # fills the area
+    assert h_align_offset(9, 8, "right") == 0    # overflow — not shifted
+
+
+def test_v_align_offset():
+    from boxframe.services.renderer import v_align_offset
+    assert v_align_offset(1, 3, "top") == 0
+    assert v_align_offset(1, 3, None) == 0
+    assert v_align_offset(1, 3, "middle") == 1   # (3-1)//2
+    assert v_align_offset(1, 4, "middle") == 1   # (4-1)//2 = 1
+    assert v_align_offset(1, 3, "bottom") == 2
+    assert v_align_offset(3, 3, "middle") == 0   # fills the area
+    assert v_align_offset(5, 3, "bottom") == 0   # overflow — not shifted
+
+
+def test_text_align_center():
+    """Each wrapped line is centered inside the content area."""
+    result = _render(_align_box({"text_align": "center"}))
+    lines = result.split("\n")
+    # content_w = 8, "Hi" (2) → offset 3
+    assert lines[1] == "│   Hi   │"
+
+
+def test_text_align_right():
+    result = _render(_align_box({"text_align": "right"}))
+    lines = result.split("\n")
+    assert lines[1] == "│      Hi│"
+
+
+def test_text_align_default_left_unchanged():
+    """No meta / left — the current output (regression)."""
+    plain = _render(_align_box(None))
+    assert plain == _render(_align_box({"text_align": "left"}))
+    lines = plain.split("\n")
+    assert lines[1] == "│Hi      │"
+
+
+def test_text_align_wrapped_lines():
+    """Every wrapped line is aligned independently."""
+    # content_w = 8: "Hello World" wraps to "Hello " (6) + "World" (5)
+    result = _render(_align_box({"text_align": "right"}, content="Hello World"))
+    lines = result.split("\n")
+    assert lines[1] == "│  Hello │"  # "Hello " (6 cells) → offset 2
+    assert lines[2] == "│   World│"  # "World" (5) → offset 3
+
+
+def test_vertical_align_middle():
+    result = _render(_align_box({"vertical_align": "middle"}, height=5))
+    lines = result.split("\n")
+    # content_h = 3, one line → offset 1
+    assert lines[1] == "│        │"
+    assert lines[2] == "│Hi      │"
+    assert lines[3] == "│        │"
+
+
+def test_vertical_align_bottom():
+    result = _render(_align_box({"vertical_align": "bottom"}, height=5))
+    lines = result.split("\n")
+    # content_h = 3, one line → offset 2
+    assert lines[1] == "│        │"
+    assert lines[2] == "│        │"
+    assert lines[3] == "│Hi      │"
+
+
+def test_vertical_align_overflow_not_shifted():
+    """More lines than content_h: the block is not shifted (top)."""
+    # content_h = 2 (height 4), "a\nb\nc" → 3 lines, only 2 fit
+    result = _render(_align_box({"vertical_align": "bottom"},
+                                content="a\nb\nc", height=4))
+    lines = result.split("\n")
+    assert lines[1] == "│a       │"
+    assert lines[2] == "│b       │"
+    assert lines[3] == "└────────┘"
+
+
+def test_alignment_with_fill():
+    """Alignment offsets position the content over the fill; the fill
+    stays in the cells the content does not cover."""
+    result = _render(_align_box({"text_align": "center", "fill": "░"}))
+    lines = result.split("\n")
+    # "Hi" at offset 3 over the ░ fill
+    assert lines[1] == "│░░░Hi░░░│"
+
+
+def test_alignment_ignored_for_lines():
+    """Alignment applies only to content blocks: lines render identically
+    with and without meta.text_align / meta.vertical_align."""
+    meta = {"text_align": "center", "vertical_align": "bottom"}
+    for block_type, size in [("hline", {"width": 8, "height": 1}),
+                             ("vline", {"width": 1, "height": 8})]:
+        plain = _render([{"block_type": block_type, "x": 0, "y": 0, **size,
+                          "content": "", "border_style": "solid", "order": 0}])
+        with_align = _render([{"block_type": block_type, "x": 0, "y": 0, **size,
+                               "content": "", "border_style": "solid", "order": 0,
+                               "meta": meta}])
+        assert with_align == plain, block_type
+
+
+def test_button_text_align():
+    """text_align positions the button label (the label is already
+    vertically centered)."""
+    for align, expected in [("left", "│Button      │"),
+                            ("center", "│   Button   │"),
+                            ("right", "│      Button│")]:
+        result = _render([{
+            "block_type": "button",
+            "x": 0, "y": 0,
+            "width": 14, "height": 2,
+            "content": "Button",
+            "border_style": "solid",
+            "meta": {"text_align": align},
+        }])
+        assert result.split("\n")[0] == expected, align
 
 
 # ── Button tests (tasks/0021-0030/0022-button.md) ────────

@@ -472,10 +472,12 @@
 
 .block-props__close:hover { color: var(--accent); }
 
-.block-props__grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
+/* The panel body scrolls internally when the open sections exceed the
+   max height (the position clamp in propsPanelStyle uses the real panel
+   height). */
+.block-props__body {
+    max-height: 400px;
+    overflow-y: auto;
     padding: 10px;
 }
 
@@ -514,13 +516,53 @@
 /* Actions row (duplicate / delete) — the panel is the single place for
    block actions; the selection frame keeps only the resize handle. */
 .block-props__actions {
-    grid-column: 1 / -1;
     display: flex;
     gap: 6px;
+    margin: 10px 10px 0;
     padding: 6px;
     border: 1px solid #333;
     border-radius: 4px;
 }
+
+/* Sections (generated from the property schema — core/properties.js):
+   always open (no headers), the body is a 2-column grid of controls. */
+.props-section {
+    border: 1px solid #333;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+.props-section:last-child { margin-bottom: 0; }
+
+.props-section__body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 8px;
+}
+
+/* Geometry: three columns (X Y W / H Order) — the schema's cols: 3 */
+.props-section__body--3col {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+/* Multi-property row (the Align pair): one shared label, a button group
+   per property, a thin divider between the groups */
+.align-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.align-row .style-btns + .style-btns {
+    border-left: 1px solid #333;
+    padding-left: 10px;
+}
+
+/* Single-root wrapper for the x-for iteration (Alpine clones only the
+   first element child of a template) — display:contents keeps the inner
+   control the grid item. */
+.prop-cell { display: contents; }
 
 .action-btn {
     flex: 1;
@@ -578,14 +620,69 @@
     background: rgba(233, 69, 96, 0.12);
 }
 
-/* X/Y/W/H: one row of four fields, label to the left of the input */
-.prop-row {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
+/* Icon buttons (the Align row, schema iconPrefix): the label is an SVG
+   applied as a CSS mask over currentColor, so the icon tints like the
+   glyph buttons (muted → accent when active).
+
+   The SVG is inlined as a data: URI, NOT a url("../icons/…") file
+   reference. A file:// page is an opaque origin ('null'), and some
+   Chrome configs block file:// image subresources (a CSS mask) by CORS
+   while still allowing <img> — that split left the buttons EMPTY (the
+   <img> probe in editor.js passed, so the text was hidden, but the
+   mask failed and a failed mask renders fully transparent). A data:
+   URI makes NO cross-origin request (data: is in the allowed-scheme
+   list), so the mask works from file:// in any config. The canonical,
+   inspectable icons live in static/icons/align-*.svg; regenerate these
+   data: URIs with tmp/gen_icon_datauris.py after editing an SVG.
+
+   FALLBACK: the option text stays in the button and is the visible
+   label until the editor verifies the mask (editor.js flips
+   `align-icons-ok` on the editor root after an <img> test of the
+   computed mask URL). Only then is the text hidden (font-size: 0) and
+   the masked ::before shown. A data: URI can't fail to load, so the
+   probe now only guards against a browser without CSS-mask support
+   (computed mask 'none' → class never set → the text stays).
+   The mask rules are NOT gated on the class: the ::before has no
+   `content` until the class is set (so nothing renders before
+   verification), and the editor reads the mask URL from the computed
+   ::before of a throwaway button, which needs the rules present. */
+.align-icons-ok .style-btn--icon {
+    font-size: 0;
+}
+.align-icons-ok .style-btn--icon::before {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    margin: 0 auto;
+    background-color: currentColor;
+}
+.style-btn--align-left::before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='4' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='4' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+}
+.style-btn--align-center::before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='7' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='7' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='7' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='7' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+}
+.style-btn--align-right::before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='10' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='10' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='10' y='9' width='10' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='10' y='19' width='10' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+}
+.style-btn--align-top::before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='4' y='8' width='16' height='2' rx='1'/%3E %3Crect x='4' y='12' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='4' width='16' height='2' rx='1'/%3E %3Crect x='4' y='8' width='16' height='2' rx='1'/%3E %3Crect x='4' y='12' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+}
+.style-btn--align-middle::before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='7' width='16' height='2' rx='1'/%3E %3Crect x='4' y='11' width='16' height='2' rx='1'/%3E %3Crect x='4' y='15' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='7' width='16' height='2' rx='1'/%3E %3Crect x='4' y='11' width='16' height='2' rx='1'/%3E %3Crect x='4' y='15' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+}
+.style-btn--align-bottom::before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='10' width='16' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='18' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='10' width='16' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='18' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
 }
 
+/* Number fields: label to the left of the input (one grid cell each) */
 .prop--inline {
     flex-direction: row;
     align-items: center;
@@ -594,7 +691,7 @@
 
 .prop--inline > span {
     flex: none;
-    width: 10px;
+    min-width: 10px;
 }
 
 .prop--inline input {

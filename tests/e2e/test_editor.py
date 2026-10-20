@@ -649,10 +649,6 @@ def test_properties_panel_shows_next_to_selected_block(page: Page):
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
     expect(panel.locator(".block-props__type")).to_have_text("box")
-    # The Line Style buttons reflect the current border style
-    expect(panel.locator(".style-btn")).to_have_count(5)
-    expect(panel.locator(".style-btn--active")).to_have_count(1)
-    expect(panel.locator(".style-btn--active")).to_have_attribute("title", "solid")
 
     # The panel floats to the right of the block (the preferred side) and
     # stays inside the visible canvas area
@@ -665,6 +661,12 @@ def test_properties_panel_shows_next_to_selected_block(page: Page):
     assert panel_box["x"] + panel_box["width"] <= canvas_box["x"] + canvas_box["width"]
     assert panel_box["y"] + panel_box["height"] <= canvas_box["y"] + canvas_box["height"]
 
+    # The Line Style buttons reflect the current border style
+    style = panel.locator('.props-section[data-section="Style"]')
+    expect(style.locator(".style-btn")).to_have_count(5)
+    expect(style.locator(".style-btn--active")).to_have_count(1)
+    expect(style.locator(".style-btn--active")).to_have_attribute("title", "solid")
+
 
 def test_properties_panel_updates_border_style(page: Page):
     """Changing the style in the properties panel persists to the database."""
@@ -674,7 +676,9 @@ def test_properties_panel_updates_border_style(page: Page):
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
-    panel.locator(".style-btn[title='dashed']").click()
+    panel.locator(
+        '.props-section[data-section="Style"] .style-btn[title=\'dashed\']'
+    ).click()
 
     # Poll: the browser's PUT may still be in flight
     block = None
@@ -688,31 +692,36 @@ def test_properties_panel_updates_border_style(page: Page):
 
 
 def test_properties_panel_fields_in_one_row(page: Page):
-    """X/Y/W/H are one row of four fields; each label sits to the left of
-    its input, not above it."""
+    """Geometry fields sit in a three-column grid (X/Y/W, H/Order); each
+    label sits to the left of its input, not above it."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
-    boxes = [
-        panel.locator(".prop-row input").nth(i).bounding_box()
-        for i in range(4)
-    ]
+    inputs = panel.locator(".props-section__body input[type=number]")
+    expect(inputs).to_have_count(5)
+    expect(inputs.first).to_be_visible()
+
+    boxes = [inputs.nth(i).bounding_box() for i in range(5)]
     assert all(b is not None for b in boxes)
 
-    # One row: the same top (up to a couple of px) and strictly
-    # increasing left — X, Y, W, H from left to right
-    tops = [b["y"] for b in boxes]
-    assert max(tops) - min(tops) <= 2
-    lefts = [b["x"] for b in boxes]
-    assert all(b2 > b1 for b1, b2 in zip(lefts, lefts[1:]))
+    # Three-column grid: X/Y/W share a row, H/Order the next — the same
+    # top within a row (up to a couple of px), strictly increasing left
+    # within a row, rows stacked top to bottom
+    assert abs(boxes[0]["y"] - boxes[1]["y"]) <= 2
+    assert abs(boxes[1]["y"] - boxes[2]["y"]) <= 2
+    assert abs(boxes[3]["y"] - boxes[4]["y"]) <= 2
+    assert boxes[3]["y"] > boxes[0]["y"]
+    assert boxes[1]["x"] > boxes[0]["x"]
+    assert boxes[2]["x"] > boxes[1]["x"]
+    assert boxes[4]["x"] > boxes[3]["x"]
 
     # The label of each field is to the left of its input, vertically
     # centered against it
-    for i in range(4):
-        label = panel.locator(".prop-row .prop--inline > span").nth(i).bounding_box()
+    for i in range(5):
+        label = panel.locator(".props-section__body .prop--inline > span").nth(i).bounding_box()
         inp = boxes[i]
         assert label is not None
         assert label["x"] + label["width"] <= inp["x"] + 1
@@ -721,26 +730,226 @@ def test_properties_panel_fields_in_one_row(page: Page):
 
 
 def test_properties_panel_section_order(page: Page):
-    """Panel sections top to bottom: actions, Line Style, X/Y/W/H, Order,
-    Content."""
+    """Panel sections top to bottom: actions, Style, Fill,
+    Align, Geometry, Text (for a box — no Arrows). Sections are
+    always open (no headers/collapse)."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
-    sections = {
-        "actions": panel.locator(".block-props__actions"),
-        "line_style": panel.locator(".prop--wide:has(.style-btns)"),
-        "xywh": panel.locator(".prop-row"),
-        "order": panel.locator(".prop--wide:has(input[type=number])"),
-        "content": panel.locator(".prop--wide:has(input[type=text])"),
-    }
-    for name, loc in sections.items():
-        expect(loc).to_have_count(1)
+    sections = panel.locator(".props-section")
+    expect(sections).to_have_count(5)
+    assert [
+        sections.nth(i).get_attribute("data-section") for i in range(5)
+    ] == ["Style", "Fill", "Align", "Geometry", "Text"]
 
-    tops = [sections[name].bounding_box()["y"] for name in sections]
+    tops = [panel.locator(".block-props__actions").bounding_box()["y"]]
+    tops += [sections.nth(i).bounding_box()["y"] for i in range(5)]
     assert all(b > a for a, b in zip(tops, tops[1:]))
+
+
+def test_properties_panel_updates_fill(page: Page):
+    """Picking a fill character persists to meta.fill; the ∅ option
+    clears it (the meta key is removed)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    fill_section = panel.locator('.props-section[data-section="Fill"]')
+    # The char-picker: 6 fill characters + the space (␣) + the ∅ (none)
+    # sentinel
+    expect(fill_section.locator(".style-btn")).to_have_count(8)
+    # No fill yet → the ∅ button is active
+    expect(fill_section.locator(".style-btn--active")).to_have_count(1)
+    expect(fill_section.locator(".style-btn--active")).to_have_attribute("title", "none")
+
+    fill_section.locator(".style-btn[title='█']").click()
+
+    # Poll: the browser's PUT may still be in flight
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if block["meta"].get("fill") == "█":
+            break
+        page.wait_for_timeout(100)
+    assert block["meta"].get("fill") == "█"
+
+    # The picked character is now the active button
+    expect(fill_section.locator(".style-btn--active")).to_have_attribute("title", "█")
+
+    # ∅ clears the fill (the meta key is removed)
+    fill_section.locator(".style-btn[title='none']").click()
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if "fill" not in block["meta"]:
+            break
+        page.wait_for_timeout(100)
+    assert "fill" not in block["meta"]
+
+    # The space (␣) option stores a real " " value (erases the block below)
+    fill_section.locator(".style-btn[title=' ']").click()
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if block["meta"].get("fill") == " ":
+            break
+        page.wait_for_timeout(100)
+    assert block["meta"].get("fill") == " "
+
+
+def _wait_block_meta(page: Page, layout_id: str, block_id: str,
+                     predicate) -> dict:
+    """Poll the API until the block's meta satisfies the predicate."""
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if predicate(block["meta"]):
+            break
+        page.wait_for_timeout(100)
+    return block
+
+
+def test_properties_panel_updates_alignment(page: Page):
+    """Picking an alignment persists to meta.text_align /
+    meta.vertical_align; picking the default clears the meta key
+    (clearDefault — the default is implicit)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    align_section = panel.locator('.props-section[data-section="Align"]')
+    # Two segmented rows: H Align (left/center/right) + V Align
+    # (top/middle/bottom)
+    expect(align_section.locator(".style-btn")).to_have_count(6)
+    # The buttons show SVG icons (CSS-mask classes, static/icons/),
+    # not the option text
+    expect(align_section.locator(".style-btn--icon")).to_have_count(6)
+    expect(align_section.locator(".style-btn--align-center")).to_have_count(1)
+    expect(align_section.locator(".style-btn--align-middle")).to_have_count(1)
+    # The icons load in the web editor — the editor flips `align-icons-ok`
+    # on the root (the fallback option text is hidden by CSS)
+    expect(page.locator(".editor-root")).to_have_class(
+        re.compile("align-icons-ok"))
+    # No alignment yet → the defaults are active (left / top)
+    active_titles = align_section.locator(".style-btn--active")
+    expect(active_titles).to_have_count(2)
+    assert sorted(
+        active_titles.nth(i).get_attribute("title") for i in range(2)
+    ) == ["left", "top"]
+
+    align_section.locator(".style-btn[title='center']").click()
+    block = _wait_block_meta(
+        page, layout_id, block_id,
+        lambda m: m.get("text_align") == "center",
+    )
+    assert block["meta"].get("text_align") == "center"
+    assert "vertical_align" not in block["meta"]
+
+    align_section.locator(".style-btn[title='middle']").click()
+    block = _wait_block_meta(
+        page, layout_id, block_id,
+        lambda m: m.get("vertical_align") == "middle",
+    )
+    assert block["meta"] == {"text_align": "center", "vertical_align": "middle"}
+
+    # Picking the default (left) clears the meta key
+    align_section.locator(".style-btn[title='left']").click()
+    block = _wait_block_meta(
+        page, layout_id, block_id,
+        lambda m: "text_align" not in m,
+    )
+    assert block["meta"] == {"vertical_align": "middle"}
+
+
+def test_properties_panel_updates_arrows(page: Page):
+    """Picking an arrow persists to meta.arrow_start / meta.arrow_end;
+    the ∅ option clears the meta key. Start/End are two selects sharing
+    one row; the option labels are the head glyphs (hline ◀/▶/◆/◇/●/○)."""
+    layout_id, [line_id] = _create_project_with_blocks(page, [
+        {"block_type": "hline", "x": 2, "y": 2, "width": 12, "height": 1},
+    ])
+    _wait_editor_ready(page, 1)
+
+    page.locator(f'.block-preview[data-block-id="{line_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+    expect(panel.locator(".block-props__type")).to_have_text("hline")
+
+    arrows = panel.locator('.props-section[data-section="Arrows"]')
+    # Two selects side by side: Start + End (∅ + 6 shapes each)
+    selects = arrows.locator("select")
+    expect(selects).to_have_count(2)
+    # One row: both selects share the same top (up to a couple of px)
+    start_box = selects.nth(0).bounding_box()
+    end_box = selects.nth(1).bounding_box()
+    assert abs(start_box["y"] - end_box["y"]) <= 2
+    assert end_box["x"] > start_box["x"]
+    # The option labels are the head glyphs (hline direction)
+    expect(selects.nth(0).locator("option")).to_have_count(7)
+    expect(selects.nth(0).locator("option[value='arrow']")).to_have_text("◀")
+    expect(selects.nth(1).locator("option[value='arrow']")).to_have_text("▶")
+    # No arrows yet → both selects show the ∅ (none) default
+    expect(selects.nth(0)).to_have_value("none")
+    expect(selects.nth(1)).to_have_value("none")
+
+    selects.nth(0).select_option("arrow")
+    block = _wait_block_meta(
+        page, layout_id, line_id,
+        lambda m: m.get("arrow_start") == "arrow",
+    )
+    assert block["meta"].get("arrow_start") == "arrow"
+    assert "arrow_end" not in block["meta"]
+
+    selects.nth(1).select_option("diamond")
+    block = _wait_block_meta(
+        page, layout_id, line_id,
+        lambda m: m.get("arrow_end") == "diamond",
+    )
+    assert block["meta"] == {"arrow_start": "arrow", "arrow_end": "diamond"}
+
+    # ∅ clears the key (the meta key is removed)
+    selects.nth(0).select_option("none")
+    block = _wait_block_meta(
+        page, layout_id, line_id,
+        lambda m: "arrow_start" not in m,
+    )
+    assert block["meta"] == {"arrow_end": "diamond"}
+
+
+def test_properties_panel_selects_show_existing_arrows(page: Page):
+    """The Start/End selects show the block's existing arrow values on
+    selection (regression: a :value binding on the select ran before the
+    x-for options existed, so a freshly created select showed the first
+    option — ∅ — instead of the stored value)."""
+    layout_id, [line_id] = _create_project_with_blocks(page, [
+        {"block_type": "hline", "x": 2, "y": 2, "width": 12, "height": 1,
+         "meta": {"arrow_start": "diamond", "arrow_end": "circle"}},
+    ])
+    _wait_editor_ready(page, 1)
+
+    selects = page.locator('.props-section[data-section="Arrows"] select')
+
+    page.locator(f'.block-preview[data-block-id="{line_id}"]').click()
+    expect(selects.nth(0)).to_have_value("diamond")
+    expect(selects.nth(1)).to_have_value("circle")
+
+    # Deselect and reselect: the selects are re-created — the stored
+    # values must be shown again (the original repro)
+    page.keyboard.press("Escape")
+    page.locator(f'.block-preview[data-block-id="{line_id}"]').click()
+    expect(selects.nth(0)).to_have_value("diamond")
+    expect(selects.nth(1)).to_have_value("circle")
 
 
 # ── Multi-selection (marquee + group operations) ──────────
@@ -781,7 +990,8 @@ def _wait_editor_ready(page: Page, num_blocks: int) -> None:
 def _create_project_with_blocks(page: Page, specs: list[dict]) -> tuple[str, list[str]]:
     """Create a project and layout via the UI, add blocks via the API.
 
-    specs: list of {block_type, x, y, width, height, content?, border_style?}.
+    specs: list of {block_type, x, y, width, height, content?, border_style?,
+    meta?}.
     Returns (layout_id, [block_ids]).
     """
     page.goto(BASE_URL)
@@ -807,6 +1017,8 @@ def _create_project_with_blocks(page: Page, specs: list[dict]) -> tuple[str, lis
             payload["content"] = spec["content"]
         if "border_style" in spec:
             payload["border_style"] = spec["border_style"]
+        if "meta" in spec:
+            payload["meta"] = spec["meta"]
         # parent_index references an earlier block in the same list — used
         # to seed nested (container → child) layouts.
         if "parent_index" in spec:
@@ -1077,7 +1289,9 @@ def test_panel_style_applies_to_all_selected(page: Page):
     expect(page.locator(".block-props__type")).to_have_text("2 selected")
 
     panel = page.locator(".block-props")
-    panel.locator(".style-btn[title='dotted']").click()
+    panel.locator(
+        '.props-section[data-section="Style"] .style-btn[title=\'dotted\']'
+    ).click()
 
     # Poll: the browser's batch request may still be in flight
     blocks = {}
@@ -1091,8 +1305,9 @@ def test_panel_style_applies_to_all_selected(page: Page):
     assert blocks[a_id]["border_style"] == "dotted"
     assert blocks[b_id]["border_style"] == "dotted"
     # The active style button reflects the shared style
-    expect(panel.locator(".style-btn--active")).to_have_count(1)
-    expect(panel.locator(".style-btn--active")).to_have_attribute("title", "dotted")
+    style = panel.locator('.props-section[data-section="Style"]')
+    expect(style.locator(".style-btn--active")).to_have_count(1)
+    expect(style.locator(".style-btn--active")).to_have_attribute("title", "dotted")
 
 
 def test_group_duplicate_copies_all_selected(page: Page):
@@ -1319,7 +1534,8 @@ def test_static_editor_block_not_shifted_when_not_at_top(page: Page):
     page.locator(".block-preview").click()
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
-    y_input = panel.locator(".prop input").nth(1)
+    y_input = panel.locator(".props-section__body input[type=number]").nth(1)
+    expect(y_input).to_be_visible()
     y_input.fill("5")
     y_input.dispatch_event("change")
     page.wait_for_timeout(300)
@@ -1338,9 +1554,9 @@ def test_static_editor_block_not_shifted_when_not_at_top(page: Page):
 
 
 def test_static_editor_panel_matches_web_layout(page: Page):
-    """The static editor's panel keeps the web layout: an actions row,
-    Line Style buttons and X/Y/W/H in one row (the markup is duplicated
-    in static/editor/index.html)."""
+    """The static editor's panel keeps the web layout: an actions row and
+    the same schema-generated sections (core/properties.js builds the
+    markup for both editors)."""
     page.goto(f"{BASE_URL}/static/editor/index.html")
     page.locator(".palette-btn", has_text="box").click()
     expect(page.locator(".block-preview")).to_have_count(1)
@@ -1350,16 +1566,31 @@ def test_static_editor_panel_matches_web_layout(page: Page):
     expect(panel).to_be_visible()
 
     expect(panel.locator(".block-props__actions .action-btn")).to_have_count(3)
-    expect(panel.locator(".style-btn")).to_have_count(5)
 
-    boxes = [
-        panel.locator(".prop-row input").nth(i).bounding_box()
-        for i in range(4)
-    ]
+    # Style section: 5 style buttons
+    expect(
+        panel.locator('.props-section[data-section="Style"] .style-btn')
+    ).to_have_count(5)
+
+    # Align: the SVG icons load in the static editor too (served over
+    # HTTP here) — the editor flips `align-icons-ok` on the root
+    expect(page.locator(".editor-root")).to_have_class(
+        re.compile("align-icons-ok"))
+
+    # Geometry: X/Y/W/H/Order in a three-column grid
+    inputs = panel.locator(".props-section__body input[type=number]")
+    expect(inputs).to_have_count(5)
+    expect(inputs.first).to_be_visible()
+
+    boxes = [inputs.nth(i).bounding_box() for i in range(5)]
     assert all(b is not None for b in boxes)
-    assert max(b["y"] for b in boxes) - min(b["y"] for b in boxes) <= 2
-    lefts = [b["x"] for b in boxes]
-    assert all(b2 > b1 for b1, b2 in zip(lefts, lefts[1:]))
+    assert abs(boxes[0]["y"] - boxes[1]["y"]) <= 2
+    assert abs(boxes[1]["y"] - boxes[2]["y"]) <= 2
+    assert abs(boxes[3]["y"] - boxes[4]["y"]) <= 2
+    assert boxes[3]["y"] > boxes[0]["y"]
+    assert boxes[1]["x"] > boxes[0]["x"]
+    assert boxes[2]["x"] > boxes[1]["x"]
+    assert boxes[4]["x"] > boxes[3]["x"]
 
 
 def test_static_editor_delete_block_in_memory(page: Page):

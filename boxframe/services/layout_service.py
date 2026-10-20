@@ -458,6 +458,7 @@ class LayoutService:
                 border_style=block.border_style,
                 order=block.order,
                 is_root=is_root,
+                meta=block.meta or {},
             )
             rb.children = [build(c, False) for c in children_by_parent.get(block.id, [])]
             return rb
