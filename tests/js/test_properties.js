@@ -1,7 +1,7 @@
 /**
  * Tests for the declarative property schema (core/properties.js) and the
- * editor's panel state: sections, mixed display for multi-selection,
- * meta-merge updates, and the section open/closed persistence.
+ * editor's panel state: sections (always open, no collapse), mixed
+ * display for multi-selection, and meta-merge updates.
  *
  * Run with: node --test tests/js/
  */
@@ -80,7 +80,8 @@ test("schema: the current properties are described (phase 3 set)", () => {
     assert.ok(!fill.types.includes("hline"));
     // Alignment (phase 3 of tasks/0051): meta keys, segmented; picking
     // the default clears the meta key (clearDefault — the default is
-    // implicit). Not applicable to lines.
+    // implicit). Not applicable to lines. row: "align" — the pair shares
+    // one panel row (one button group each, one shared label).
     for (const [key, options, defaultValue] of [
         ["text_align", ["left", "center", "right"], "left"],
         ["vertical_align", ["top", "middle", "bottom"], "top"],
@@ -90,20 +91,23 @@ test("schema: the current properties are described (phase 3 set)", () => {
         assert.equal(prop.kind, "segmented");
         assert.deepEqual(prop.options, options);
         assert.equal(prop.group, "Align");
+        assert.equal(prop.row, "align");
         assert.equal(prop.default, defaultValue);
         assert.equal(prop.clearDefault, true);
         assert.ok(prop.types.includes("button"));
         assert.ok(!prop.types.includes("hline"));
         assert.ok(!prop.types.includes("vline"));
     }
-    // Arrows (phase 3 of tasks/0051): meta keys, segmented, lines only;
+    assert.equal(PGProperties.findProperty("text_align").rowLabel, "Align");
+    // Arrows (phase 3 of tasks/0051): meta keys, select (two selects
+    // share one row — 14 buttons don't fit the panel width), lines only;
     // six head shapes; "none" is a display sentinel (noneValue: null
-    // clears it); the button glyphs depend on the line direction (icons
+    // clears it); the option glyphs depend on the line direction (icons
     // as a function)
     for (const key of ["arrow_start", "arrow_end"]) {
         const prop = PGProperties.findProperty(key);
         assert.equal(prop.meta, true);
-        assert.equal(prop.kind, "segmented");
+        assert.equal(prop.kind, "select");
         assert.deepEqual(prop.options, ["none", "arrow", "arrow-open", "diamond",
             "diamond-open", "circle", "circle-open"]);
         assert.equal(prop.group, "Arrows");
@@ -126,6 +130,11 @@ test("schema: the current properties are described (phase 3 set)", () => {
     assert.equal(PGProperties.findProperty("x").min, 0);
     assert.equal(PGProperties.findProperty("width").min, 1);
     assert.equal(PGProperties.findProperty("content").kind, "text");
+    // Geometry: three columns (X Y W / H Order) — the section body grid
+    // is widened by cols: 3
+    for (const key of ["x", "y", "width", "height", "order"]) {
+        assert.equal(PGProperties.findProperty(key).cols, 3, key);
+    }
 });
 
 test("findProperty: unknown keys are not in the schema", () => {
@@ -168,6 +177,41 @@ test("sectionsForType: groups in declaration order, all properties applicable", 
         ["x", "y", "width", "height", "order"],
     );
     assert.deepEqual(sections[4].props.map(p => p.key), ["content"]);
+});
+
+test("sectionsForType: rows group the Align pair, Geometry widens to 3 columns", () => {
+    const sections = PGProperties.sectionsForType("box");
+    const align = sections.find(s => s.name === "Align");
+    // Two properties → one group row (a shared label, a button group
+    // each)
+    assert.equal(align.rows.length, 1);
+    assert.equal(align.rows[0].kind, "group");
+    assert.equal(align.rows[0].label, "Align");
+    assert.deepEqual(align.rows[0].props.map(p => p.key),
+        ["text_align", "vertical_align"]);
+    const geometry = sections.find(s => s.name === "Geometry");
+    assert.equal(geometry.cols, 3);
+    assert.equal(geometry.rows.length, 5);
+    for (const row of geometry.rows) {
+        assert.equal(row.props.length, 1);
+        assert.equal(row.kind, row.prop.kind);
+    }
+    // The other sections: one row per property, two columns
+    for (const s of sections) {
+        if (s.name === "Align" || s.name === "Geometry") continue;
+        assert.equal(s.cols, 2, s.name);
+        assert.equal(s.rows.length, s.props.length, s.name);
+    }
+});
+
+test("rowsForProps: a lone row property keeps its own label", () => {
+    const rows = PGProperties.rowsForProps([
+        PGProperties.findProperty("text_align"),
+    ]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].kind, "segmented");
+    assert.equal(rows[0].label, "H Align");
+    assert.deepEqual(rows[0].props.map(p => p.key), ["text_align"]);
 });
 
 test("sectionsForType: Fill is not applicable to button and lines", () => {
@@ -216,14 +260,33 @@ test("sectionsForType: the types filter drops inapplicable properties and empty 
 test("buildPropsPanelHTML: the markup binds to the editor app's state", () => {
     const html = PGProperties.buildPropsPanelHTML();
     assert.ok(html.includes('x-for="section in panelSections"'));
-    assert.ok(html.includes("toggleSection(section.name)"));
-    assert.ok(html.includes("isSectionOpen(section.name)"));
-    assert.ok(html.includes("x-if=\"prop.kind === 'number'\""));
-    assert.ok(html.includes("onPropNumber(prop, $event)"));
-    assert.ok(html.includes("onPropText(prop, $event)"));
+    // Sections are always open (no collapse, no headers): the name is a
+    // data attribute, there is no head button or x-show on the body
+    assert.ok(html.includes(':data-section="section.name"'));
+    assert.ok(!html.includes("props-section__head"));
+    assert.ok(!html.includes("isSectionOpen"));
+    assert.ok(!html.includes("toggleSection"));
+    // Rows: the section body iterates the section's rows (a group row
+    // renders a shared label + a button group per property; the rest by
+    // row.kind)
+    assert.ok(html.includes('x-for="row in section.rows"'));
+    assert.ok(html.includes('x-if="row.kind === \'group\'"'));
+    assert.ok(html.includes('x-if="row.kind === \'number\'"'));
+    assert.ok(html.includes('x-if="row.kind === \'select\'"'));
+    assert.ok(html.includes('class="align-row"'));
+    assert.ok(html.includes("x-text=\"row.label\""));
+    // The 3-column Geometry grid is switched by the section's cols
+    assert.ok(html.includes("'props-section__body--3col': section.cols === 3"));
+    // The change handlers and selection bindings
+    assert.ok(html.includes("onPropNumber(row.prop, $event)"));
+    assert.ok(html.includes("onPropText(row.prop, $event)"));
+    assert.ok(html.includes("onPropSelect(row.prop, $event.target.value)"));
+    assert.ok(html.includes("isMixedProp(row.prop.key)"));
+    // Group rows bind per property (the inner x-for's loop variable)
     assert.ok(html.includes("onPropSelect(prop, opt)"));
-    assert.ok(html.includes("isMixedProp(prop.key)"));
     assert.ok(html.includes("propActive(prop.key, opt)"));
+    // Select options show the icon glyphs (arrow heads)
+    assert.ok(html.includes('x-text="propIcon(prop, opt)"'));
 });
 
 // ── panelSections (editor app) ────────────────────────────
@@ -496,70 +559,3 @@ test("propIcon: static icon maps and type-dependent icon functions", () => {
     assert.equal(vline.propIcon(end, "circle"), "●");
 });
 
-// ── Section open/closed state (localStorage) ──────────────
-
-function fakeLocalStorage() {
-    const data = {};
-    return {
-        getItem: (k) => (k in data ? data[k] : null),
-        setItem: (k, v) => { data[k] = String(v); },
-        _data: data,
-    };
-}
-
-test("sections: new sections are collapsed by default", () => {
-    const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
-    assert.equal(app.isSectionOpen("Style"), false);
-    assert.equal(app.isSectionOpen("Geometry"), false);
-});
-
-test("sections: a toggle opens the section and persists the state", () => {
-    const storage = fakeLocalStorage();
-    globalThis.localStorage = storage;
-    try {
-        const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
-        app._loadSectionState();
-
-        app.toggleSection("Geometry");
-        assert.equal(app.isSectionOpen("Geometry"), true);
-        assert.equal(app.isSectionOpen("Style"), false);
-        assert.equal(storage._data["boxframe.props.sections"], '{"Geometry":true}');
-
-        // Toggle back → collapsed
-        app.toggleSection("Geometry");
-        assert.equal(app.isSectionOpen("Geometry"), false);
-    } finally {
-        delete globalThis.localStorage;
-    }
-});
-
-test("sections: the persisted state survives a new app instance (reload)", () => {
-    const storage = fakeLocalStorage();
-    globalThis.localStorage = storage;
-    try {
-        const first = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
-        first._loadSectionState();
-        first.toggleSection("Text");
-
-        // A "reloaded" editor restores the user's choice
-        const second = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
-        second._loadSectionState();
-        assert.equal(second.isSectionOpen("Text"), true);
-        assert.equal(second.isSectionOpen("Style"), false);
-    } finally {
-        delete globalThis.localStorage;
-    }
-});
-
-test("sections: a corrupted persisted state falls back to all-collapsed", () => {
-    const storage = fakeLocalStorage();
-    storage._data["boxframe.props.sections"] = "{not json";
-    globalThis.localStorage = storage;
-    try {
-        const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
-        app._loadSectionState();
-        assert.deepEqual(app.sectionState, {});
-    } finally {
-        delete globalThis.localStorage;
-    }
-});

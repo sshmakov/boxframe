@@ -181,13 +181,10 @@ function editorApp() {
         marqueeEl: null,
 
         // ── Properties panel (generated from the schema) ───────
-        // Open/closed state per section name; persisted in localStorage
-        // so the user's choice survives selection changes and reloads.
-        // New sections are collapsed by default.
-        sectionState: {},
         // The panel body markup — generated once from the declarative
         // schema (core/properties.js); the reactivity lives in the
         // panelSections getter and the bindings inside the markup.
+        // Sections are always open (no collapse state).
         propsPanelHTML: '',
 
         // ── Drag state ──────────────────────────────────────────
@@ -232,7 +229,6 @@ function editorApp() {
             // declarative schema (core/properties.js) — the single source
             // of truth for both editors.
             this.propsPanelHTML = PGProperties.buildPropsPanelHTML();
-            this._loadSectionState();
 
             // Web mode: the server-rendered page sets data-layout-id → talk
             // to the API. Static mode (no layout id) → localStorage store
@@ -2048,40 +2044,6 @@ function editorApp() {
             const b = this.selectedBlock;
             if (!b) return [];
             return PGProperties.sectionsForType(b.block_type);
-        },
-
-        // ── Section open/closed state (persisted in localStorage) ──
-
-        _loadSectionState() {
-            try {
-                const raw = typeof localStorage !== "undefined"
-                    ? localStorage.getItem("boxframe.props.sections")
-                    : null;
-                this.sectionState = raw ? (JSON.parse(raw) || {}) : {};
-            } catch (err) {
-                this.sectionState = {};
-            }
-        },
-
-        _saveSectionState() {
-            try {
-                if (typeof localStorage !== "undefined") {
-                    localStorage.setItem("boxframe.props.sections",
-                        JSON.stringify(this.sectionState));
-                }
-            } catch (err) {
-                // Private mode / quota — the state just won't survive a reload
-            }
-        },
-
-        // New sections are collapsed by default.
-        isSectionOpen(name) {
-            return this.sectionState[name] === true;
-        },
-
-        toggleSection(name) {
-            this.sectionState[name] = !this.isSectionOpen(name);
-            this._saveSectionState();
         },
 
         // ── Property values (single + multi-selection) ──────────
