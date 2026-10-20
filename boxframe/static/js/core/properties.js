@@ -336,10 +336,18 @@
           <template x-if="row.kind === 'select'">
             <label class="prop" :class="{ 'prop--wide': row.prop.wide }">
               <span x-text="row.prop.label"></span>
-              <select :value="propValue(row.prop.key)"
-                      @change="onPropSelect(row.prop, $event.target.value)">
+              <!-- The current value is bound per OPTION (:selected), not on
+                   the select (:value): Alpine initializes an element's own
+                   directives before its children, so a :value binding would
+                   run while the x-for options don't exist yet and select
+                   nothing (the first option shows until the selection
+                   changes). The option binding runs when the option is
+                   created, and re-runs on state changes like :value did -->
+              <select @change="onPropSelect(row.prop, $event.target.value)">
                 <template x-for="opt in row.prop.options" :key="opt">
-                  <option :value="opt" x-text="propIcon(row.prop, opt)"></option>
+                  <option :value="opt"
+                          :selected="propValue(row.prop.key) === opt"
+                          x-text="propIcon(row.prop, opt)"></option>
                 </template>
               </select>
             </label>

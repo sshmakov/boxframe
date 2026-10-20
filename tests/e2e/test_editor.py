@@ -927,6 +927,31 @@ def test_properties_panel_updates_arrows(page: Page):
     assert block["meta"] == {"arrow_end": "diamond"}
 
 
+def test_properties_panel_selects_show_existing_arrows(page: Page):
+    """The Start/End selects show the block's existing arrow values on
+    selection (regression: a :value binding on the select ran before the
+    x-for options existed, so a freshly created select showed the first
+    option — ∅ — instead of the stored value)."""
+    layout_id, [line_id] = _create_project_with_blocks(page, [
+        {"block_type": "hline", "x": 2, "y": 2, "width": 12, "height": 1,
+         "meta": {"arrow_start": "diamond", "arrow_end": "circle"}},
+    ])
+    _wait_editor_ready(page, 1)
+
+    selects = page.locator('.props-section[data-section="Arrows"] select')
+
+    page.locator(f'.block-preview[data-block-id="{line_id}"]').click()
+    expect(selects.nth(0)).to_have_value("diamond")
+    expect(selects.nth(1)).to_have_value("circle")
+
+    # Deselect and reselect: the selects are re-created — the stored
+    # values must be shown again (the original repro)
+    page.keyboard.press("Escape")
+    page.locator(f'.block-preview[data-block-id="{line_id}"]').click()
+    expect(selects.nth(0)).to_have_value("diamond")
+    expect(selects.nth(1)).to_have_value("circle")
+
+
 # ── Multi-selection (marquee + group operations) ──────────
 #
 # Two boxes side by side, used by the multi-selection tests:
@@ -965,7 +990,8 @@ def _wait_editor_ready(page: Page, num_blocks: int) -> None:
 def _create_project_with_blocks(page: Page, specs: list[dict]) -> tuple[str, list[str]]:
     """Create a project and layout via the UI, add blocks via the API.
 
-    specs: list of {block_type, x, y, width, height, content?, border_style?}.
+    specs: list of {block_type, x, y, width, height, content?, border_style?,
+    meta?}.
     Returns (layout_id, [block_ids]).
     """
     page.goto(BASE_URL)
@@ -991,6 +1017,8 @@ def _create_project_with_blocks(page: Page, specs: list[dict]) -> tuple[str, lis
             payload["content"] = spec["content"]
         if "border_style" in spec:
             payload["border_style"] = spec["border_style"]
+        if "meta" in spec:
+            payload["meta"] = spec["meta"]
         # parent_index references an earlier block in the same list — used
         # to seed nested (container → child) layouts.
         if "parent_index" in spec:

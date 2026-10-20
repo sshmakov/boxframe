@@ -296,6 +296,12 @@ test("buildPropsPanelHTML: the markup binds to the editor app's state", () => {
     assert.ok(html.includes('x-text="propIcon(prop, opt)"'));
     // Select options show the icon glyphs (arrow heads)
     assert.ok(html.includes('x-text="propIcon(row.prop, opt)"'));
+    // The select's current value is bound per option (:selected), not on
+    // the select (:value): Alpine initializes the select's own directives
+    // before its x-for children exist, so a :value binding would run with
+    // an empty option list and never select the current value (the first
+    // option shows until the selection changes)
+    assert.ok(html.includes(':selected="propValue(row.prop.key) === opt"'));
 });
 
 // ── panelSections (editor app) ────────────────────────────
