@@ -2088,6 +2088,20 @@ function editorApp() {
             return (prop.icons && prop.icons[opt]) || opt;
         },
 
+        // style-btn classes: the active state, plus for iconPrefix
+        // properties (the Align row) the SVG-icon classes — the
+        // `style-btn--<iconPrefix>-<opt>` class selects the CSS mask
+        // (static/icons/<iconPrefix>-<opt>.svg, see editor.css) and the
+        // button text is left empty.
+        styleBtnClasses(prop, opt) {
+            const cls = { 'style-btn--active': this.propActive(prop.key, opt) };
+            if (prop.iconPrefix) {
+                cls['style-btn--icon'] = true;
+                cls['style-btn--' + prop.iconPrefix + '-' + opt] = true;
+            }
+            return cls;
+        },
+
         // Apply a property value to the selection. Meta properties are
         // merged into each block's current meta (the API/store replace
         // the whole meta object on update); a null value clears the meta

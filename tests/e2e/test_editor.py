@@ -832,6 +832,11 @@ def test_properties_panel_updates_alignment(page: Page):
     # Two segmented rows: H Align (left/center/right) + V Align
     # (top/middle/bottom)
     expect(align_section.locator(".style-btn")).to_have_count(6)
+    # The buttons show SVG icons (CSS-mask classes, static/icons/),
+    # not the option text
+    expect(align_section.locator(".style-btn--icon")).to_have_count(6)
+    expect(align_section.locator(".style-btn--align-center")).to_have_count(1)
+    expect(align_section.locator(".style-btn--align-middle")).to_have_count(1)
     # No alignment yet → the defaults are active (left / top)
     active_titles = align_section.locator(".style-btn--active")
     expect(active_titles).to_have_count(2)

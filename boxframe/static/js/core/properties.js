@@ -17,6 +17,12 @@
  *               option text for select), or a (blockType, option) →
  *               glyph function for type-dependent glyphs (arrow
  *               direction)
+ *   iconPrefix — optional: the button shows an SVG icon instead of a
+ *               glyph — the option gets the `style-btn--<iconPrefix>-
+ *               <option>` CSS class (the mask of static/icons/
+ *               <iconPrefix>-<option>.svg, see editor.css) and the
+ *               button text is empty (the title attribute names the
+ *               option)
  *   group    — section name (sections = unique groups, declaration order)
  *   row      — row name: consecutive properties sharing a row render as
  *               ONE grid row with a button group per property (the
@@ -78,13 +84,16 @@
         // implicit). Not applicable to lines. For a button, text_align
         // aligns the label (the label is already vertically centered).
         // row: "align" — the two properties share ONE panel row (a
-        // button group each, one shared label).
+        // button group each, one shared label). iconPrefix: the buttons
+        // show SVG icons (static/icons/align-*.svg, masked in
+        // editor.css) instead of the option text.
         {
             key: "text_align",
             meta: true,
             label: "H Align",
             kind: "segmented",
             options: ["left", "center", "right"],
+            iconPrefix: "align",
             group: "Align",
             row: "align",
             rowLabel: "Align",
@@ -99,6 +108,7 @@
             label: "V Align",
             kind: "segmented",
             options: ["top", "middle", "bottom"],
+            iconPrefix: "align",
             group: "Align",
             row: "align",
             types: ["box", "header", "footer", "sidebar", "content", "button",
@@ -286,10 +296,10 @@
                   <div class="style-btns">
                     <template x-for="opt in prop.options" :key="opt">
                       <button type="button" class="style-btn"
-                              :class="{ 'style-btn--active': propActive(prop.key, opt) }"
+                              :class="styleBtnClasses(prop, opt)"
                               :title="String(opt)"
                               @click="onPropSelect(prop, opt)"
-                              x-text="propIcon(prop, opt)"></button>
+                              x-text="prop.iconPrefix ? '' : propIcon(prop, opt)"></button>
                     </template>
                   </div>
                 </template>
@@ -311,10 +321,10 @@
               <div class="style-btns">
                 <template x-for="opt in row.prop.options" :key="opt">
                   <button type="button" class="style-btn"
-                          :class="{ 'style-btn--active': propActive(row.prop.key, opt) }"
+                          :class="styleBtnClasses(row.prop, opt)"
                           :title="String(opt)"
                           @click="onPropSelect(row.prop, opt)"
-                          x-text="propIcon(row.prop, opt)"></button>
+                          x-text="row.prop.iconPrefix ? '' : propIcon(row.prop, opt)"></button>
                 </template>
               </div>
             </div>

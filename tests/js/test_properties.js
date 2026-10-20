@@ -82,6 +82,8 @@ test("schema: the current properties are described (phase 3 set)", () => {
     // the default clears the meta key (clearDefault — the default is
     // implicit). Not applicable to lines. row: "align" — the pair shares
     // one panel row (one button group each, one shared label).
+    // iconPrefix: the buttons show SVG icons (static/icons/align-*.svg,
+    // masked in editor.css) instead of the option text.
     for (const [key, options, defaultValue] of [
         ["text_align", ["left", "center", "right"], "left"],
         ["vertical_align", ["top", "middle", "bottom"], "top"],
@@ -90,6 +92,7 @@ test("schema: the current properties are described (phase 3 set)", () => {
         assert.equal(prop.meta, true);
         assert.equal(prop.kind, "segmented");
         assert.deepEqual(prop.options, options);
+        assert.equal(prop.iconPrefix, "align");
         assert.equal(prop.group, "Align");
         assert.equal(prop.row, "align");
         assert.equal(prop.default, defaultValue);
@@ -284,9 +287,14 @@ test("buildPropsPanelHTML: the markup binds to the editor app's state", () => {
     assert.ok(html.includes("isMixedProp(row.prop.key)"));
     // Group rows bind per property (the inner x-for's loop variable)
     assert.ok(html.includes("onPropSelect(prop, opt)"));
-    assert.ok(html.includes("propActive(prop.key, opt)"));
+    // Button classes come from styleBtnClasses (active state + the SVG
+    // icon class for iconPrefix properties); icon buttons render no
+    // text (the title attribute names the option)
+    assert.ok(html.includes("styleBtnClasses(prop, opt)"));
+    assert.ok(html.includes("styleBtnClasses(row.prop, opt)"));
+    assert.ok(html.includes("prop.iconPrefix ? '' : propIcon(prop, opt)"));
     // Select options show the icon glyphs (arrow heads)
-    assert.ok(html.includes('x-text="propIcon(prop, opt)"'));
+    assert.ok(html.includes('x-text="propIcon(row.prop, opt)"'));
 });
 
 // ── panelSections (editor app) ────────────────────────────
@@ -557,5 +565,36 @@ test("propIcon: static icon maps and type-dependent icon functions", () => {
     assert.equal(vline.propIcon(start, "arrow"), "▲");
     assert.equal(vline.propIcon(end, "arrow"), "▼");
     assert.equal(vline.propIcon(end, "circle"), "●");
+});
+
+test("styleBtnClasses: active state + the SVG icon classes (iconPrefix)", () => {
+    const app = appWith([
+        block("b1", "box", 0, 0, 5, 2, { meta: { text_align: "center" } }),
+    ], ["b1"]);
+    const hAlign = PGProperties.findProperty("text_align");
+    const vAlign = PGProperties.findProperty("vertical_align");
+    // iconPrefix property: the active class + the generic icon class +
+    // the per-option mask class (static/icons/align-<opt>.svg)
+    assert.deepEqual(app.styleBtnClasses(hAlign, "center"), {
+        "style-btn--active": true,
+        "style-btn--icon": true,
+        "style-btn--align-center": true,
+    });
+    assert.deepEqual(app.styleBtnClasses(hAlign, "left"), {
+        "style-btn--active": false,
+        "style-btn--icon": true,
+        "style-btn--align-left": true,
+    });
+    assert.deepEqual(app.styleBtnClasses(vAlign, "bottom"), {
+        "style-btn--active": false,
+        "style-btn--icon": true,
+        "style-btn--align-bottom": true,
+    });
+    // A glyph property (no iconPrefix) keeps the plain active binding
+    const style = PGProperties.findProperty("border_style");
+    assert.deepEqual(app.styleBtnClasses(style, "solid"),
+        { "style-btn--active": true });
+    assert.deepEqual(app.styleBtnClasses(style, "dashed"),
+        { "style-btn--active": false });
 });
 

@@ -620,6 +620,46 @@
     background: rgba(233, 69, 96, 0.12);
 }
 
+/* Icon buttons (the Align row, schema iconPrefix): the label is an SVG
+   file (static/icons/) applied as a CSS mask over currentColor, so the
+   icon tints like the glyph buttons (muted → accent when active). The
+   url() resolves against THIS stylesheet, which sits at the same
+   relative path in the web editor (/static/css/) and the static editor
+   (file://.../static/css/). The button text is empty (the title
+   attribute names the option). */
+.style-btn--icon::before {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    margin: 0 auto;
+    background-color: currentColor;
+}
+.style-btn--align-left::before {
+    -webkit-mask: url("../icons/align-left.svg") center / contain no-repeat;
+    mask: url("../icons/align-left.svg") center / contain no-repeat;
+}
+.style-btn--align-center::before {
+    -webkit-mask: url("../icons/align-center.svg") center / contain no-repeat;
+    mask: url("../icons/align-center.svg") center / contain no-repeat;
+}
+.style-btn--align-right::before {
+    -webkit-mask: url("../icons/align-right.svg") center / contain no-repeat;
+    mask: url("../icons/align-right.svg") center / contain no-repeat;
+}
+.style-btn--align-top::before {
+    -webkit-mask: url("../icons/align-top.svg") center / contain no-repeat;
+    mask: url("../icons/align-top.svg") center / contain no-repeat;
+}
+.style-btn--align-middle::before {
+    -webkit-mask: url("../icons/align-middle.svg") center / contain no-repeat;
+    mask: url("../icons/align-middle.svg") center / contain no-repeat;
+}
+.style-btn--align-bottom::before {
+    -webkit-mask: url("../icons/align-bottom.svg") center / contain no-repeat;
+    mask: url("../icons/align-bottom.svg") center / contain no-repeat;
+}
+
 /* Number fields: label to the left of the input (one grid cell each) */
 .prop--inline {
     flex-direction: row;
