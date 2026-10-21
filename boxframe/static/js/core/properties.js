@@ -11,7 +11,8 @@
  *   key      — data key
  *   meta     — true → block.meta[key], false → block[key]
  *   label    — panel label
- *   kind     — number | segmented | select | charpicker | text
+ *   kind     — number | segmented | select | charpicker | text |
+ *               textarea (multi-line text, the modal's Content field)
  *   options  — for segmented / select / charpicker
  *   icons    — optional option → glyph map (button labels, or the
  *               option text for select), or a (blockType, option) →
@@ -28,6 +29,12 @@
  *               subresource access, or a missing icons/ dir, the
  *               buttons keep their text
  *   group    — section name (sections = unique groups, declaration order)
+ *   panel    — "primary" → the property also appears in the FLOATING
+ *               properties panel (actions + the frequently used controls:
+ *               style, fill, alignment, arrows); omitted = secondary —
+ *               the all-properties modal only (geometry, text). New
+ *               properties default to secondary so the floating panel
+ *               stays compact
  *   row      — row name: consecutive properties sharing a row render as
  *               ONE grid row with a button group per property (the
  *               Align pair); rowLabel gives the shared row label
@@ -60,6 +67,7 @@
             options: BORDER_STYLES,
             icons: { solid: "─", dashed: "┄", dotted: "┈", double: "═", none: "∅" },
             group: "Style",
+            panel: "primary",
         },
         // Fill (phase 2 of tasks/0051): meta.fill paints the block's
         // content area; the content is drawn on top and the [type] hint
@@ -80,6 +88,7 @@
                     "image"],
             default: "none",
             noneValue: null,
+            panel: "primary",
         },
         // Text alignment (phase 3 of tasks/0051): meta.text_align /
         // meta.vertical_align position the wrapped content inside the
@@ -105,6 +114,7 @@
                     "input", "textarea", "image", "divider", "text", "grid"],
             default: "left",
             clearDefault: true,
+            panel: "primary",
         },
         {
             key: "vertical_align",
@@ -119,6 +129,7 @@
                     "input", "textarea", "image", "divider", "text", "grid"],
             default: "top",
             clearDefault: true,
+            panel: "primary",
         },
         // Arrows (phase 3 of tasks/0051): meta.arrow_start / meta.arrow_end
         // replace the end cell of an hline/vline (a line shorter than 2
@@ -147,6 +158,7 @@
             types: ["hline", "vline"],
             default: "none",
             noneValue: null,
+            panel: "primary",
         },
         {
             key: "arrow_end",
@@ -167,6 +179,7 @@
             types: ["hline", "vline"],
             default: "none",
             noneValue: null,
+            panel: "primary",
         },
         // cols: 3 — the five fields sit in three columns (X Y W / H
         // Order) instead of two (X Y / W H / Order)
@@ -175,7 +188,10 @@
         { key: "width", label: "W", kind: "number", group: "Geometry", min: 1, cols: 3 },
         { key: "height", label: "H", kind: "number", group: "Geometry", min: 1, cols: 3 },
         { key: "order", label: "Order", kind: "number", group: "Geometry", min: 0, cols: 3 },
-        { key: "content", label: "Content", kind: "text", group: "Text" },
+        // Content (task 0054): multi-line textarea — the block's text is
+        // edited inline on the canvas (double-click) or here in the
+        // all-properties modal; secondary (modal only)
+        { key: "content", label: "Content", kind: "textarea", group: "Text" },
     ];
 
     function findProperty(key) {
@@ -241,12 +257,17 @@
     // Groups with no applicable property are dropped. Each section also
     // carries `rows` (the grid rows, see rowsForProps) and `cols` (the
     // grid column count — the max of the properties' `cols`, default 2).
-    function sectionsForType(blockType) {
+    // `panel` — "primary" keeps only the primary properties (the floating
+    // panel: style, fill, alignment, arrows); "all" (the default) keeps
+    // everything (the all-properties modal).
+    function sectionsForType(blockType, panel) {
+        panel = panel || "all";
         var sections = [];
         var byName = {};
         for (var i = 0; i < PROPERTY_SCHEMA.length; i++) {
             var prop = PROPERTY_SCHEMA[i];
             if (prop.types && prop.types.indexOf(blockType) === -1) continue;
+            if (panel === "primary" && prop.panel !== "primary") continue;
             if (!byName[prop.group]) {
                 byName[prop.group] = { name: prop.group, props: [] };
                 sections.push(byName[prop.group]);
@@ -266,18 +287,23 @@
     }
 
     // The panel body markup. A constant string — the reactivity lives in
-    // the host app's panelSections getter and the per-property bindings.
+    // the host app's sections getter and the per-property bindings.
     // Sections are always open (no collapse, no headers) — the name is
     // exposed as data-section for tooling/tests. The Alpine directives
     // resolve against the editor app:
-    //   panelSections — sections for the selected block's type (each
-    //   section carries `rows` — the grid rows — and `cols`)
+    //   panelSections / modalSections — sections for the selected
+    //   block's type (each section carries `rows` — the grid rows — and
+    //   `cols`); panelSections = the floating panel (primary properties),
+    //   modalSections = the all-properties modal (all sections)
     //   propValue / isMixedProp / propActive — selection values (mixed =
     //   the values differ across the multi-selection)
     //   onPropNumber / onPropText / onPropSelect — change handlers
-    function buildPropsPanelHTML() {
+    // `getterName` — the sections getter the fragment iterates: the
+    // floating panel (the default) and the modal share this markup.
+    function buildPropsPanelHTML(getterName) {
+        getterName = getterName || "panelSections";
         return `
-<template x-for="section in panelSections" :key="section.name">
+<template x-for="section in ${getterName}" :key="section.name">
   <div class="props-section" :data-section="section.name">
     <div class="props-section__body"
          :class="{ 'props-section__body--3col': section.cols === 3 }">
@@ -358,6 +384,17 @@
               <input type="text" :value="propValue(row.prop.key)"
                      :placeholder="isMixedProp(row.prop.key) ? '—' : ''"
                      @change="onPropText(row.prop, $event)">
+            </label>
+          </template>
+          <!-- Multi-line text (the modal's Content field): a textarea,
+               committed on blur/Enter like the other fields (@change) -->
+          <template x-if="row.kind === 'textarea'">
+            <label class="prop prop--wide">
+              <span x-text="row.prop.label"></span>
+              <textarea rows="6" spellcheck="false"
+                        :value="propValue(row.prop.key)"
+                        :placeholder="isMixedProp(row.prop.key) ? '—' : ''"
+                        @change="onPropText(row.prop, $event)"></textarea>
             </label>
           </template>
         </div>

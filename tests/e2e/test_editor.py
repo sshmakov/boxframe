@@ -691,16 +691,17 @@ def test_properties_panel_updates_border_style(page: Page):
     assert block["border_style"] == "dashed"
 
 
-def test_properties_panel_fields_in_one_row(page: Page):
-    """Geometry fields sit in a three-column grid (X/Y/W, H/Order); each
-    label sits to the left of its input, not above it."""
+def test_props_modal_geometry_fields_in_one_row(page: Page):
+    """The modal's Geometry fields sit in a three-column grid (X/Y/W,
+    H/Order); each label sits to the left of its input, not above it."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
-    panel = page.locator(".block-props")
-    expect(panel).to_be_visible()
+    page.locator(".block-props .action-btn.props-modal-btn").click()
+    modal = page.locator(".props-modal")
+    expect(modal).to_be_visible()
 
-    inputs = panel.locator(".props-section__body input[type=number]")
+    inputs = modal.locator(".props-section__body input[type=number]")
     expect(inputs).to_have_count(5)
     expect(inputs.first).to_be_visible()
 
@@ -721,7 +722,7 @@ def test_properties_panel_fields_in_one_row(page: Page):
     # The label of each field is to the left of its input, vertically
     # centered against it
     for i in range(5):
-        label = panel.locator(".props-section__body .prop--inline > span").nth(i).bounding_box()
+        label = modal.locator(".props-section__body .prop--inline > span").nth(i).bounding_box()
         inp = boxes[i]
         assert label is not None
         assert label["x"] + label["width"] <= inp["x"] + 1
@@ -730,9 +731,10 @@ def test_properties_panel_fields_in_one_row(page: Page):
 
 
 def test_properties_panel_section_order(page: Page):
-    """Panel sections top to bottom: actions, Style, Fill,
-    Align, Geometry, Text (for a box — no Arrows). Sections are
-    always open (no headers/collapse)."""
+    """The floating panel keeps the primary sections only (task 0054):
+    actions, Style, Fill, Align (for a box — no Arrows); Geometry and
+    Text live in the all-properties modal, which shows all five
+    sections. Sections are always open (no headers/collapse)."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
@@ -740,14 +742,151 @@ def test_properties_panel_section_order(page: Page):
     expect(panel).to_be_visible()
 
     sections = panel.locator(".props-section")
-    expect(sections).to_have_count(5)
+    expect(sections).to_have_count(3)
     assert [
-        sections.nth(i).get_attribute("data-section") for i in range(5)
-    ] == ["Style", "Fill", "Align", "Geometry", "Text"]
+        sections.nth(i).get_attribute("data-section") for i in range(3)
+    ] == ["Style", "Fill", "Align"]
 
     tops = [panel.locator(".block-props__actions").bounding_box()["y"]]
-    tops += [sections.nth(i).bounding_box()["y"] for i in range(5)]
+    tops += [sections.nth(i).bounding_box()["y"] for i in range(3)]
     assert all(b > a for a, b in zip(tops, tops[1:]))
+
+    # The modal: all sections (primary + secondary)
+    panel.locator(".action-btn.props-modal-btn").click()
+    modal = page.locator(".props-modal")
+    expect(modal).to_be_visible()
+
+    modal_sections = modal.locator(".props-section")
+    expect(modal_sections).to_have_count(5)
+    assert [
+        modal_sections.nth(i).get_attribute("data-section") for i in range(5)
+    ] == ["Style", "Fill", "Align", "Geometry", "Text"]
+
+
+def test_props_modal_esc_closes_modal_then_selection(page: Page):
+    """Escape closes the modal first (even from its own fields); the
+    second Escape clears the selection (the floating panel hides)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    panel.locator(".action-btn.props-modal-btn").click()
+    modal = page.locator(".props-modal")
+    expect(modal).to_be_visible()
+
+    # Wait for the Align icons to load: until `align-icons-ok` flips,
+    # the button text is visible and the dialog height (and the field
+    # positions inside it) can still shift
+    expect(page.locator(".editor-root")).to_have_class(
+        re.compile("align-icons-ok"))
+
+    # Esc from a modal field closes the modal (the field doesn't
+    # swallow it) — the selection (and the floating panel) survives
+    modal.locator('.props-section[data-section="Geometry"] input[type=number]').first.click()
+    page.keyboard.press("Escape")
+    expect(modal).to_be_hidden()
+    expect(panel).to_be_visible()
+
+    # Second Esc: the selection is cleared
+    page.keyboard.press("Escape")
+    expect(panel).to_be_hidden()
+
+
+def test_props_modal_updates_on_selection_change(page: Page):
+    """The overlay is transparent to clicks: selecting another block
+    while the modal is open updates its content in place (the sections
+    follow the new block's type)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    # A second block of another type (button — no Fill section), far
+    # from the dialog so the click isn't covered by it
+    r = requests.post(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks",
+        json={
+            "block_type": "button",
+            "x": 30, "y": 1, "width": 10, "height": 1,
+            "content": "Go",
+            "border_style": "solid",
+        },
+        timeout=5,
+    )
+    assert r.status_code == 200
+    btn_id = r.json()["id"]
+    page.reload()
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    page.locator(".block-props .action-btn.props-modal-btn").click()
+    modal = page.locator(".props-modal")
+    expect(modal).to_be_visible()
+    expect(modal.locator(".props-modal__type")).to_have_text("box")
+    expect(modal.locator('.props-section[data-section="Fill"]')).to_have_count(1)
+
+    # Click the button block THROUGH the dimming overlay: the modal
+    # stays open and shows the button's sections (no Fill)
+    page.locator(f'.block-preview[data-block-id="{btn_id}"]').click()
+    expect(modal).to_be_visible()
+    expect(modal.locator(".props-modal__type")).to_have_text("button")
+    expect(modal.locator('.props-section[data-section="Fill"]')).to_have_count(0)
+    expect(modal.locator('.props-section[data-section="Style"]')).to_have_count(1)
+    expect(modal.locator('.props-section[data-section="Geometry"]')).to_have_count(1)
+
+
+def test_props_modal_closes_when_selection_cleared(page: Page):
+    """Deleting the selection while the modal is open closes it (the
+    flag resets when the selection is cleared)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    page.locator(".block-props .action-btn.props-modal-btn").click()
+    modal = page.locator(".props-modal")
+    expect(modal).to_be_visible()
+
+    # Delete the selection with the Delete key (accept the
+    # confirmation dialog)
+    page.on("dialog", lambda d: d.accept())
+    page.keyboard.press("Delete")
+    expect(modal).to_be_hidden()
+    expect(page.locator(".block-props")).to_be_hidden()
+
+
+def test_props_modal_content_textarea_saves(page: Page):
+    """The modal's Text section is a multi-line textarea; the value is
+    committed on blur (closing the modal) and persists to the database."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    page.locator(".block-props .action-btn.props-modal-btn").click()
+    modal = page.locator(".props-modal")
+    expect(modal).to_be_visible()
+
+    # Wait for the Align icons to load (the dialog height and the field
+    # positions inside it settle only after `align-icons-ok` flips)
+    expect(page.locator(".editor-root")).to_have_class(
+        re.compile("align-icons-ok"))
+
+    textarea = modal.locator('.props-section[data-section="Text"] textarea')
+    expect(textarea).to_have_count(1)
+    # No single-line input for the content in the modal
+    expect(
+        modal.locator('.props-section[data-section="Text"] input[type=text]')
+    ).to_have_count(0)
+
+    textarea.fill("line one\nline two")
+    # Closing the modal blurs the textarea → the change is committed
+    modal.locator(".props-modal__close").click()
+    expect(modal).to_be_hidden()
+
+    # Poll: the browser's PUT may still be in flight
+    block = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+        if block["content"] == "line one\nline two":
+            break
+        page.wait_for_timeout(100)
+    assert block["content"] == "line one\nline two"
 
 
 def test_properties_panel_updates_fill(page: Page):
@@ -1530,11 +1669,15 @@ def test_static_editor_block_not_shifted_when_not_at_top(page: Page):
     page.locator(".palette-btn", has_text="box").click()
     expect(page.locator(".block-preview")).to_have_count(1)
 
-    # Move the block (added at (1,1)) to y=5 so rows 0-4 of the art are empty
+    # Move the block (added at (1,1)) to y=5 so rows 0-4 of the art are
+    # empty. Geometry lives in the all-properties modal (task 0054)
     page.locator(".block-preview").click()
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
-    y_input = panel.locator(".props-section__body input[type=number]").nth(1)
+    panel.locator(".action-btn.props-modal-btn").click()
+    modal = page.locator(".props-modal")
+    expect(modal).to_be_visible()
+    y_input = modal.locator(".props-section__body input[type=number]").nth(1)
     expect(y_input).to_be_visible()
     y_input.fill("5")
     y_input.dispatch_event("change")
@@ -1554,9 +1697,10 @@ def test_static_editor_block_not_shifted_when_not_at_top(page: Page):
 
 
 def test_static_editor_panel_matches_web_layout(page: Page):
-    """The static editor's panel keeps the web layout: an actions row and
-    the same schema-generated sections (core/properties.js builds the
-    markup for both editors)."""
+    """The static editor's panel keeps the web layout: an actions row
+    (with the Properties button) and the same schema-generated primary
+    sections (core/properties.js builds the markup for both editors);
+    the all-properties modal works in the static editor too."""
     page.goto(f"{BASE_URL}/static/editor/index.html")
     page.locator(".palette-btn", has_text="box").click()
     expect(page.locator(".block-preview")).to_have_count(1)
@@ -1565,9 +1709,11 @@ def test_static_editor_panel_matches_web_layout(page: Page):
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
-    expect(panel.locator(".block-props__actions .action-btn")).to_have_count(3)
+    # Duplicate / Copy / Delete / Properties
+    expect(panel.locator(".block-props__actions .action-btn")).to_have_count(4)
 
-    # Style section: 5 style buttons
+    # Primary sections only (task 0054): Style, Fill, Align
+    expect(panel.locator(".props-section")).to_have_count(3)
     expect(
         panel.locator('.props-section[data-section="Style"] .style-btn')
     ).to_have_count(5)
@@ -1577,8 +1723,13 @@ def test_static_editor_panel_matches_web_layout(page: Page):
     expect(page.locator(".editor-root")).to_have_class(
         re.compile("align-icons-ok"))
 
-    # Geometry: X/Y/W/H/Order in a three-column grid
-    inputs = panel.locator(".props-section__body input[type=number]")
+    # The modal: all sections, Geometry in a three-column grid
+    panel.locator(".action-btn.props-modal-btn").click()
+    modal = page.locator(".props-modal")
+    expect(modal).to_be_visible()
+    expect(modal.locator(".props-section")).to_have_count(5)
+
+    inputs = modal.locator(".props-section__body input[type=number]")
     expect(inputs).to_have_count(5)
     expect(inputs.first).to_be_visible()
 

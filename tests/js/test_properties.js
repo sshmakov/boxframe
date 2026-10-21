@@ -132,11 +132,22 @@ test("schema: the current properties are described (phase 3 set)", () => {
     assert.equal(PGProperties.findProperty("arrow_start").icons("hline", "none"), "∅");
     assert.equal(PGProperties.findProperty("x").min, 0);
     assert.equal(PGProperties.findProperty("width").min, 1);
-    assert.equal(PGProperties.findProperty("content").kind, "text");
+    // Content (task 0054): multi-line textarea (the modal's Text section)
+    assert.equal(PGProperties.findProperty("content").kind, "textarea");
     // Geometry: three columns (X Y W / H Order) — the section body grid
     // is widened by cols: 3
     for (const key of ["x", "y", "width", "height", "order"]) {
         assert.equal(PGProperties.findProperty(key).cols, 3, key);
+    }
+    // Panel split (task 0054): the floating panel keeps the primary
+    // properties (style, fill, alignment, arrows); the rest (geometry,
+    // text) are secondary — modal only (panel omitted)
+    for (const key of ["border_style", "fill", "text_align", "vertical_align",
+                       "arrow_start", "arrow_end"]) {
+        assert.equal(PGProperties.findProperty(key).panel, "primary", key);
+    }
+    for (const key of ["x", "y", "width", "height", "order", "content"]) {
+        assert.equal(PGProperties.findProperty(key).panel, undefined, key);
     }
 });
 
@@ -180,6 +191,29 @@ test("sectionsForType: groups in declaration order, all properties applicable", 
         ["x", "y", "width", "height", "order"],
     );
     assert.deepEqual(sections[4].props.map(p => p.key), ["content"]);
+});
+
+test("sectionsForType: the panel filter keeps the primary properties (task 0054)", () => {
+    // The floating panel: primary sections only
+    assert.deepEqual(
+        PGProperties.sectionsForType("box", "primary").map(s => s.name),
+        ["Style", "Fill", "Align"]);
+    // A line: Arrows instead of Fill/Align
+    assert.deepEqual(
+        PGProperties.sectionsForType("hline", "primary").map(s => s.name),
+        ["Style", "Arrows"]);
+    // A type with no primary property at all (text: no fill, no arrows —
+    // but it has alignment) — the primary filter still keeps Align
+    assert.deepEqual(
+        PGProperties.sectionsForType("text", "primary").map(s => s.name),
+        ["Style", "Align"]);
+    // The default ("all") is unchanged — the modal shows everything
+    assert.deepEqual(
+        PGProperties.sectionsForType("box").map(s => s.name),
+        ["Style", "Fill", "Align", "Geometry", "Text"]);
+    assert.deepEqual(
+        PGProperties.sectionsForType("box", "all").map(s => s.name),
+        ["Style", "Fill", "Align", "Geometry", "Text"]);
 });
 
 test("sectionsForType: rows group the Align pair, Geometry widens to 3 columns", () => {
@@ -302,6 +336,25 @@ test("buildPropsPanelHTML: the markup binds to the editor app's state", () => {
     // an empty option list and never select the current value (the first
     // option shows until the selection changes)
     assert.ok(html.includes(':selected="propValue(row.prop.key) === opt"'));
+    // Multi-line text (task 0054): the textarea branch (the modal's
+    // Content field), committed on blur/Enter like the other fields
+    assert.ok(html.includes("x-if=\"row.kind === 'textarea'\""));
+    assert.ok(html.includes("<textarea"));
+    assert.ok(html.includes("@change=\"onPropText(row.prop, $event)\""));
+});
+
+test("buildPropsPanelHTML: the modal fragment iterates the modalSections getter", () => {
+    // The default fragment (the floating panel) keeps the panelSections
+    // getter — the primary sections only
+    const panel = PGProperties.buildPropsPanelHTML();
+    assert.ok(panel.includes('x-for="section in panelSections"'));
+    assert.ok(!panel.includes("modalSections"));
+    // The modal fragment (task 0054): the same markup, all sections —
+    // the sections getter is the only difference
+    const modal = PGProperties.buildPropsPanelHTML("modalSections");
+    assert.ok(modal.includes('x-for="section in modalSections"'));
+    assert.ok(!modal.includes('x-for="section in panelSections"'));
+    assert.equal(modal, panel.replace("panelSections", "modalSections"));
 });
 
 // ── panelSections (editor app) ────────────────────────────
@@ -311,16 +364,30 @@ test("panelSections: empty without a selection", () => {
     assert.deepEqual(app.panelSections, []);
 });
 
-test("panelSections: the sections of the primary selected block's type", () => {
+test("panelSections: the floating panel shows the primary sections only (task 0054)", () => {
     const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
     assert.deepEqual(
         app.panelSections.map(s => s.name),
-        ["Style", "Fill", "Align", "Geometry", "Text"],
+        ["Style", "Fill", "Align"],
     );
     // A line: no Fill/Align, but Arrows
     const line = appWith([block("b1", "hline", 0, 0, 5, 1)], ["b1"]);
     assert.deepEqual(
         line.panelSections.map(s => s.name),
+        ["Style", "Arrows"],
+    );
+});
+
+test("modalSections: the modal shows all sections (primary + secondary)", () => {
+    const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
+    assert.deepEqual(
+        app.modalSections.map(s => s.name),
+        ["Style", "Fill", "Align", "Geometry", "Text"],
+    );
+    // A line: no Fill/Align, but Arrows
+    const line = appWith([block("b1", "hline", 0, 0, 5, 1)], ["b1"]);
+    assert.deepEqual(
+        line.modalSections.map(s => s.name),
         ["Style", "Arrows", "Geometry", "Text"],
     );
 });

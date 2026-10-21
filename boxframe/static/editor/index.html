@@ -93,7 +93,7 @@
 
         <!-- Content: canvas preview -->
         <section class="editor-content">
-            <div class="canvas-container"
+            <div class="canvas-container" tabindex="0"
                  :class="{ 'is-dragging': isDragging }"
                  title="Click a block to select it, drag on empty canvas to select several (Shift — add), double-click to edit its text"
                  @dragover.prevent="onCanvasDragOver($event)"
@@ -143,6 +143,8 @@
                         <button class="action-btn action-btn--danger"
                                 @click="deleteSelection()"
                                 title="Delete selected block(s) (Del)">✕ Delete</button>
+                        <button class="action-btn props-modal-btn" @click="openPropsModal()"
+                                title="Open all properties (Esc to close)">⚙ Properties</button>
                     </div>
                     <div class="block-props__body" x-html="propsPanelHTML"></div>
                 </div>
@@ -155,6 +157,32 @@
                 </div>
             </div>
         </section>
+    </div>
+
+    <!-- All-properties modal (task 0054, opened from the floating
+         panel's Properties button): every section of the property
+         schema — primary (Style, Fill, Align, Arrows) and secondary
+         (Geometry, Text). The same schema-generated markup as the panel
+         (core/properties.js), bound to the modalSections getter. The
+         overlay is semi-transparent and transparent to clicks
+         (pointer-events: none) — the canvas stays visible and
+         interactive, so the visual properties are tuned live and the
+         selection can change while the modal is open (the content
+         updates in place). Closing: Esc (first) or ×. When the
+         selection is cleared the flag resets itself (x-effect) and the
+         modal hides. -->
+    <div class="props-modal" x-show="showPropsModal && selectedBlock && !editingBlock"
+         x-cloak x-effect="if (!selectedBlock) showPropsModal = false">
+        <div class="props-modal__overlay"></div>
+        <div class="props-modal__dialog" role="dialog" aria-modal="true">
+            <div class="props-modal__head">
+                <span class="props-modal__type" x-text="panelTitle"></span>
+                <button class="props-modal__close" x-ref="propsModalClose"
+                        @click="closePropsModal()"
+                        title="Close (Esc)">×</button>
+            </div>
+            <div class="props-modal__body" x-html="propsModalHTML"></div>
+        </div>
     </div>
 </div>
 
