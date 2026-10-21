@@ -527,9 +527,7 @@
 /* Sections (generated from the property schema — core/properties.js):
    always open (no headers), the body is a 2-column grid of controls. */
 .props-section {
-    border: 1px solid #333;
-    border-radius: 4px;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
 }
 
 .props-section:last-child { margin-bottom: 0; }
@@ -538,7 +536,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
-    padding: 8px;
+    padding: 4px 8px;
 }
 
 /* Geometry: three columns (X Y W / H Order) — the schema's cols: 3 */
