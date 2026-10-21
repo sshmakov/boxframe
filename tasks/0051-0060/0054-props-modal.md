@@ -129,6 +129,9 @@ Geometry, Text) и 4 у hline (Style, Arrows, Geometry, Text). Часто
     ищется в модалке;
   - новые: `test_props_modal_esc_closes_modal_then_selection` (Esc из
     поля модалки → закрытие модалки, второй Esc → снятие выделения),
+    `test_props_modal_esc_from_close_button_closes_only_modal` (Esc из
+    состояния по умолчанию, фокус на × → закрывается только модалка;
+    регрессия на двойной init()),
     `test_props_modal_updates_on_selection_change` (клик по другому
     блоку сквозь overlay — модалка обновляется на месте, секции следуют
     за типом), `test_props_modal_closes_when_selection_cleared`
@@ -139,7 +142,7 @@ Geometry, Text) и 4 у hline (Style, Arrows, Geometry, Text). Часто
 
 Приёмка: `node --test "tests/js/*.js"` — 275 pass;
 `pytest tests/ --ignore=tests/e2e` — 195 passed; `pytest tests/e2e/` —
-78 passed.
+79 passed.
 
 # Замечания
 
@@ -163,3 +166,20 @@ Geometry, Text) и 4 у hline (Style, Arrows, Geometry, Text). Часто
    открытым состоянием.
 5. Focus-trap в модалке не делался (Esc + × достаточно для MVP); Tab
    может уйти в фоновые элементы под затемнением.
+6. Баг (нашёл пользователь после релиза): один Esc закрывал модалку И
+   снимал выделение. Причина: `init()` исполнялся **дважды** — Alpine
+   автоматически вызывает `state.init()` (lifecycle хук x-data:
+   `s.init && R(e, s.init)` в директиве `x-data`) И явный
+   `x-init="init()"` в шаблоне. Два keydown-слушателя на document:
+   первый закрыл модалку (`showPropsModal=false`), второй в том же
+   событии увидел `false` и снял выделение. До 0054 дубль был
+   безвреден (clearSelection идемпотентен); с состоятельным
+   Escape-обработчиком (модалка → выделение) проявился. Фикс: убран
+   `x-init="init()"` из обоих шаблонов (остался автовызов x-data),
+   в шаблоне — комментарий, чтобы не «починили» обратно.
+7. Регрессионный тест: `test_props_modal_esc_from_close_button_closes_
+   only_modal` — Esc из состояния по умолчанию (фокус на ×, не-input).
+   Существующий `test_props_modal_esc_closes_modal_then_selection` баг
+   НЕ ловил: он нажимает Esc из поля модалки, где `inField=true`
+   маскирует дублирующий слушатель. Проверено: с возвращённым
+   `x-init="init()"` новый тест падает, старый — проходит.

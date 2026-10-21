@@ -11,7 +11,10 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="editorApp()" x-init="init()"
+<!-- Alpine auto-calls state.init() (x-data lifecycle) — no x-init: an
+     explicit x-init="init()" would run init() twice (double keydown
+     listeners, double fetches) -->
+<div x-data="editorApp()"
      data-layout-id="{{ layout.id }}" data-project-id="{{ layout.project_id }}"
      class="editor-root">
 

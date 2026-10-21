@@ -794,6 +794,38 @@ def test_props_modal_esc_closes_modal_then_selection(page: Page):
     expect(panel).to_be_hidden()
 
 
+def test_props_modal_esc_from_close_button_closes_only_modal(page: Page):
+    """Escape pressed while focus is on the × close button (the default
+    state right after opening the modal) closes ONLY the modal — the
+    selection survives.
+
+    Guards against a duplicate document keydown listener (a double
+    init()): with two listeners, one Escape both closed the modal (first
+    listener) and cleared the selection (second listener, which saw
+    showPropsModal already false). The existing Esc test presses from a
+    modal field, where the inField guard masks the duplicate."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    panel.locator(".action-btn.props-modal-btn").click()
+    modal = page.locator(".props-modal")
+    expect(modal).to_be_visible()
+
+    # Focus is on the × close button (openPropsModal focuses it) — a
+    # non-input element, so the inField guard does not mask a duplicate
+    # keydown listener
+    expect(page.locator(".props-modal__close")).to_be_focused()
+
+    page.keyboard.press("Escape")
+    expect(modal).to_be_hidden()
+    # Only the modal closes — the selection (and the floating panel)
+    # survives
+    expect(panel).to_be_visible()
+
+
 def test_props_modal_updates_on_selection_change(page: Page):
     """The overlay is transparent to clicks: selecting another block
     while the modal is open updates its content in place (the sections
