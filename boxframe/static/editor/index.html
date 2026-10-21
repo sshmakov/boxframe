@@ -177,8 +177,9 @@
     <div class="props-modal" x-show="showPropsModal && selectedBlock && !editingBlock"
          x-cloak x-effect="if (!selectedBlock) showPropsModal = false">
         <div class="props-modal__overlay"></div>
-        <div class="props-modal__dialog" role="dialog" aria-modal="true">
-            <div class="props-modal__head">
+        <div class="props-modal__dialog" role="dialog" aria-modal="true"
+             :style="modalDialogStyle">
+            <div class="props-modal__head" @mousedown="startModalDrag($event)">
                 <span class="props-modal__type" x-text="panelTitle"></span>
                 <button class="props-modal__close" x-ref="propsModalClose"
                         @click="closePropsModal()"

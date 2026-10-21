@@ -52,6 +52,8 @@ Geometry, Text) и 4 у hline (Style, Arrows, Geometry, Text). Часто
 - [x] e2e: обновить тесты панели (секции, геометрия, static), добавить
       тесты модалки
 - [x] Прогнать сьюты (JS, Python unit, e2e)
+- [x] Драг модалки за заголовок (добавлено по запросу): позиция живёт
+      до перезагрузки, clamp по вьюпорту, e2e
 
 # Исследование
 
@@ -101,23 +103,36 @@ Geometry, Text) и 4 у hline (Style, Arrows, Geometry, Text). Часто
   - `_bindKeys`: Escape вынесен до early return на `inField` — модалка
     открыта → Esc закрывает её (даже из её полей); иначе — как раньше
     (снимает выделение, не из полей).
+  - Драг модалки за заголовок: `modalPos`/`modalDrag` в состоянии;
+    `startModalDrag(e)` (mousedown на head: не кнопка, левая кнопка,
+    смещение «мышь − угол диалога», preventDefault против выделения
+    текста); `_moveModalDrag(e)` (clamp по вьюпорту с margin 8px);
+    getter `modalDialogStyle` (absolute left/top после первого драга,
+    до него — flex-центрирование). Глобальные `_onGlobalMouseMove` /
+    `_onGlobalMouseUp` обрабатывают `modalDrag` до canvas-ветки
+    (тот же паттерн, что drag блоков — движение отслеживается за
+    пределами диалога). Позиция живёт до перезагрузки (close/reopen —
+    на месте).
 - Маркап (`templates/pages/editor.html` + `static/editor/index.html`,
   одинаково): кнопка «⚙ Properties» в actions плавающей панели; модалка
   внутри `.editor-root` — `x-show="showPropsModal && selectedBlock &&
   !editingBlock"` + `x-effect="if (!selectedBlock) showPropsModal =
   false"` (сброс флага при любом снятии выделения: ×, Del, клик по
   пустому месту, undo, clear layout); `tabindex="0"` на
-  `.canvas-container` (возврат фокуса).
+  `.canvas-container` (возврат фокуса); `:style="modalDialogStyle"` на
+  `.props-modal__dialog` и `@mousedown="startModalDrag($event)"` на
+  `.props-modal__head` (драг).
 - `boxframe/static/css/editor.css`: `.props-modal` (fixed, z-index 300,
   `pointer-events: none` на контейнере и overlay — канва интерактивна
   под затемнением), `.props-modal__dialog` (`pointer-events: auto`,
-  440px, max-height со скроллом тела), head/×/body; `.prop textarea`
-  (моноширинный, `resize: vertical`, min-height 96px).
-- `tests/js/test_properties.js`: схема (panel-флаги, content —
-  textarea), `sectionsForType(panel)` (box/hline/text + дефолт "all"),
-  `panelSections` (только primary) / новый `modalSections` (все),
-  `buildPropsPanelHTML` (textarea-ветка; модал-фрагмент = панельный с
-  заменой getter'а).
+  440px, max-height со скроллом тела), head/×/body (`cursor: move` на
+  head — драг-хэндл); `.prop textarea` (моноширинный, `resize:
+  vertical`, min-height 96px).
+  - `tests/js/test_properties.js`: схема (panel-флаги, content —
+    textarea), `sectionsForType(panel)` (box/hline/text + дефолт "all"),
+    `panelSections` (только primary) / новый `modalSections` (все),
+    `buildPropsPanelHTML` (textarea-ветка; модал-фрагмент = панельный с
+    заменой getter'а).
 - `tests/e2e/test_editor.py`:
   - `test_properties_panel_fields_in_one_row` →
     `test_props_modal_geometry_fields_in_one_row` (геометрия в модалке);
@@ -136,13 +151,16 @@ Geometry, Text) и 4 у hline (Style, Arrows, Geometry, Text). Часто
     блоку сквозь overlay — модалка обновляется на месте, секции следуют
     за типом), `test_props_modal_closes_when_selection_cleared`
     (Delete по клавише с confirm), `test_props_modal_content_textarea_
-    saves` (textarea, коммит по blur при закрытии, persist в БД).
+    saves` (textarea, коммит по blur при закрытии, persist в БД),
+    `test_props_modal_draggable_by_header` (драг за head → диалог
+    сдвинулся; × закрывает (не запускает драг); позиция сохранена при
+    reopen).
 
 Всё выполнено, не получилось — ничего.
 
 Приёмка: `node --test "tests/js/*.js"` — 275 pass;
 `pytest tests/ --ignore=tests/e2e` — 195 passed; `pytest tests/e2e/` —
-79 passed.
+80 passed.
 
 # Замечания
 

@@ -826,6 +826,51 @@ def test_props_modal_esc_from_close_button_closes_only_modal(page: Page):
     expect(panel).to_be_visible()
 
 
+def test_props_modal_draggable_by_header(page: Page):
+    """The modal dialog can be dragged by its header. The position
+    survives close/reopen within the session; the × button still closes
+    the dialog (a press on it doesn't start a drag)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    panel.locator(".action-btn.props-modal-btn").click()
+    dialog = page.locator(".props-modal__dialog")
+    expect(dialog).to_be_visible()
+
+    # Wait for the Align icons to load: until `align-icons-ok` flips,
+    # the dialog height can still shift
+    expect(page.locator(".editor-root")).to_have_class(
+        re.compile("align-icons-ok"))
+
+    start = dialog.bounding_box()
+    head = page.locator(".props-modal__head").bounding_box()
+    page.mouse.move(head["x"] + head["width"] / 2,
+                    head["y"] + head["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(head["x"] + head["width"] / 2 + 60,
+                    head["y"] + head["height"] / 2 + 40, steps=5)
+    page.mouse.up()
+
+    moved = dialog.bounding_box()
+    assert moved["x"] > start["x"]
+    assert moved["y"] > start["y"]
+
+    # The × button still closes the dialog (a press on it doesn't
+    # start a drag)
+    page.locator(".props-modal__close").click()
+    expect(dialog).to_be_hidden()
+
+    # Reopen: the position is kept for the session
+    panel.locator(".action-btn.props-modal-btn").click()
+    expect(dialog).to_be_visible()
+    kept = dialog.bounding_box()
+    assert abs(kept["x"] - moved["x"]) < 2
+    assert abs(kept["y"] - moved["y"]) < 2
+
+
 def test_props_modal_updates_on_selection_change(page: Page):
     """The overlay is transparent to clicks: selecting another block
     while the modal is open updates its content in place (the sections

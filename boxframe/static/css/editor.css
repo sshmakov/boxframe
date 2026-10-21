@@ -574,12 +574,15 @@
     pointer-events: auto;
 }
 
+/* Drag handle: mousedown starts the dialog drag (startModalDrag in
+   editor.js); the × button keeps its own pointer cursor */
 .props-modal__head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
+    cursor: move;
 }
 
 .props-modal__type {

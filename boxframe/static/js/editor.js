@@ -194,6 +194,11 @@ function editorApp() {
         // is cleared (x-effect on the modal root).
         propsModalHTML: '',
         showPropsModal: false,
+        // Modal drag position (by the header): null until the first drag
+        // (the dialog is flex-centered), then absolute left/top. Kept for
+        // the session (close/reopen keeps the spot), resets on reload.
+        modalPos: null,
+        modalDrag: null,
 
         // ── Drag state ──────────────────────────────────────────
         dragMode: null,          // 'palette' | 'pending' | 'move' | 'resize' | 'marquee' | null
@@ -734,6 +739,10 @@ function editorApp() {
         },
 
         _onGlobalMouseMove(e) {
+            if (this.modalDrag) {
+                this._moveModalDrag(e);
+                return;
+            }
             if (!this.dragMode) return;
             this._autoScrollCanvas(e);
             this.onCanvasMouseMove(e);
@@ -768,6 +777,10 @@ function editorApp() {
         },
 
         _onGlobalMouseUp() {
+            if (this.modalDrag) {
+                this.modalDrag = null;
+                return;
+            }
             if (!this.dragMode) return;
 
             if (this.dragMode === 'pending') {
@@ -2249,6 +2262,46 @@ function editorApp() {
                 const canvas = document.querySelector('.canvas-container');
                 if (canvas) canvas.focus();
             });
+        },
+
+        // ── Modal drag (by the header) ───────────────────────────
+
+        // mousedown on the modal header starts the drag. The × button
+        // doesn't start one (it stays a plain click). preventDefault
+        // stops text selection inside the header.
+        startModalDrag(e) {
+            if (e.button !== 0) return;
+            if (e.target.closest('button')) return;
+            const dialog = document.querySelector('.props-modal__dialog');
+            if (!dialog) return;
+            const rect = dialog.getBoundingClientRect();
+            this.modalDrag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+            e.preventDefault();
+        },
+
+        // mousemove while dragging: move the dialog, clamped to the
+        // viewport (8px margin) so it can't be lost off-screen.
+        _moveModalDrag(e) {
+            const dialog = document.querySelector('.props-modal__dialog');
+            if (!dialog) return;
+            const margin = 8;
+            const maxX = Math.max(margin, window.innerWidth - dialog.offsetWidth - margin);
+            const maxY = Math.max(margin, window.innerHeight - dialog.offsetHeight - margin);
+            this.modalPos = {
+                x: Math.min(Math.max(e.clientX - this.modalDrag.dx, margin), maxX),
+                y: Math.min(Math.max(e.clientY - this.modalDrag.dy, margin), maxY),
+            };
+        },
+
+        // The dialog style: absolute left/top after the first drag
+        // (before that — flex centering by the .props-modal container).
+        get modalDialogStyle() {
+            if (!this.modalPos) return {};
+            return {
+                position: 'absolute',
+                left: this.modalPos.x + 'px',
+                top: this.modalPos.y + 'px',
+            };
         },
 
         // ── Panel control handlers (bound by the generated markup) ──
