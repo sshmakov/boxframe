@@ -186,6 +186,19 @@ function editorApp() {
         // panelSections getter and the bindings inside the markup.
         // Sections are always open (no collapse state).
         propsPanelHTML: '',
+        // The all-properties modal (task 0054): the same schema-generated
+        // markup, all sections (primary + secondary), opened from the
+        // panel's Properties button. showPropsModal is the user intent —
+        // the visibility is `showPropsModal && selectedBlock &&
+        // !editingBlock`, and the flag resets itself when the selection
+        // is cleared (x-effect on the modal root).
+        propsModalHTML: '',
+        showPropsModal: false,
+        // Modal drag position (by the header): null until the first drag
+        // (the dialog is flex-centered), then absolute left/top. Kept for
+        // the session (close/reopen keeps the spot), resets on reload.
+        modalPos: null,
+        modalDrag: null,
 
         // ── Drag state ──────────────────────────────────────────
         dragMode: null,          // 'palette' | 'pending' | 'move' | 'resize' | 'marquee' | null
@@ -227,8 +240,10 @@ function editorApp() {
         async init() {
             // The properties panel body is generated once from the
             // declarative schema (core/properties.js) — the single source
-            // of truth for both editors.
+            // of truth for both editors. The floating panel iterates the
+            // primary sections; the all-properties modal — all of them.
             this.propsPanelHTML = PGProperties.buildPropsPanelHTML();
+            this.propsModalHTML = PGProperties.buildPropsPanelHTML("modalSections");
 
             // Verify the Align SVG icons load (flips `align-icons-ok`;
             // the option text stays the fallback label until then)
@@ -282,11 +297,14 @@ function editorApp() {
 
         // Global shortcuts. Skipped while a text field has focus so native
         // input editing keeps working (inline content editor, properties
-        // panel inputs):
+        // panel inputs) — except Escape: the open all-properties modal
+        // closes first, even from its own fields:
         //   Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y — undo / redo
         //   Ctrl+D                          — duplicate the selection
         //   Delete / Backspace              — delete the selection
-        //   Escape                          — clear the selection
+        //   Escape                          — close the properties modal
+        //                                     (first), clear the selection
+        //                                     (second, not from fields)
         //   Arrow keys (Shift = ×10)        — nudge the selection
         _bindKeys() {
             document.addEventListener('keydown', (e) => {
@@ -314,11 +332,19 @@ function editorApp() {
                     }
                 }
 
+                if (e.key === 'Escape') {
+                    if (this.showPropsModal) {
+                        e.preventDefault();
+                        this.closePropsModal();
+                    } else if (!inField) {
+                        this.clearSelection();
+                    }
+                    return;
+                }
+
                 if (inField) return;
 
-                if (e.key === 'Escape') {
-                    this.clearSelection();
-                } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (e.key === 'Delete' || e.key === 'Backspace') {
                     if (this.selectedIds.length) {
                         e.preventDefault();
                         this.deleteSelection();
@@ -713,6 +739,10 @@ function editorApp() {
         },
 
         _onGlobalMouseMove(e) {
+            if (this.modalDrag) {
+                this._moveModalDrag(e);
+                return;
+            }
             if (!this.dragMode) return;
             this._autoScrollCanvas(e);
             this.onCanvasMouseMove(e);
@@ -747,6 +777,10 @@ function editorApp() {
         },
 
         _onGlobalMouseUp() {
+            if (this.modalDrag) {
+                this.modalDrag = null;
+                return;
+            }
             if (!this.dragMode) return;
 
             if (this.dragMode === 'pending') {
@@ -2044,7 +2078,17 @@ function editorApp() {
 
         // Sections for the primary selected block's type (a section is
         // visible if at least one of its properties applies to the type).
+        // The floating panel keeps the primary properties only (style,
+        // fill, alignment, arrows) — the rest live in the modal.
         get panelSections() {
+            const b = this.selectedBlock;
+            if (!b) return [];
+            return PGProperties.sectionsForType(b.block_type, "primary");
+        },
+
+        // All sections (primary + secondary: Geometry, Text) for the
+        // all-properties modal.
+        get modalSections() {
             const b = this.selectedBlock;
             if (!b) return [];
             return PGProperties.sectionsForType(b.block_type);
@@ -2192,6 +2236,72 @@ function editorApp() {
             } catch (err) {
                 console.error('Failed to update blocks:', err);
             }
+        },
+
+        // ── All-properties modal (task 0054) ───────────────────
+
+        // Open the modal (from the floating panel's Properties button).
+        // The overlay is transparent to clicks (pointer-events: none), so
+        // the canvas stays interactive: the selection can change while the
+        // modal is open and its content updates in place (the sections
+        // getters are reactive). Closing: Esc (first) or the × button.
+        openPropsModal() {
+            if (!this.selectedBlock) return;
+            this.showPropsModal = true;
+            this.$nextTick(() => {
+                if (this.$refs.propsModalClose) this.$refs.propsModalClose.focus();
+            });
+        },
+
+        closePropsModal() {
+            if (!this.showPropsModal) return;
+            this.showPropsModal = false;
+            // Return the focus to the canvas so the shortcuts (Esc,
+            // arrows, Delete) work right away
+            this.$nextTick(() => {
+                const canvas = document.querySelector('.canvas-container');
+                if (canvas) canvas.focus();
+            });
+        },
+
+        // ── Modal drag (by the header) ───────────────────────────
+
+        // mousedown on the modal header starts the drag. The × button
+        // doesn't start one (it stays a plain click). preventDefault
+        // stops text selection inside the header.
+        startModalDrag(e) {
+            if (e.button !== 0) return;
+            if (e.target.closest('button')) return;
+            const dialog = document.querySelector('.props-modal__dialog');
+            if (!dialog) return;
+            const rect = dialog.getBoundingClientRect();
+            this.modalDrag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+            e.preventDefault();
+        },
+
+        // mousemove while dragging: move the dialog, clamped to the
+        // viewport (8px margin) so it can't be lost off-screen.
+        _moveModalDrag(e) {
+            const dialog = document.querySelector('.props-modal__dialog');
+            if (!dialog) return;
+            const margin = 8;
+            const maxX = Math.max(margin, window.innerWidth - dialog.offsetWidth - margin);
+            const maxY = Math.max(margin, window.innerHeight - dialog.offsetHeight - margin);
+            this.modalPos = {
+                x: Math.min(Math.max(e.clientX - this.modalDrag.dx, margin), maxX),
+                y: Math.min(Math.max(e.clientY - this.modalDrag.dy, margin), maxY),
+            };
+        },
+
+        // The dialog style: absolute left/top after the first drag
+        // (before that — flex centering by the .props-modal container).
+        get modalDialogStyle() {
+            if (!this.modalPos) return {};
+            return {
+                position: 'absolute',
+                left: this.modalPos.x + 'px',
+                top: this.modalPos.y + 'px',
+            };
         },
 
         // ── Panel control handlers (bound by the generated markup) ──
