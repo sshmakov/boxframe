@@ -1917,11 +1917,13 @@ def test_static_editor_import_into_empty(page: Page):
 
     _import_file(page)
 
-    # Both imported blocks appear on the canvas and in the list
+    # Both imported blocks appear on the canvas and in the list, selected
     expect(page.locator(".block-preview")).to_have_count(2)
     expect(page.locator(".block-item")).to_have_count(2)
     types = page.locator(".block-item__info strong").all_inner_texts()
     assert sorted(types) == ["box", "button"]
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+    expect(page.locator(".block-preview--selected")).to_have_count(2)
 
 
 def test_static_editor_import_add_when_not_empty(page: Page):
@@ -1936,6 +1938,13 @@ def test_static_editor_import_add_when_not_empty(page: Page):
     # 1 existing + 2 imported = 3 blocks
     expect(page.locator(".block-preview")).to_have_count(3)
     expect(page.locator(".block-item")).to_have_count(3)
+    # The imported blocks (box @(0,0), button @(2,1)) are selected, the
+    # pre-existing box @(1,1) is not
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+    sel = page.locator(".block-item--selected .block-item__info").all_inner_texts()
+    assert any("button" in t and "(2,1)" in t for t in sel)
+    assert any("box" in t and "(0,0)" in t for t in sel)
+    assert not any("(1,1)" in t for t in sel)
 
 
 def test_static_editor_import_replace_when_not_empty(page: Page):
@@ -1947,9 +1956,11 @@ def test_static_editor_import_replace_when_not_empty(page: Page):
     page.once("dialog", lambda d: d.dismiss())  # Cancel = replace
     _import_file(page)
 
-    # Only the 2 imported blocks remain
+    # Only the 2 imported blocks remain — and they are selected
     expect(page.locator(".block-preview")).to_have_count(2)
     expect(page.locator(".block-item")).to_have_count(2)
+    expect(page.locator(".block-item--selected")).to_have_count(2)
+    expect(page.locator(".block-preview--selected")).to_have_count(2)
 
 
 def test_static_editor_import_invalid_json(page: Page):

@@ -2526,7 +2526,9 @@ function editorApp() {
         // Parse the layout JSON and apply it. When the editor already has
         // blocks, ask whether to add the imported blocks on top or replace
         // everything. The whole operation goes through the store's
-        // replaceState, so it is a single undo/redo step.
+        // replaceState, so it is a single undo/redo step. The imported
+        // blocks become the selection afterwards, so they can be moved or
+        // edited right away (matters when adding to a non-empty layout).
         async _applyImport(text) {
             let json;
             try {
@@ -2549,6 +2551,7 @@ function editorApp() {
             }
 
             let state;
+            let imported;
             if (this.blocks.length > 0) {
                 const add = confirm(
                     'The editor already contains blocks.\n\n' +
@@ -2556,29 +2559,34 @@ function editorApp() {
                     'Cancel — replace all content with the imported layout.'
                 );
                 if (add) {
-                    const merged = this.blocks.concat(
-                        prepareImport(parsed.blocks, this.blocks, 'add')
-                    );
+                    imported = prepareImport(parsed.blocks, this.blocks, 'add');
+                    const merged = this.blocks.concat(imported);
                     // Keep the current bounds — the file's blocks are just
                     // being added inside the existing layout.
                     state = { width: this.layoutWidth, height: this.layoutHeight, blocks: merged };
                 } else {
+                    imported = prepareImport(parsed.blocks, null, 'replace');
                     state = {
                         width: parsed.width,
                         height: parsed.height,
-                        blocks: prepareImport(parsed.blocks, null, 'replace'),
+                        blocks: imported,
                     };
                 }
             } else {
+                imported = prepareImport(parsed.blocks, null, 'replace');
                 state = {
                     width: parsed.width,
                     height: parsed.height,
-                    blocks: prepareImport(parsed.blocks, null, 'replace'),
+                    blocks: imported,
                 };
             }
 
             try {
                 await this.store.replaceState(state);
+                // The imported blocks become the selection. Set before the
+                // sync: the re-render inside it highlights the selected
+                // previews.
+                this.selectedIds = imported.map(b => b.id);
                 await this._syncStateFromStore();
             } catch (err) {
                 console.error('Failed to import layout:', err);
