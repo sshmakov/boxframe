@@ -287,6 +287,7 @@ function editorApp() {
 
             this._bindGlobalMouseUp();
             this._bindGlobalMouseMove();
+            this._bindFileDrop();
             this._bindKeys();
             // Defer binding until Alpine.js has updated the DOM via x-html
             this.$nextTick(() => this._bindResizeHandles());
@@ -736,6 +737,43 @@ function editorApp() {
 
         _bindGlobalMouseMove() {
             document.addEventListener('mousemove', (e) => this._onGlobalMouseMove(e));
+        },
+
+        // ── File drop import (drag a JSON file onto the page) ──
+        // Document-level, so a file dropped anywhere on the page is
+        // imported — including on the canvas, whose own drop handler
+        // only deals with palette drags. preventDefault on dragover and
+        // drop suppresses the browser's default action for a file drop
+        // (navigating to the file). Palette drags carry 'text/plain',
+        // never 'Files', so they are left alone.
+
+        _isFileDrag(e) {
+            return !!(e.dataTransfer && e.dataTransfer.types.includes('Files'));
+        },
+
+        _bindFileDrop() {
+            document.addEventListener('dragover', (e) => {
+                if (!this._isFileDrag(e)) return;
+                e.preventDefault();
+                document.body.classList.add('file-drop-active');
+            });
+            document.addEventListener('drop', (e) => {
+                if (!this._isFileDrag(e)) return;
+                e.preventDefault();
+                document.body.classList.remove('file-drop-active');
+                const file = e.dataTransfer.files && e.dataTransfer.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => this._applyImport(String(reader.result));
+                reader.onerror = () => alert('Could not read the file.');
+                reader.readAsText(file);
+            });
+            document.addEventListener('dragleave', (e) => {
+                // relatedTarget is null only when the drag left the
+                // window; moves between child elements keep it set.
+                if (e.relatedTarget) return;
+                document.body.classList.remove('file-drop-active');
+            });
         },
 
         _onGlobalMouseMove(e) {

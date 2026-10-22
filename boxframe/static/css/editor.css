@@ -273,6 +273,25 @@
     border-radius: 8px;
 }
 
+/* ── File drop import (drag a JSON file anywhere on the page) ──
+   Shown while a file drag hovers the window; the drop itself is
+   handled by the document-level listeners in editor.js.
+   pointer-events: none so the drop reaches the page underneath. */
+body.file-drop-active::after {
+    content: "Drop the file to import the layout";
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(26, 26, 46, 0.65);
+    border: 3px dashed #e94560;
+    color: #e94560;
+    font-size: 18px;
+    pointer-events: none;
+}
+
 /* ASCII art layer. A <div>, not a <pre>: the HTML parser strips the first
    newline right after a <pre> start tag, which would drop the first row of
    the art when it starts with an empty row (topmost block not at y=0). */

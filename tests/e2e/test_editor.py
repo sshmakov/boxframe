@@ -53,6 +53,14 @@ def _import_file(page: Page) -> None:
     )
 
 
+def _drop_file(page: Page, selector: str = "body") -> None:
+    """Drop the import JSON as a file drag-and-drop onto the given element."""
+    page.locator(selector).drop({
+        "files": [{"name": "layout.json", "mimeType": "application/json",
+                   "buffer": json.dumps(IMPORT_JSON).encode()}],
+    })
+
+
 def _create_project_with_block(page: Page) -> tuple[str, str]:
     """Create a project and layout via the UI, add a block via the API.
 
@@ -1993,6 +2001,82 @@ def test_web_editor_import_adds_blocks(page: Page):
     assert blocks is not None and len(blocks) == 3
     # The original block survives the add
     assert any(b["id"] == existing_id for b in blocks)
+
+
+def test_static_editor_file_drop_imports_into_empty(page: Page):
+    """Dragging a JSON file onto the static editor imports its blocks."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    expect(page.locator(".block-preview")).to_have_count(0)
+
+    _drop_file(page)
+
+    # Both imported blocks appear on the canvas and in the list
+    expect(page.locator(".block-preview")).to_have_count(2)
+    expect(page.locator(".block-item")).to_have_count(2)
+    types = page.locator(".block-item__info strong").all_inner_texts()
+    assert sorted(types) == ["box", "button"]
+
+
+def test_web_editor_file_drop_on_canvas_imports(page: Page):
+    """A file dropped on the canvas — whose own drop handler only deals
+    with palette drags — is imported; the page does not navigate away
+    to the file."""
+    layout_id, _ = _create_project_with_block(page)
+
+    page.once("dialog", lambda d: d.dismiss())  # Cancel = replace
+    _drop_file(page, ".canvas-container")
+
+    blocks = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if len(blocks) == 2:
+            break
+        page.wait_for_timeout(100)
+    assert blocks is not None and len(blocks) == 2
+    assert sorted(b["block_type"] for b in blocks) == ["box", "button"]
+    # Still on the editor page — the browser did not open the file
+    expect(page).to_have_url(re.compile(f"{BASE_URL}/layout/[0-9a-f-]+"))
+
+
+def test_web_editor_file_drop_on_sidebar_adds_blocks(page: Page):
+    """A file dropped outside the canvas (on the sidebar) is imported
+    too; OK adds the blocks on top of the existing ones."""
+    layout_id, existing_id = _create_project_with_block(page)
+
+    page.once("dialog", lambda d: d.accept())  # OK = add
+    _drop_file(page, ".editor-sidebar")
+
+    blocks = None
+    for _ in range(20):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        blocks = r.json()["blocks"]
+        if len(blocks) == 3:
+            break
+        page.wait_for_timeout(100)
+    assert blocks is not None and len(blocks) == 3
+    # The original block survives the add
+    assert any(b["id"] == existing_id for b in blocks)
+
+
+def test_file_drop_overlay_shows_while_dragging(page: Page):
+    """A file drag over the window shows the drop hint; leaving the
+    window hides it again."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+
+    page.evaluate("""() => {
+        const dt = new DataTransfer();
+        dt.items.add(new File(['{}'], 'layout.json', {type: 'application/json'}));
+        document.body.dispatchEvent(new DragEvent('dragover',
+            {dataTransfer: dt, bubbles: true, cancelable: true}));
+    }""")
+    expect(page.locator("body")).to_have_class(re.compile("file-drop-active"))
+
+    page.evaluate("""() => {
+        document.body.dispatchEvent(new DragEvent('dragleave',
+            {relatedTarget: null, bubbles: true}));
+    }""")
+    expect(page.locator("body")).not_to_have_class(re.compile("file-drop-active"))
 
 
 # ── Container (box) nesting: drag re-parenting ────────────
