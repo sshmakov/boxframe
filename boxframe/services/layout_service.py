@@ -14,7 +14,12 @@ from sqlalchemy.orm import selectinload
 from boxframe.models.block import Block
 from boxframe.models.layout import Layout
 from boxframe.models.project import Project
-from boxframe.services.renderer import RenderBlock, PseudoGraphicRenderer, text_block_size
+from boxframe.services.renderer import (
+    RenderBlock,
+    PseudoGraphicRenderer,
+    divider_fit_size,
+    text_block_size,
+)
 
 
 def default_border_style(block_type: str) -> str:
@@ -145,13 +150,16 @@ class LayoutService:
             await self._validate_reparent(block_id, parent_id, layout_id)
 
         # Lines are always 1 cell thick — the thin dimension is fixed;
-        # text autosizes to its content (the border is included)
+        # text autosizes to its content (the border is included);
+        # divider autosizes to its content, grow-only (never shrinks)
         if block_type == "hline":
             height = 1
         elif block_type == "vline":
             width = 1
         elif block_type == "text":
             width, height = text_block_size(content, border_style)
+        elif block_type == "divider":
+            width, height = divider_fit_size(content, width, height)
 
         block = Block(
             id=block_id,
@@ -185,7 +193,11 @@ class LayoutService:
             # Lines are always 1 cell thick — the thin dimension is fixed
             # (also applies when block_type is changed to a line type);
             # text autosizes to its content when the text or the border
-            # changes (a plain size update is a manual resize — kept)
+            # changes (a plain size update is a manual resize — kept);
+            # divider autosizes to its content, grow-only, when the
+            # content or the type changes (the border does not affect
+            # the fit size; a plain size update is a manual resize —
+            # kept, both directions)
             if block.block_type == "hline":
                 block.height = 1
             elif block.block_type == "vline":
@@ -194,6 +206,12 @@ class LayoutService:
                 "content" in kwargs or "border_style" in kwargs or "block_type" in kwargs
             ):
                 block.width, block.height = text_block_size(block.content, block.border_style)
+            elif block.block_type == "divider" and (
+                "content" in kwargs or "block_type" in kwargs
+            ):
+                block.width, block.height = divider_fit_size(
+                    block.content, block.width, block.height
+                )
             await self.db.commit()
             await self.db.refresh(block)
         return block
@@ -239,9 +257,9 @@ class LayoutService:
             width = data.get("width", 20)
             height = data.get("height", 3)
             # Lines are always 1 cell thick — the thin dimension is fixed.
-            # Text blocks are NOT re-sized here: a snapshot may carry a
-            # manually resized text block, and undo/redo must restore it
-            # exactly.
+            # Text and divider blocks are NOT re-sized here: a snapshot
+            # may carry a manually resized block, and undo/redo must
+            # restore it exactly.
             if block_type == "hline":
                 height = 1
             elif block_type == "vline":
@@ -348,13 +366,15 @@ class LayoutService:
                     border_style = default_border_style(block_type)
                 # Lines are always 1 cell thick — the thin dimension is
                 # fixed; text autosizes to its content (the border is
-                # included)
+                # included); divider autosizes to its content, grow-only
                 if block_type == "hline":
                     height = 1
                 elif block_type == "vline":
                     width = 1
                 elif block_type == "text":
                     width, height = text_block_size(content, border_style)
+                elif block_type == "divider":
+                    width, height = divider_fit_size(content, width, height)
                 order = data.get("order") or 0
                 if order == 0:
                     order = next_order
@@ -398,7 +418,9 @@ class LayoutService:
                     setattr(block, key, value)
             # Lines are always 1 cell thick (also when block_type changes);
             # text autosizes to its content when the text or the border
-            # changes (a plain size update is a manual resize — kept)
+            # changes (a plain size update is a manual resize — kept);
+            # divider autosizes to its content, grow-only, when the
+            # content or the type changes
             if block.block_type == "hline":
                 block.height = 1
             elif block.block_type == "vline":
@@ -407,6 +429,12 @@ class LayoutService:
                 "content" in data or "border_style" in data or "block_type" in data
             ):
                 block.width, block.height = text_block_size(block.content, block.border_style)
+            elif block.block_type == "divider" and (
+                "content" in data or "block_type" in data
+            ):
+                block.width, block.height = divider_fit_size(
+                    block.content, block.width, block.height
+                )
             updated.append(block)
 
         await self.db.commit()

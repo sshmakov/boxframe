@@ -418,6 +418,112 @@ test("memory store: batchBlocks normalizes text", async () => {
     assert.equal(result2.updated[0].height, 2);
 });
 
+// ── Divider autosize (variant E, tasks/0003) ──────────────
+
+test("memory store: divider grows to fit content on create", async () => {
+    const store = createMemoryStore();
+
+    // (2, 1) grown to fit "a\nbb\nccc" → (3, 3)
+    const divider = await store.createBlock({
+        block_type: "divider", x: 0, y: 0, width: 2, height: 1,
+        content: "a\nbb\nccc",
+    });
+    assert.equal(divider.width, 3);
+    assert.equal(divider.height, 3);
+
+    // Empty content: the requested size is kept (no growth, no shrink)
+    const empty = await store.createBlock({
+        block_type: "divider", x: 0, y: 5, width: 20, height: 1,
+    });
+    assert.equal(empty.width, 20);
+    assert.equal(empty.height, 1);
+});
+
+test("memory store: divider content update grows, never shrinks", async () => {
+    const store = createMemoryStore();
+    const divider = await store.createBlock({
+        block_type: "divider", x: 0, y: 0, width: 20, height: 1,
+        content: "or",
+    });
+
+    // Height grows to the line count, width stays (20 > 3)
+    let updated = await store.updateBlock(divider.id, { content: "a\nbb\nccc" });
+    assert.equal(updated.width, 20);
+    assert.equal(updated.height, 3);
+
+    // Smaller content (down to empty) — no shrink
+    updated = await store.updateBlock(divider.id, { content: "a" });
+    assert.equal(updated.width, 20);
+    assert.equal(updated.height, 3);
+    updated = await store.updateBlock(divider.id, { content: "" });
+    assert.equal(updated.width, 20);
+    assert.equal(updated.height, 3);
+});
+
+test("memory store: divider manual resize is kept until the next content change", async () => {
+    const store = createMemoryStore();
+    const divider = await store.createBlock({
+        block_type: "divider", x: 0, y: 0, width: 20, height: 1,
+        content: "or",
+    });
+
+    // A plain size update is a manual resize — kept in both directions
+    // (min 1×1); shrinking below the content width is allowed
+    let updated = await store.updateBlock(divider.id, { width: 1, height: 1 });
+    assert.equal(updated.width, 1);
+    assert.equal(updated.height, 1);
+
+    // The next content change regrows the block
+    updated = await store.updateBlock(divider.id, { content: "abcdefgh" });
+    assert.equal(updated.width, 8);
+    assert.equal(updated.height, 1);
+});
+
+test("memory store: batchBlocks normalizes divider", async () => {
+    const store = createMemoryStore();
+    const divider = await store.createBlock({
+        block_type: "divider", x: 0, y: 0, width: 20, height: 1,
+        content: "or",
+    });
+
+    const result = await store.batchBlocks({
+        create: [{
+            block_type: "divider", x: 0, y: 5, width: 2, height: 1,
+            content: "a\nbb\nccc",
+        }],
+        update: [{ id: divider.id, content: "x\ny\nz\nw" }],
+    });
+    // (2, 1) grown to fit "a\nbb\nccc" → (3, 3)
+    assert.equal(result.created[0].width, 3);
+    assert.equal(result.created[0].height, 3);
+    // The content update grew the height: (20, 1) → (20, 4)
+    assert.equal(result.updated[0].width, 20);
+    assert.equal(result.updated[0].height, 4);
+
+    // A plain size update is a manual resize — kept (both directions)
+    const result2 = await store.batchBlocks({
+        update: [{ id: divider.id, width: 3, height: 1 }],
+    });
+    assert.equal(result2.updated[0].width, 3);
+    assert.equal(result2.updated[0].height, 1);
+});
+
+test("memory store: replaceState restores divider sizes as-is", async () => {
+    // undo/redo: a manually resized divider is restored exactly (no recalc)
+    const store = createMemoryStore();
+    const divider = await store.createBlock({
+        block_type: "divider", x: 0, y: 0, width: 20, height: 1,
+        content: "or",
+    });
+    await store.updateBlock(divider.id, { width: 5, height: 1 });
+
+    const state = await store.load();
+    await store.replaceState(state);
+    const blocks = (await store.load()).blocks;
+    assert.equal(blocks[0].width, 5);
+    assert.equal(blocks[0].height, 1);
+});
+
 test("memory store: batchBlocks skips unknown ids", async () => {
     const store = createMemoryStore();
     const a = await store.createBlock({ block_type: "box", x: 0, y: 0, width: 10, height: 3 });

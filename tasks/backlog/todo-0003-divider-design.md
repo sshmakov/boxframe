@@ -246,7 +246,8 @@ autosize и HTML-оверлей.
 развитие D с более простой отрисовкой линии (нет расчёта средней
 строки), но новым HTML-оверлеем (сегменты). 2026-10-28 правила E
 уточнены: autosize только роста, старые макеты не мигрируются (рендер
-в рамках сохранённого размера). Финальное решение не принято.
+в рамках сохранённого размера). **Финальное решение (2026-10-28):
+вариант E** — реализован (план работ ниже закрыт).
 
 # Исследование (факты из кода, 2026-10-22)
 
@@ -329,29 +330,31 @@ autosize и HTML-оверлей.
 
 ## Если вариант E
 
-- [ ] `services/renderer.py` — `_draw_divider()`: линия на каждой строке
+- [x] `services/renderer.py` — `_draw_divider()`: линия на каждой строке
       (цикл по строкам, `style["h"]`, `none` → невидима) + строки
       подписи поверх (как есть, без word-wrap и схлопывания),
       выравнивание каждой строки — `h_align_offset()` + `meta.text_align`;
       HTML-превью — сегменты линии (до 2 div на строку вокруг подписи,
       пустой контент — один div на всю строку)
-- [ ] `static/js/core/renderer.js` — порт (parity побайтово)
-- [ ] `services/layout_service.py` — autosize только роста: при
+- [x] `static/js/core/renderer.js` — порт (parity побайтово)
+- [x] `services/layout_service.py` — autosize только роста: при
       создании/обновлении `width = max(width, самая длинная строка)`,
       `height = max(height, число строк)`; сжатие не выполняется
       (в отличие от `text` 0049); `replace_blocks` — без пересчёта
-- [ ] `static/js/editor.js` — `_blockDefaults`: `divider` → 20×1;
+- [x] `static/js/editor.js` — `_blockDefaults`: `divider` → 20×1;
       min-height resize = 1
-- [ ] `static/js/core/properties.js` — убрать `divider` из `types` у
+- [x] `static/js/core/properties.js` — убрать `divider` из `types` у
       `vertical_align` (подпись 1:1 со строками); `text_align` оставить
-- [ ] CSS — сегменты линии в оверлее (переиспользовать
+      (дефолт center — через `typeDefaults`)
+- [x] CSS — сегменты линии в оверлее (`.block-line--seg` +
       `.block-line--h` + style-классы, позиция/ширина — inline)
-- [ ] Тесты: `tests/test_renderer.py` + `tests/js/test_renderer.js`
+- [x] Тесты: `tests/test_renderer.py` + `tests/js/test_renderer.js`
       (линия на каждой строке, пробелы раздвигают линию, подпись
       перекрывает линию, независимое выравнивание строк, обрезка по
-      ширине, пустой контент = линия h=1, autosize-рост: рост при
+      ширине, пустой контент = N линий, autosize-рост: рост при
       расширении контента, отсутствие сжатия при уменьшении, `none`,
-      HTML-превью) + прогон parity
+      HTML-превью) + прогон parity + API-тесты (create/update/batch/
+      replace) + store-тесты (static-режим)
 
 # Открытые вопросы
 

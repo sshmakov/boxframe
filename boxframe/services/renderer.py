@@ -72,13 +72,15 @@ class RenderBlock:
             f'width:{_fmt(w)};height:{_fmt(h)};z-index:{z_index};"'
             f' data-order="{self.order}">'
             f'<div class="block-inner block-{self.block_type}">'
-            f"{self._border_html()}"
+            f"{self._border_html(char_width_px, char_height_px)}"
             f"</div>"
             f'<div class="resize-handle" title="Drag to resize"></div>'
             f"</div>"
         )
 
-    def _border_html(self) -> str:
+    def _border_html(
+        self, char_width_px: float = 12.0, char_height_px: float = 14.4
+    ) -> str:
         """Generate border HTML for a block."""
         border_map = {
             "solid": "solid",
@@ -94,6 +96,19 @@ class RenderBlock:
             return (
                 f'<div class="block-line block-line--{direction} block-line--{style}">'
                 f"</div>"
+            )
+
+        if self.block_type == "divider":
+            return _divider_segments_html(
+                {
+                    "width": self.width,
+                    "height": self.height,
+                    "content": self.content,
+                    "meta": self.meta,
+                },
+                char_width_px,
+                char_height_px,
+                style,
             )
 
         return (
@@ -241,6 +256,71 @@ def text_block_size(content: str, border_style: str) -> tuple[int, int]:
     return max(1, text_w), text_h
 
 
+def divider_fit_size(content: str, width: int, height: int) -> tuple[int, int]:
+    """Grow-only fit size of a divider (variant E, tasks/0003).
+
+    The stored size grown to fit the content: width — the longest
+    content line, height — the line count. Unlike text_block_size
+    (exact fit), the result never shrinks the stored size — a smaller
+    content (down to empty) keeps the size (a manual resize is kept
+    until the next content change regrows the block).
+    """
+    lines = (content or "").split("\n")
+    longest = max((len(line) for line in lines), default=0)
+    n_lines = max(1, len(lines))
+    return max(width, longest), max(height, n_lines)
+
+
+def _line_segment_html(
+    top: float, col: int, length: int, char_width_px: float, style: str
+) -> str:
+    """One divider line segment: a zero-height div with a border-top at
+    the row's vertical center (same alignment as .block-line--h top:50%)."""
+    left = round(col * char_width_px, 1)
+    w = round(length * char_width_px, 1)
+    return (
+        f'<div class="block-line block-line--h block-line--seg block-line--{style}"'
+        f' style="top:{_fmt_px(top)}px;left:{_fmt_px(left)}px;width:{_fmt_px(w)}px;">'
+        f"</div>"
+    )
+
+
+def _divider_segments_html(
+    bd: dict,
+    char_width_px: float,
+    char_height_px: float,
+    style: str,
+) -> str:
+    """HTML overlay of a divider (variant E): a line segment per row —
+    up to two divs per row (left/right of the label), because the
+    overlay sits above the ASCII layer and a full line would cross the
+    text. Segments are computed from the label's position/length after
+    alignment (meta.text_align, default center); empty content — one
+    div per row.
+    """
+    width = bd.get("width", 20)
+    height = bd.get("height", 3)
+    content = bd.get("content") or ""
+    align = (bd.get("meta") or {}).get("text_align")
+    if align not in ("left", "center", "right"):
+        align = "center"
+
+    lines = content.split("\n")
+    parts: list[str] = []
+    for row in range(height):
+        line = lines[row][:width] if row < len(lines) else ""
+        # An empty line has no offset (alignment is a no-op) — one
+        # full-width segment per row
+        off = h_align_offset(len(line), width, align) if line else 0
+        top = round(row * char_height_px + char_height_px / 2, 1)
+        if off > 0:
+            parts.append(_line_segment_html(top, 0, off, char_width_px, style))
+        right = width - off - len(line)
+        if right > 0:
+            parts.append(_line_segment_html(top, off + len(line), right, char_width_px, style))
+    return "".join(parts)
+
+
 def _block_preview_html(
     bd: dict,
     char_width_px: float,
@@ -293,6 +373,8 @@ def _block_preview_html(
     if block_type in ("hline", "vline"):
         direction = "h" if block_type == "hline" else "v"
         border_html = f'<div class="block-line block-line--{direction} block-line--{bs}"></div>'
+    elif block_type == "divider":
+        border_html = _divider_segments_html(bd, char_width_px, char_height_px, bs)
     else:
         border_html = f'<div class="block-border block-border--{bs}" style="width:100%;height:100%;"></div>'
 
@@ -406,6 +488,10 @@ class PseudoGraphicRenderer:
 
         if block.block_type == "button":
             self._draw_button(block, style_map)
+            return
+
+        if block.block_type == "divider":
+            self._draw_divider(block, style_map)
             return
 
         has_border = block.border_style != "none" and block.width >= 2 and block.height >= 2
@@ -538,6 +624,47 @@ class PseudoGraphicRenderer:
                 off = h_align_offset(len(label), inner_w, (block.meta or {}).get("text_align"))
                 for i, ch in enumerate(label):
                     self._set(inner_x + off + i, row, ch)
+
+    def _draw_divider(self, block: RenderBlock, style: dict[str, str]) -> None:
+        """Draw a divider (variant E, tasks/0003): a line on every row of
+        the stored size, the label lines drawn over their rows as-is (no
+        word wrap, no whitespace collapse), each line aligned
+        independently (meta.text_align, default center).
+
+        The block is drawn within its stored size — no recalculation
+        (the grow-only autosize lives in LayoutService). The label's own
+        spaces spread the line (content wins over the line). Children
+        are ignored (a line is an atomic element).
+        """
+        x = max(0, min(block.x, self.grid_width - 1))
+        y = max(0, min(block.y, self.grid_height - 1))
+        w = min(block.width, self.grid_width - x)
+        h = min(block.height, self.grid_height - y)
+
+        if w < 1 or h < 1:
+            return
+
+        # Line on every row (border_style none → invisible)
+        if block.border_style != "none":
+            for j in range(h):
+                for i in range(w):
+                    self._set(x + i, y + j, style["h"])
+
+        # Label: each content line over its row, as-is, truncated to the
+        # stored width, aligned (meta.text_align, default center)
+        align = (block.meta or {}).get("text_align")
+        if align not in ("left", "center", "right"):
+            align = "center"
+        for i, line in enumerate((block.content or "").split("\n")):
+            if i >= h:
+                break
+            row = y + i
+            if row >= self.grid_height:
+                break
+            line = line[:w]
+            off = h_align_offset(len(line), w, align)
+            for col, ch in enumerate(line):
+                self._set(x + off + col, row, ch)
 
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""

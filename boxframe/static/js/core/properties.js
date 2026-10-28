@@ -43,6 +43,8 @@
  *               so two selects share a row)
  *   types    — applicable block_type; omitted = all
  *   default  — value when absent (null = inherit/none)
+ *   typeDefaults — optional block_type → default override (a divider's
+ *               label is centered by default)
  *   noneValue — value applied when the "none" option is picked (null
  *               clears the meta key); omitted → "none" is stored as-is
  *   clearDefault — true → picking the default value clears the meta key
@@ -96,7 +98,10 @@
         // default clears the meta key (clearDefault — the default is
         // implicit). Not applicable to lines. For a button, text_align
         // aligns the label (the label is already vertically centered).
-        // row: "align" — the two properties share ONE panel row (a
+        // typeDefaults: a divider's label is CENTERED by default (variant
+        // E, tasks/0003) — the panel shows center as active for a
+        // divider without meta.text_align, and picking center clears the
+        // key. row: "align" — the two properties share ONE panel row (a
         // button group each, one shared label). iconPrefix: the buttons
         // show SVG icons (static/icons/align-*.svg, masked in
         // editor.css) instead of the option text.
@@ -113,9 +118,12 @@
             types: ["box", "header", "footer", "sidebar", "content", "button",
                     "input", "textarea", "image", "divider", "text", "grid"],
             default: "left",
+            typeDefaults: { divider: "center" },
             clearDefault: true,
             panel: "primary",
         },
+        // A divider's label is 1:1 with its rows (no vertical shift) —
+        // vertical_align does not apply to it.
         {
             key: "vertical_align",
             meta: true,
@@ -126,7 +134,7 @@
             group: "Align",
             row: "align",
             types: ["box", "header", "footer", "sidebar", "content", "button",
-                    "input", "textarea", "image", "divider", "text", "grid"],
+                    "input", "textarea", "image", "text", "grid"],
             default: "top",
             clearDefault: true,
             panel: "primary",
@@ -203,11 +211,15 @@
 
     // The effective value of a property on a block: meta properties read
     // block.meta[key] (absent → default), the rest read block[key].
+    // The default may be type-specific (typeDefaults — e.g. a divider's
+    // label is centered by default).
     function readPropValue(block, prop) {
         var v = prop.meta
             ? (block.meta ? block.meta[prop.key] : undefined)
             : block[prop.key];
         if (v === undefined || v === null) {
+            var td = prop.typeDefaults ? prop.typeDefaults[block.block_type] : undefined;
+            if (td !== undefined && td !== null) return td;
             return prop.default !== undefined ? prop.default : null;
         }
         return v;

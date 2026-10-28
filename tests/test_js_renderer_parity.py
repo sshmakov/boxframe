@@ -73,6 +73,22 @@ def text_size_js(content: str, border_style: str) -> tuple[int, int]:
     return w, h
 
 
+def divider_fit_size_js(content: str, width: int, height: int) -> tuple[int, int]:
+    """Compute the divider grow-only fit size via a node one-liner."""
+    script = (
+        f"const PG = require({json.dumps(RENDERER_JS)});"
+        f"process.stdout.write(JSON.stringify(PG.dividerFitSize("
+        f"{json.dumps(content)}, {json.dumps(width)}, {json.dumps(height)})));")
+    result = subprocess.run(
+        [NODE, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    w, h = json.loads(result.stdout)
+    return w, h
+
+
 def to_nested(blocks: list[dict]) -> list[dict]:
     """Convert a flat block list (parent_id refs) to nested dicts (children).
 
@@ -273,6 +289,87 @@ def test_parity_text_block_size():
     ]
     for content, style in cases:
         assert text_block_size(content, style) == text_size_js(content, style), (content, style)
+
+
+def test_parity_divider_ascii():
+    """Dividers (variant E, tasks/0003) render identically in both renderers."""
+    cases = [
+        # (content, meta, border_style, width, height)
+        ("", None, "solid", 20, 3),                      # empty: N parallel lines
+        ("or", None, "solid", 20, 1),                    # default center
+        ("a\nbb\nccc", None, "solid", 20, 3),            # multiline, per-line align
+        ("  a  \n  bb  \n  ccc  ", None, "solid", 20, 3),  # spaces spread the line
+        ("a\nbb\nccc", {"text_align": "left"}, "solid", 20, 3),
+        ("a\nbb\nccc", {"text_align": "right"}, "solid", 20, 3),
+        ("abcdefghij", None, "solid", 8, 1),             # truncation to width
+        ("a\nbb\nccc\ndddd", None, "solid", 20, 2),      # more lines than height
+        ("x", None, "dashed", 20, 2),
+        ("x", None, "dotted", 20, 2),
+        ("x", None, "double", 20, 2),
+        ("or", None, "none", 20, 1),                     # invisible line, label drawn
+        ("or", {"arrow_start": "arrow", "fill": "░"}, "solid", 20, 1),  # meta ignored
+    ]
+    for content, meta, base, w, h in cases:
+        block = {"id": "b1", "block_type": "divider", "x": 0, "y": 0,
+                 "width": w, "height": h, "content": content,
+                 "border_style": base, "order": 0}
+        if meta is not None:
+            block["meta"] = meta
+        py_blocks = [{k: v for k, v in block.items() if k != "id"}]
+        assert render_js([block], 40, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 12), \
+            (content, meta, base, w, h)
+
+
+def test_parity_divider_in_container():
+    """A divider as a child is clipped to the container's inner area."""
+    js_blocks = [
+        {"id": "p", "block_type": "box", "x": 0, "y": 0, "width": 12, "height": 6,
+         "content": "", "border_style": "solid", "order": 0},
+        {"id": "d", "block_type": "divider", "x": 0, "y": 1, "width": 10, "height": 2,
+         "content": "wide", "border_style": "solid", "parent_id": "p", "order": 0},
+    ]
+    assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+        to_nested(js_blocks), 40, 12
+    )
+
+
+def test_parity_divider_html():
+    """The divider HTML overlay (line segments) matches byte-for-byte."""
+    cases = [
+        # (content, meta, border_style, width, height)
+        ("", None, "solid", 10, 3),                      # one full segment per row
+        ("or\n", None, "dashed", 20, 2),                 # segments around the label
+        ("abcd", None, "solid", 4, 1),                   # label fills the row
+        ("a\nbb\nccc", {"text_align": "left"}, "double", 20, 3),
+        ("  a  ", None, "dotted", 20, 1),                # spaces count as label cells
+    ]
+    for content, meta, base, w, h in cases:
+        block = {"id": "b1", "block_type": "divider", "x": 0, "y": 0,
+                 "width": w, "height": h, "content": content,
+                 "border_style": base, "order": 0}
+        if meta is not None:
+            block["meta"] = meta
+        assert render_js_html([block]) == PseudoGraphicRenderer.render_html_preview(
+            to_nested([block])
+        ), (content, meta, base, w, h)
+
+
+def test_parity_divider_fit_size():
+    """The divider grow-only fit size must agree between the renderers."""
+    from boxframe.services.renderer import divider_fit_size
+    cases = [
+        ("", 20, 1),
+        ("", 20, 3),
+        ("a", 20, 3),
+        ("a\nbb\nccc", 20, 1),
+        ("a\nbb\nccc", 2, 3),
+        ("a\nbb\nccc", 4, 3),
+        ("a\n", 20, 1),
+        ("  spaced  ", 5, 1),
+    ]
+    for content, w, h in cases:
+        assert divider_fit_size(content, w, h) == divider_fit_size_js(content, w, h), \
+            (content, w, h)
 
 
 def test_parity_word_wrap():

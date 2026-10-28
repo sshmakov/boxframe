@@ -31,9 +31,11 @@
 
 ## Приоритет 1 — сломанные и дублирующие типы
 
-- [ ] `divider`: решение — убрать из `BLOCK_TYPES` (роль закрывает `hline`)
-      или дать отрисовку линии; обновить палитру и тесты. Дизайн-варианты
-      (4 шт., решение не принято) — `todo-0003-divider-design.md`
+- [x] `divider`: закрыто 2026-10-28 — вариант E (мультилинейный, линия на
+      каждой строке) из `todo-0003-divider-design.md`: `_draw_divider()` в
+      обоих рендерерах, autosize только роста (`divider_fit_size()`),
+      HTML-оверлей сегментами, дефолт 20×1 в редакторе, `text_align`
+      дефолт center; оба набора тестов + parity; палитра без изменений (14)
 - [ ] `grid`: реализовать рендер сетки (параметры в `meta`, например
       `{"cols": 3}`: отрисовка внутренних перегородок) или убрать из палитры
 - [x] `button`: закрыто задачей 0022 (2026-09-10) — форма зависит от
@@ -91,7 +93,7 @@ CSS, `tests/`.
 | input | как box | как box | 20×3 `[input]` | — | ⚠️ нет отрисовки поля |
 | textarea | как box | как box | 20×3 `[textarea]` | — | ⚠️ как input |
 | image | как box (+ fill) | как box | 20×3 `[image]` | fill | ⚠️ нет плейсхолдера |
-| divider | рамка + hint `[divider]` | рамка | 20×3 `[divider]` | — | ❌ дублирует hline |
+| divider | линия на каждой строке + подпись как есть (вариант E, todo-0003) | сегменты линии (до 2 div на строку) | 20×1, без контента | `_draw_divider()`, autosize-рост (`divider_fit_size()`), `text_align` (дефолт center) | ✅ полный |
 | hline | линия 1 строка (─┄┈═) + стрелки `meta.arrow_*` | CSS-линия | 20×1, без контента | сервис фиксирует h=1; стрелки, align | ✅ полный, 10 тестов |
 | vline | линия 1 колонка (│┆┊║) + стрелки | CSS-линия | 1×5, без контента | сервис фиксирует w=1; стрелки, align | ✅ полный, 10 тестов |
 | text | autosize по содержимому, по умолчанию без рамки (0049) | рамка/none | fit `[text]`, border none | autosize (`text_block_size()`), align | ✅ полный |
@@ -100,9 +102,9 @@ CSS, `tests/`.
 Ключевые факты (2026-10-22):
 
 1. Особые пути отрисовки — `_draw_line()` (hline/vline, со стрелками),
-   `_draw_button()` (button) и autosize текста (`text_block_size()`);
-   все остальные типы проходят общий путь `_draw_border()` +
-   `_draw_content()`.
+   `_draw_button()` (button), `_draw_divider()` (divider, вариант E) и
+   autosize текста (`text_block_size()`); все остальные типы проходят
+   общий путь `_draw_border()` + `_draw_content()`.
 2. `meta` — устоявшийся механизм расширенных свойств (0051): `fill`
    (FILL_TYPES: box/header/footer/sidebar/content/grid/image),
    `arrow_start`/`arrow_end` (hline/vline), `text_align`/`vertical_align`;
@@ -111,10 +113,11 @@ CSS, `tests/`.
    live-превью (0035/0038/0039), clip детей в превью, каскадное удаление,
    глубокая вложенность (d342366).
 4. Типоспецифичная логика на фронте — `_blockDefaults()` в `editor.js`
-   (`button` 16×1, `hline` 20×1, `vline` 1×5, `text` fit-размер,
-   остальное 20×3).
-5. Типоспецифичная логика на бэкенде — принудительная толщина линий и
-   autosize текста в `LayoutService` + дефолтная рамка
+   (`button` 16×1, `hline` 20×1, `vline` 1×5, `divider` 20×1, `text`
+   fit-размер, остальное 20×3).
+5. Типоспецифичная логика на бэкенде — принудительная толщина линий,
+   autosize текста (точный fit) и autosize divider (только роста,
+   `divider_fit_size()`) в `LayoutService` + дефолтная рамка
    (`default_border_style`: text → none).
 6. API принимает любую строку в `block_type` и `border_style` — валидации
    нет.
@@ -122,8 +125,10 @@ CSS, `tests/`.
    классы (генерируются в `to_html_preview()`/`_block_preview_html()`).
 8. Покрытие тестами: `hline`/`vline` — 10+ специфичных тестов; `button` —
    полный набор по 0022 (все высоты + стили, parity); `text` — autosize
-   (0049); `box` — только общие; `grid`, `image`, `input`, `textarea`,
-   `divider`, `sidebar`, `footer`, `header` — специфичных тестов нет.
+   (0049); `divider` — полный набор по варианту E (todo-0003: ASCII,
+   autosize-рост, HTML-сегменты, API, store, parity); `box` — только
+   общие; `grid`, `image`, `input`, `textarea`, `sidebar`, `footer`,
+   `header` — специфичных тестов нет.
 
 # Выполнение задачи
 
@@ -135,8 +140,11 @@ CSS, `tests/`.
 - 0049 (2026-09-23): `text` — autosize, по умолчанию без рамки
 - 0051–0054 (2026-10-01…10-21): `meta` как механизм расширенных свойств
   (fill, стрелки, выравнивание) + панель свойств с UI
+- todo-0003 (2026-10-28): `divider` — вариант E (мультилинейный): линия
+  на каждой строке, подпись как есть, autosize только роста, HTML-оверлей
+  сегментами; оба рендерера + оба набора тестов + parity
 
-Остаток в бэклоге: divider, grid, input/textarea/image,
+Остаток в бэклоге: grid, input/textarea/image,
 header/footer/sidebar, API-валидация, двойной клик по линиям, мёртвый код.
 
 # Замечания

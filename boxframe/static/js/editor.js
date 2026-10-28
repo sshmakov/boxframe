@@ -1326,10 +1326,11 @@ function editorApp() {
 
                     // Clamp to minimum size only — blocks may extend beyond
                     // the layout bounds. Buttons support height 1 ([label]),
-                    // text blocks shrink to 1×1 (they autosize to content).
+                    // text blocks and dividers shrink to 1×1 (they autosize
+                    // to content).
                     const t = this.dragBlock.block_type;
-                    const minW = (t === 'vline' || t === 'text') ? 1 : 2;
-                    const minH = (t === 'hline' || t === 'button' || t === 'text') ? 1 : 2;
+                    const minW = (t === 'vline' || t === 'text' || t === 'divider') ? 1 : 2;
+                    const minH = (t === 'hline' || t === 'button' || t === 'text' || t === 'divider') ? 1 : 2;
                     newW = Math.max(minW, newW);
                     newH = Math.max(minH, newH);
                 }
@@ -1666,9 +1667,10 @@ function editorApp() {
                 for (const o of this.resizeOriginal) {
                     const b = this.blocks.find(bl => bl.id === o.id);
                     if (!b) continue;
-                    // Text blocks shrink to 1×1 (they autosize to content)
-                    const minW = (b.block_type === 'vline' || b.block_type === 'text') ? 1 : 2;
-                    const minH = (b.block_type === 'hline' || b.block_type === 'button' || b.block_type === 'text') ? 1 : 2;
+                    // Text blocks and dividers shrink to 1×1 (they autosize
+                    // to content)
+                    const minW = (b.block_type === 'vline' || b.block_type === 'text' || b.block_type === 'divider') ? 1 : 2;
+                    const minH = (b.block_type === 'hline' || b.block_type === 'button' || b.block_type === 'text' || b.block_type === 'divider') ? 1 : 2;
                     const x = o.x + dX;
                     const y = o.y + dY;
                     let w = Math.max(minW, o.width + dW);
@@ -1733,6 +1735,9 @@ function editorApp() {
             if (type === 'button') return { width: 16, height: 1, content: 'Button' };
             if (type === 'hline') return { width: 20, height: 1, content: '' };
             if (type === 'vline') return { width: 1, height: 5, content: '' };
+            // Divider (variant E): one line by default; the label (content)
+            // grows it — the store autosizes on create, grow-only.
+            if (type === 'divider') return { width: 20, height: 1, content: '' };
             if (type === 'text') {
                 // Text autosizes to its content — no border by default, the
                 // size is the placeholder's fit size (the store recomputes
@@ -1781,12 +1786,12 @@ function editorApp() {
 
         // Whether the renderer draws a block's children: only bordered
         // blocks (border_style != none, at least 2x2) render their
-        // children, and lines/buttons never do — a child is clipped to
-        // the parent's inner area. Mirrors
+        // children, and lines/dividers/buttons never do — a child is
+        // clipped to the parent's inner area. Mirrors
         // PseudoGraphicRenderer._render_block / _render_children_in_container.
         _childrenRendered(b) {
             if (b.block_type === 'hline' || b.block_type === 'vline' ||
-                b.block_type === 'button') return false;
+                b.block_type === 'button' || b.block_type === 'divider') return false;
             return b.border_style !== 'none' && b.width >= 2 && b.height >= 2;
         },
 
@@ -2368,10 +2373,19 @@ function editorApp() {
                 return;
             }
             // Picking the default value clears the meta key (clearDefault)
-            // — the default is implicit (alignment properties).
-            if (prop.clearDefault && opt === prop.default) {
-                this.applyPropValue(prop, null);
-                return;
+            // — the default is implicit (alignment properties). The
+            // default may be type-specific (typeDefaults — e.g. a
+            // divider's label is centered by default).
+            if (prop.clearDefault) {
+                const b = this.selectedBlock;
+                const def = (prop.typeDefaults && b &&
+                    prop.typeDefaults[b.block_type] != null)
+                    ? prop.typeDefaults[b.block_type]
+                    : prop.default;
+                if (opt === def) {
+                    this.applyPropValue(prop, null);
+                    return;
+                }
             }
             this.applyPropValue(prop, opt);
         },

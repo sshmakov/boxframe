@@ -224,6 +224,25 @@
             return !!props && ("content" in props || "border_style" in props || "block_type" in props);
         }
 
+        // Divider autosizes to its content, grow-only (variant E,
+        // tasks/0003) — mirrors LayoutService rules: the size grows to
+        // fit the content but never shrinks (a manual resize is kept
+        // until the next content change regrows the block). Applied on
+        // create and when an update carries content / block_type (the
+        // border style does not affect the fit size).
+        function normalizeDivider(block) {
+            if (block.block_type !== "divider") return;
+            var size = PGRenderer.dividerFitSize(block.content, block.width, block.height);
+            block.width = size[0];
+            block.height = size[1];
+        }
+
+        // True when an update payload changes what a divider autosizes
+        // from (its content; the border style does not affect the fit).
+        function dividerAutosizeTriggered(props) {
+            return !!props && ("content" in props || "block_type" in props);
+        }
+
         // Collect the ids of a block and all of its descendants (BFS over the
         // flat list). Cascade delete: removing a container removes its whole
         // subtree — mirrors the ORM cascade on the server.
@@ -277,6 +296,7 @@
                 };
                 normalizeLine(block);
                 normalizeText(block);
+                normalizeDivider(block);
                 layout.blocks.push(block);
                 mutate();
                 return Promise.resolve(Object.assign({}, block));
@@ -297,6 +317,7 @@
                 });
                 normalizeLine(block);
                 if (textAutosizeTriggered(props)) normalizeText(block);
+                if (dividerAutosizeTriggered(props)) normalizeDivider(block);
                 block.updated_at = new Date().toISOString();
                 mutate();
                 return Promise.resolve(Object.assign({}, block));
@@ -358,6 +379,7 @@
                     };
                     normalizeLine(block);
                     normalizeText(block);
+                    normalizeDivider(block);
                     layout.blocks.push(block);
                     created.push(Object.assign({}, block));
                 });
@@ -377,6 +399,7 @@
                     });
                     normalizeLine(block);
                     if (textAutosizeTriggered(data)) normalizeText(block);
+                    if (dividerAutosizeTriggered(data)) normalizeDivider(block);
                     block.updated_at = new Date().toISOString();
                     updated.push(Object.assign({}, block));
                 });

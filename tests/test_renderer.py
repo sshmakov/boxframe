@@ -1134,6 +1134,177 @@ def test_word_wrap_drops_gap_on_wrap():
     assert "Price" in lines[2]
 
 
+# ── Divider tests (variant E, tasks/0003) ─────────────────
+
+
+def _divider_block(content="", width=20, height=1, meta=None,
+                   border_style="solid", x=0, y=0):
+    data = {
+        "block_type": "divider",
+        "x": x, "y": y,
+        "width": width, "height": height,
+        "content": content,
+        "border_style": border_style,
+    }
+    if meta is not None:
+        data["meta"] = meta
+    return [data]
+
+
+def test_divider_fit_size():
+    """Grow-only fit: the size grows to fit the content, never shrinks
+    (unlike text_block_size, which is an exact fit)."""
+    from boxframe.services.renderer import divider_fit_size
+    # Empty content — one empty line, the size is kept
+    assert divider_fit_size("", 20, 1) == (20, 1)
+    # Height grows to the line count
+    assert divider_fit_size("a\nbb\nccc", 20, 1) == (20, 3)
+    # Width grows to the longest line
+    assert divider_fit_size("a\nbb\nccc", 2, 3) == (3, 3)
+    # Stored width larger than the longest line — no shrink
+    assert divider_fit_size("a\nbb\nccc", 4, 3) == (4, 3)
+    # Smaller content (down to empty) — no shrink
+    assert divider_fit_size("a", 20, 3) == (20, 3)
+    assert divider_fit_size("", 20, 3) == (20, 3)
+    # A trailing newline adds an empty line
+    assert divider_fit_size("a\n", 20, 1) == (20, 2)
+
+
+def test_divider_empty_is_lines():
+    """Empty content: a line on every row (old 20×3 → 3 parallel lines)."""
+    result = _render(_divider_block(width=20, height=3))
+    lines = result.split("\n")
+    for i in range(3):
+        assert lines[i][:20] == "─" * 20
+
+
+def test_divider_label_centered_by_default():
+    """The label is centered by default (meta.text_align absent)."""
+    result = _render(_divider_block(content="or"))
+    assert result.split("\n")[0][:20] == "─" * 9 + "or" + "─" * 9
+
+
+def test_divider_multiline_label():
+    """Each content line is drawn over its row, as-is (no wrap, no
+    collapse), each line aligned independently."""
+    result = _render(_divider_block(content="a\nbb\nccc", height=3))
+    lines = result.split("\n")
+    assert lines[0][:20] == "─" * 9 + "a" + "─" * 10
+    assert lines[1][:20] == "─" * 9 + "bb" + "─" * 9
+    assert lines[2][:20] == "─" * 8 + "ccc" + "─" * 9
+
+
+def test_divider_spaces_spread_line():
+    """The label's own spaces spread the line (spaces matter in
+    pseudo-graphics)."""
+    result = _render(_divider_block(content="  a  \n  bb  \n  ccc  ", height=3))
+    lines = result.split("\n")
+    assert lines[0][:20] == "─" * 7 + "  a  " + "─" * 8
+    assert lines[1][:20] == "─" * 7 + "  bb  " + "─" * 7
+    assert lines[2][:20] == "─" * 6 + "  ccc  " + "─" * 7
+
+
+def test_divider_alignment():
+    """meta.text_align aligns every line (left/right)."""
+    result = _render(_divider_block(
+        content="a\nbb\nccc", height=3, meta={"text_align": "left"}))
+    lines = result.split("\n")
+    assert lines[0][:20] == "a" + "─" * 19
+    assert lines[1][:20] == "bb" + "─" * 18
+    assert lines[2][:20] == "ccc" + "─" * 17
+
+    result = _render(_divider_block(
+        content="a\nbb\nccc", height=3, meta={"text_align": "right"}))
+    lines = result.split("\n")
+    assert lines[0][:20] == "─" * 19 + "a"
+    assert lines[1][:20] == "─" * 18 + "bb"
+    assert lines[2][:20] == "─" * 17 + "ccc"
+
+
+def test_divider_truncates_to_width():
+    """A line longer than the stored width is truncated (no word wrap)."""
+    result = _render(_divider_block(content="abcdefghij", width=8))
+    assert result.split("\n")[0][:8] == "abcdefgh"
+
+
+def test_divider_more_lines_than_height():
+    """Content lines beyond the stored height are not drawn."""
+    result = _render(_divider_block(content="a\nbb\nccc\ndddd", height=2))
+    lines = result.split("\n")
+    assert lines[0][:20] == "─" * 9 + "a" + "─" * 10
+    assert lines[1][:20] == "─" * 9 + "bb" + "─" * 9
+    assert "ccc" not in result
+    assert "dddd" not in result
+
+
+def test_divider_all_styles():
+    chars = {"solid": "─", "dashed": "┄", "dotted": "┈", "double": "═"}
+    for style, ch in chars.items():
+        result = _render(_divider_block(
+            content="x", height=2, border_style=style))
+        lines = result.split("\n")
+        assert lines[0][:20] == ch * 9 + "x" + ch * 10
+        assert lines[1][:20] == ch * 20
+
+
+def test_divider_none_line_invisible():
+    """border_style none: the line is invisible, the label is drawn."""
+    result = _render(_divider_block(content="or", border_style="none"))
+    assert result.split("\n")[0] == "         or"
+
+
+def test_divider_ignores_children():
+    """Children are not drawn (a line is an atomic element)."""
+    blocks = [{
+        "block_type": "divider",
+        "x": 0, "y": 0,
+        "width": 20, "height": 3,
+        "content": "",
+        "border_style": "solid",
+        "children": [{
+            "block_type": "text", "x": 1, "y": 1, "width": 8, "height": 1,
+            "content": "child", "border_style": "none", "order": 0,
+        }],
+    }]
+    result = _render(blocks)
+    assert "child" not in result
+    lines = result.split("\n")
+    assert len(lines) == 3
+    for i in range(3):
+        assert lines[i][:20] == "─" * 20
+
+
+def test_divider_ignores_arrows_and_fill():
+    """Arrows and fill do not apply to dividers."""
+    base = _divider_block(content="or")[0]
+    plain = _render([base])
+    with_meta = _render([{
+        **base,
+        "meta": {"arrow_start": "arrow", "arrow_end": "diamond",
+                 "fill": "░"},
+    }])
+    assert with_meta == plain
+
+
+def test_divider_in_container():
+    """A divider as a child is clipped to the container's inner area."""
+    blocks = [{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 12, "height": 6,
+        "content": "",
+        "border_style": "solid",
+        "children": [{
+            "block_type": "divider", "x": 0, "y": 1, "width": 10, "height": 2,
+            "content": "wide", "border_style": "solid", "order": 0,
+        }],
+    }]
+    result = _render(blocks)
+    lines = result.split("\n")
+    assert lines[2] == "│───wide───│"
+    assert lines[3] == "│──────────│"
+
+
 # ── HTML preview tests ────────────────────────────────────
 
 
@@ -1355,6 +1526,57 @@ def test_render_html_preview_line_none():
         "border_style": "none",
     }])
     assert 'class="block-line block-line--h block-line--none"' in html
+
+
+def test_render_html_preview_divider_empty():
+    """Empty content: one full-width segment per row."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "d1",
+        "x": 0, "y": 0,
+        "width": 10, "height": 3,
+        "block_type": "divider",
+        "content": "",
+        "border_style": "solid",
+    }])
+    assert html.count('class="block-line block-line--h block-line--seg') == 3
+    # Row centers: 7.2 / 21.6 / 36 px (char_height_px=14.4)
+    assert 'style="top:7.2px;left:0px;width:120px;"' in html
+    assert 'style="top:21.6px;left:0px;width:120px;"' in html
+    assert 'style="top:36px;left:0px;width:120px;"' in html
+
+
+def test_render_html_preview_divider_segments():
+    """A labeled row: up to two segments around the label (the overlay
+    sits above the ASCII layer and must not cross the text)."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "d2",
+        "x": 0, "y": 0,
+        "width": 20, "height": 2,
+        "block_type": "divider",
+        "content": "or\n",
+        "border_style": "dashed",
+    }])
+    assert 'block-line--seg block-line--dashed' in html
+    # "or" centered in 20: offset 9 → left segment 9 cells (108px),
+    # right segment 9 cells (108px) at left 11*12=132px
+    assert 'style="top:7.2px;left:0px;width:108px;"' in html
+    assert 'style="top:7.2px;left:132px;width:108px;"' in html
+    # The empty second line — one full-width segment
+    assert 'style="top:21.6px;left:0px;width:240px;"' in html
+    assert html.count('block-line--seg') == 3
+
+
+def test_render_html_preview_divider_label_fills_row():
+    """A label that fills the row: no segments (the text covers it)."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "d3",
+        "x": 0, "y": 0,
+        "width": 4, "height": 1,
+        "block_type": "divider",
+        "content": "abcd",
+        "border_style": "solid",
+    }])
+    assert "block-line--seg" not in html
 
 
 def test_render_html_preview_border_none():

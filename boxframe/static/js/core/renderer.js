@@ -195,6 +195,20 @@
         return [Math.max(1, textW), textH];
     }
 
+    // Port of divider_fit_size in services/renderer.py: the grow-only
+    // fit size of a divider (variant E, tasks/0003) — the stored size
+    // grown to fit the content, never shrunk (unlike textBlockSize,
+    // which is an exact fit).
+    function dividerFitSize(content, width, height) {
+        var lines = String(content == null ? "" : content).split("\n");
+        var longest = 0;
+        for (var i = 0; i < lines.length; i++) {
+            if (lines[i].length > longest) longest = lines[i].length;
+        }
+        var nLines = Math.max(1, lines.length);
+        return [Math.max(width, longest), Math.max(height, nLines)];
+    }
+
     // ── Grid drawing (ports of the PseudoGraphicRenderer methods) ──
 
     // Write a cell, respecting the grid bounds and the active clip rect
@@ -319,6 +333,47 @@
                 for (var c = 0; c < label.length; c++) {
                     setCell(grid, gw, gh, clip, innerX + off + c, row, label[c]);
                 }
+            }
+        }
+    }
+
+    // Port of PseudoGraphicRenderer._draw_divider: a line on every row
+    // of the stored size, the label lines over their rows as-is (no
+    // word wrap, no whitespace collapse), each line aligned
+    // independently (meta.text_align, default center). Drawn within the
+    // stored size — no recalculation (the grow-only autosize lives in
+    // the store / LayoutService). Children are ignored (a line is an
+    // atomic element).
+    function drawDivider(block, style, grid, gw, gh, clip) {
+        var x = Math.max(0, Math.min(block.x, gw - 1));
+        var y = Math.max(0, Math.min(block.y, gh - 1));
+        var w = Math.min(block.width, gw - x);
+        var h = Math.min(block.height, gh - y);
+
+        if (w < 1 || h < 1) return;
+
+        // Line on every row (border_style none → invisible)
+        if (block.border_style !== "none") {
+            for (var j = 0; j < h; j++) {
+                for (var i = 0; i < w; i++) {
+                    setCell(grid, gw, gh, clip, x + i, y + j, style.h);
+                }
+            }
+        }
+
+        // Label: each content line over its row, as-is, truncated to the
+        // stored width, aligned (meta.text_align, default center)
+        var align = (block.meta || {}).text_align;
+        if (align !== "left" && align !== "center" && align !== "right") align = "center";
+        var lines = String(block.content == null ? "" : block.content).split("\n");
+        for (var li = 0; li < lines.length; li++) {
+            if (li >= h) break;
+            var row = y + li;
+            if (row >= gh) break;
+            var line = lines[li].slice(0, w);
+            var off = hAlignOffset(line.length, w, align);
+            for (var c = 0; c < line.length; c++) {
+                setCell(grid, gw, gh, clip, x + off + c, row, line[c]);
             }
         }
     }
@@ -455,6 +510,11 @@
             return;
         }
 
+        if (block.block_type === "divider") {
+            drawDivider(block, style, grid, gw, gh, clip);
+            return;
+        }
+
         var hasBorder = block.border_style !== "none"
             && block.width >= 2 && block.height >= 2;
 
@@ -565,6 +625,41 @@
             '" style="width:100%;height:100%;"></div>';
     }
 
+    // Port of _line_segment_html: one divider line segment — a
+    // zero-height div with a border-top at the row's vertical center
+    // (same alignment as .block-line--h top:50%).
+    function lineSegmentHtml(top, col, length, charWidthPx, style) {
+        var left = round1(col * charWidthPx);
+        var w = round1(length * charWidthPx);
+        return '<div class="block-line block-line--h block-line--seg block-line--' + style +
+            '" style="top:' + fmtPx(top) + ";left:" + fmtPx(left) + ";width:" + fmtPx(w) + ';"></div>';
+    }
+
+    // Port of _divider_segments_html: the HTML overlay of a divider
+    // (variant E) — a line segment per row (up to two divs around the
+    // label); empty content — one div per row.
+    function dividerSegmentsHtml(bd, opts, style) {
+        var width = bd.width != null ? bd.width : 20;
+        var height = bd.height != null ? bd.height : 3;
+        var content = bd.content || "";
+        var align = (bd.meta || {}).text_align;
+        if (align !== "left" && align !== "center" && align !== "right") align = "center";
+
+        var lines = content.split("\n");
+        var parts = [];
+        for (var row = 0; row < height; row++) {
+            var line = row < lines.length ? lines[row].slice(0, width) : "";
+            // An empty line has no offset (alignment is a no-op) — one
+            // full-width segment per row
+            var off = line ? hAlignOffset(line.length, width, align) : 0;
+            var top = round1(row * opts.charHeightPx + opts.charHeightPx / 2);
+            if (off > 0) parts.push(lineSegmentHtml(top, 0, off, opts.charWidthPx, style));
+            var right = width - off - line.length;
+            if (right > 0) parts.push(lineSegmentHtml(top, off + line.length, right, opts.charWidthPx, style));
+        }
+        return parts.join("");
+    }
+
     // Build the HTML for a block and its nested children (recursive).
     // A root block is positioned relative to the canvas (paddingOffset +
     // grid * charSize). A child is positioned relative to its parent's div
@@ -604,6 +699,8 @@
         if (blockType === "hline" || blockType === "vline") {
             var direction = blockType === "hline" ? "h" : "v";
             borderHtml = '<div class="block-line block-line--' + direction + ' block-line--' + bs + '"></div>';
+        } else if (blockType === "divider") {
+            borderHtml = dividerSegmentsHtml(bd, opts, bs);
         } else {
             borderHtml = '<div class="block-border block-border--' + bs +
                 '" style="width:100%;height:100%;"></div>';
@@ -655,6 +752,7 @@
                 x: b.x, y: b.y,
                 width: b.width, height: b.height,
                 block_type: b.block_type,
+                content: b.content,
                 border_style: b.border_style,
                 meta: b.meta,
                 order: b.order,
@@ -782,6 +880,7 @@
         vAlignOffset: vAlignOffset,
         wrapText: wrapText,
         textBlockSize: textBlockSize,
+        dividerFitSize: dividerFitSize,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,
         renderBoundsHtml: renderBoundsHtml,

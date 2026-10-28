@@ -1024,6 +1024,164 @@ test("word wrap drops gap on wrap", () => {
     assert.ok(ls[2].includes("Price"));
 });
 
+// ── Divider tests (variant E, tasks/0003) ─────────────────
+
+function dividerBlock(content = "", width = 20, height = 1, meta, border_style = "solid") {
+    const data = {
+        id: "b1", block_type: "divider",
+        x: 0, y: 0, width, height,
+        content, border_style,
+    };
+    if (meta != null) data.meta = meta;
+    return [data];
+}
+
+test("dividerFitSize: grow-only fit", () => {
+    // Empty content — one empty line, the size is kept
+    assert.deepEqual(PG.dividerFitSize("", 20, 1), [20, 1]);
+    // Height grows to the line count
+    assert.deepEqual(PG.dividerFitSize("a\nbb\nccc", 20, 1), [20, 3]);
+    // Width grows to the longest line
+    assert.deepEqual(PG.dividerFitSize("a\nbb\nccc", 2, 3), [3, 3]);
+    // Stored width larger than the longest line — no shrink
+    assert.deepEqual(PG.dividerFitSize("a\nbb\nccc", 4, 3), [4, 3]);
+    // Smaller content (down to empty) — no shrink
+    assert.deepEqual(PG.dividerFitSize("a", 20, 3), [20, 3]);
+    assert.deepEqual(PG.dividerFitSize("", 20, 3), [20, 3]);
+    // A trailing newline adds an empty line
+    assert.deepEqual(PG.dividerFitSize("a\n", 20, 1), [20, 2]);
+});
+
+test("divider empty: a line on every row", () => {
+    // Empty content: a line on every row (old 20×3 → 3 parallel lines)
+    const result = render(dividerBlock("", 20, 3));
+    const ls = lines(result);
+    for (let i = 0; i < 3; i++) {
+        assert.equal(ls[i].slice(0, 20), "─".repeat(20));
+    }
+});
+
+test("divider label centered by default", () => {
+    const result = render(dividerBlock("or"));
+    assert.equal(lines(result)[0].slice(0, 20), "─".repeat(9) + "or" + "─".repeat(9));
+});
+
+test("divider multiline label", () => {
+    // Each content line is drawn over its row, as-is (no wrap, no
+    // collapse), each line aligned independently
+    const result = render(dividerBlock("a\nbb\nccc", 20, 3));
+    const ls = lines(result);
+    assert.equal(ls[0].slice(0, 20), "─".repeat(9) + "a" + "─".repeat(10));
+    assert.equal(ls[1].slice(0, 20), "─".repeat(9) + "bb" + "─".repeat(9));
+    assert.equal(ls[2].slice(0, 20), "─".repeat(8) + "ccc" + "─".repeat(9));
+});
+
+test("divider spaces spread the line", () => {
+    // The label's own spaces spread the line (spaces matter in
+    // pseudo-graphics)
+    const result = render(dividerBlock("  a  \n  bb  \n  ccc  ", 20, 3));
+    const ls = lines(result);
+    assert.equal(ls[0].slice(0, 20), "─".repeat(7) + "  a  " + "─".repeat(8));
+    assert.equal(ls[1].slice(0, 20), "─".repeat(7) + "  bb  " + "─".repeat(7));
+    assert.equal(ls[2].slice(0, 20), "─".repeat(6) + "  ccc  " + "─".repeat(7));
+});
+
+test("divider alignment", () => {
+    // meta.text_align aligns every line (left/right)
+    let ls = lines(render(dividerBlock("a\nbb\nccc", 20, 3, { text_align: "left" })));
+    assert.equal(ls[0].slice(0, 20), "a" + "─".repeat(19));
+    assert.equal(ls[1].slice(0, 20), "bb" + "─".repeat(18));
+    assert.equal(ls[2].slice(0, 20), "ccc" + "─".repeat(17));
+
+    ls = lines(render(dividerBlock("a\nbb\nccc", 20, 3, { text_align: "right" })));
+    assert.equal(ls[0].slice(0, 20), "─".repeat(19) + "a");
+    assert.equal(ls[1].slice(0, 20), "─".repeat(18) + "bb");
+    assert.equal(ls[2].slice(0, 20), "─".repeat(17) + "ccc");
+});
+
+test("divider truncates to width", () => {
+    // A line longer than the stored width is truncated (no word wrap)
+    const result = render(dividerBlock("abcdefghij", 8, 1));
+    assert.equal(lines(result)[0].slice(0, 8), "abcdefgh");
+});
+
+test("divider more lines than height", () => {
+    // Content lines beyond the stored height are not drawn
+    const result = render(dividerBlock("a\nbb\nccc\ndddd", 20, 2));
+    const ls = lines(result);
+    assert.equal(ls[0].slice(0, 20), "─".repeat(9) + "a" + "─".repeat(10));
+    assert.equal(ls[1].slice(0, 20), "─".repeat(9) + "bb" + "─".repeat(9));
+    assert.ok(!result.includes("ccc"));
+    assert.ok(!result.includes("dddd"));
+});
+
+test("divider all styles", () => {
+    const chars = { solid: "─", dashed: "┄", dotted: "┈", double: "═" };
+    for (const [style, ch] of Object.entries(chars)) {
+        const ls = lines(render(dividerBlock("x", 20, 2, null, style)));
+        assert.equal(ls[0].slice(0, 20), ch.repeat(9) + "x" + ch.repeat(10), style);
+        assert.equal(ls[1].slice(0, 20), ch.repeat(20), style);
+    }
+});
+
+test("divider none: line invisible, label drawn", () => {
+    const result = render(dividerBlock("or", 20, 1, null, "none"));
+    assert.equal(lines(result)[0], "         or");
+});
+
+test("divider ignores children", () => {
+    // Children are not drawn (a line is an atomic element)
+    const result = render([
+        {
+            id: "d", block_type: "divider",
+            x: 0, y: 0, width: 20, height: 3,
+            content: "", border_style: "solid",
+        },
+        {
+            id: "c", block_type: "text",
+            x: 1, y: 1, width: 8, height: 1,
+            content: "child", border_style: "none", parent_id: "d",
+        },
+    ]);
+    assert.ok(!result.includes("child"));
+    const ls = lines(result);
+    assert.equal(ls.length, 3);
+    for (let i = 0; i < 3; i++) {
+        assert.equal(ls[i].slice(0, 20), "─".repeat(20));
+    }
+});
+
+test("divider ignores arrows and fill", () => {
+    const base = {
+        id: "b1", block_type: "divider",
+        x: 0, y: 0, width: 20, height: 1,
+        content: "or", border_style: "solid",
+    };
+    const plain = render([base]);
+    const withMeta = render([Object.assign({}, base,
+        { meta: { arrow_start: "arrow", arrow_end: "diamond", fill: "░" } })]);
+    assert.equal(withMeta, plain);
+});
+
+test("divider in container", () => {
+    // A divider as a child is clipped to the container's inner area
+    const result = render([
+        {
+            id: "p", block_type: "box",
+            x: 0, y: 0, width: 12, height: 6,
+            content: "", border_style: "solid",
+        },
+        {
+            id: "d", block_type: "divider",
+            x: 0, y: 1, width: 10, height: 2,
+            content: "wide", border_style: "solid", parent_id: "p",
+        },
+    ]);
+    const ls = lines(result);
+    assert.equal(ls[2], "│───wide───│");
+    assert.equal(ls[3], "│──────────│");
+});
+
 // ── Order / z-order tests ─────────────────────────────────
 
 test("render sorts by order", () => {
@@ -1329,6 +1487,44 @@ test("renderHtmlPreview line blocks", () => {
         content: "", border_style: "none",
     }]);
     assert.ok(n.includes('class="block-line block-line--h block-line--none"'));
+});
+
+test("renderHtmlPreview divider empty: one full segment per row", () => {
+    const html = PG.renderHtmlPreview([{
+        id: "d1", block_type: "divider",
+        x: 0, y: 0, width: 10, height: 3,
+        content: "", border_style: "solid",
+    }]);
+    assert.equal(html.split('class="block-line block-line--h block-line--seg').length - 1, 3);
+    // Row centers: 7.2 / 21.6 / 36 px (char_height_px=14.4)
+    assert.ok(html.includes('style="top:7.2px;left:0px;width:120px;"'));
+    assert.ok(html.includes('style="top:21.6px;left:0px;width:120px;"'));
+    assert.ok(html.includes('style="top:36px;left:0px;width:120px;"'));
+});
+
+test("renderHtmlPreview divider segments around the label", () => {
+    const html = PG.renderHtmlPreview([{
+        id: "d2", block_type: "divider",
+        x: 0, y: 0, width: 20, height: 2,
+        content: "or\n", border_style: "dashed",
+    }]);
+    assert.ok(html.includes('block-line--seg block-line--dashed'));
+    // "or" centered in 20: offset 9 → left segment 9 cells (108px),
+    // right segment 9 cells (108px) at left 11*12=132px
+    assert.ok(html.includes('style="top:7.2px;left:0px;width:108px;"'));
+    assert.ok(html.includes('style="top:7.2px;left:132px;width:108px;"'));
+    // The empty second line — one full-width segment
+    assert.ok(html.includes('style="top:21.6px;left:0px;width:240px;"'));
+    assert.equal(html.split('block-line--seg').length - 1, 3);
+});
+
+test("renderHtmlPreview divider label fills the row: no segments", () => {
+    const html = PG.renderHtmlPreview([{
+        id: "d3", block_type: "divider",
+        x: 0, y: 0, width: 4, height: 1,
+        content: "abcd", border_style: "solid",
+    }]);
+    assert.ok(!html.includes("block-line--seg"));
 });
 
 // ── Full canvas HTML (renderHtml) ─────────────────────────

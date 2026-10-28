@@ -889,6 +889,138 @@ def test_update_block_type_to_text_autosizes(client: TestClient):
     assert data["height"] == 3
 
 
+# ── Divider autosize tests (variant E, tasks/0003) ─────────
+
+
+def test_create_divider_grows_to_content(client: TestClient):
+    """A new divider grows to fit its content (grow-only fit)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "divider",
+        "x": 0, "y": 0, "width": 2, "height": 1,
+        "content": "a\nbb\nccc",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    # longest line 3 > 2, line count 3 > 1 → (3, 3)
+    assert data["width"] == 3
+    assert data["height"] == 3
+
+
+def test_create_divider_empty_keeps_size(client: TestClient):
+    """Empty content: the requested size is kept (no growth, no shrink)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "divider",
+        "x": 0, "y": 0, "width": 20, "height": 1,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 20
+    assert data["height"] == 1
+
+
+def test_update_divider_content_grows(client: TestClient):
+    """Editing the content grows the block (never shrinks)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "divider",
+        "x": 0, "y": 0, "width": 20, "height": 1,
+        "content": "or",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "content": "a\nbb\nccc",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    # height grows to the line count, width stays (20 > 3)
+    assert data["width"] == 20
+    assert data["height"] == 3
+
+
+def test_update_divider_content_no_shrink(client: TestClient):
+    """Smaller content (down to empty) does not shrink the block."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "divider",
+        "x": 0, "y": 0, "width": 20, "height": 3,
+        "content": "a\nbb\nccc",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "content": "a",
+    })
+    assert r.status_code == 200
+    assert r.json()["width"] == 20
+    assert r.json()["height"] == 3
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "content": "",
+    })
+    assert r.status_code == 200
+    assert r.json()["width"] == 20
+    assert r.json()["height"] == 3
+
+
+def test_update_divider_manual_resize_kept(client: TestClient):
+    """A plain size update is a manual resize — kept in both directions
+    (min 1×1); the next content change regrows the block."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "divider",
+        "x": 0, "y": 0, "width": 20, "height": 1,
+        "content": "or",
+    })
+    block_id = r.json()["id"]
+
+    # Shrink below the content width — kept (the render truncates)
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "width": 1, "height": 1,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 1
+    assert data["height"] == 1
+
+    # The next content change regrows the width
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "content": "abcdefgh",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 8
+    assert data["height"] == 1
+
+
+def test_update_block_type_to_divider_grows(client: TestClient):
+    """Changing a block's type to divider applies the grow-only fit."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 4, "height": 2,
+        "content": "a\nbb\nccc",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "block_type": "divider",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    # longest line 3 < 4 (kept), line count 3 > 2 (grown)
+    assert data["width"] == 4
+    assert data["height"] == 3
+
+
 # ── Batch replace tests (undo/redo support) ─────────────────
 
 
@@ -997,6 +1129,28 @@ def test_replace_layout_blocks_normalizes_lines(client: TestClient):
     assert by_type["hline"]["width"] == 15
     assert by_type["vline"]["width"] == 1
     assert by_type["vline"]["height"] == 10
+
+
+def test_replace_layout_blocks_divider_no_recalc(client: TestClient):
+    """Divider sizes in a replace payload are restored as-is (no recalc):
+    undo/redo must restore a manually resized block exactly."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks", json={
+        "blocks": [
+            # Manually shrunk below the content width — kept as-is
+            {"block_type": "divider", "x": 0, "y": 0, "width": 5, "height": 1,
+             "content": "abcdefgh"},
+            # Empty 20×3 — three parallel lines (old layouts, no migration)
+            {"block_type": "divider", "x": 0, "y": 2, "width": 20, "height": 3},
+        ],
+    })
+    assert r.status_code == 200
+    blocks = r.json()["blocks"]
+    assert blocks[0]["width"] == 5
+    assert blocks[0]["height"] == 1
+    assert blocks[1]["width"] == 20
+    assert blocks[1]["height"] == 3
 
 
 # ── Batch operations tests (multi-selection support) ─────
@@ -1211,6 +1365,47 @@ def test_batch_blocks_normalizes_text(client: TestClient):
     updated = r.json()["updated"][0]
     assert updated["width"] == 12
     assert updated["height"] == 2
+
+
+def test_batch_blocks_normalizes_divider(client: TestClient):
+    """Divider blocks autosize (grow-only) in batch create; a content
+    update grows, a plain size update is kept (manual resize)."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "divider", "x": 0, "y": 0, "width": 20, "height": 1,
+        "content": "or",
+    })
+    divider_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "create": [
+            {"block_type": "divider", "x": 0, "y": 5, "width": 2, "height": 1,
+             "content": "a\nbb\nccc"},
+        ],
+        "update": [
+            {"id": divider_id, "content": "x\ny\nz\nw"},
+        ],
+    })
+    assert r.status_code == 200
+    created = r.json()["created"][0]
+    # (2, 1) grown to fit "a\nbb\nccc" → (3, 3)
+    assert created["width"] == 3
+    assert created["height"] == 3
+    # The content update grew the height: (20, 1) → (20, 4)
+    updated = r.json()["updated"][0]
+    assert updated["width"] == 20
+    assert updated["height"] == 4
+
+    # A plain size update is a manual resize — kept (both directions)
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [
+            {"id": divider_id, "width": 3, "height": 1},
+        ],
+    })
+    assert r.status_code == 200
+    updated = r.json()["updated"][0]
+    assert updated["width"] == 3
+    assert updated["height"] == 1
 
 
 def test_batch_blocks_ignores_unknown_ids(client: TestClient):
