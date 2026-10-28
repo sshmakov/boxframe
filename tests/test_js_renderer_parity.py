@@ -308,6 +308,13 @@ def test_parity_divider_ascii():
         ("x", None, "double", 20, 2),
         ("or", None, "none", 20, 1),                     # invisible line, label drawn
         ("or", {"arrow_start": "arrow", "fill": "░"}, "solid", 20, 1),  # meta ignored
+        # Vertical alignment (default middle — unlike box's top)
+        ("or", None, "solid", 20, 3),                    # default middle
+        ("or", {"vertical_align": "top"}, "solid", 20, 3),
+        ("or", {"vertical_align": "bottom"}, "solid", 20, 3),
+        ("a\nbb", {"vertical_align": "middle"}, "solid", 20, 5),  # multiline block shift
+        ("a\nbb\nccc\ndddd", {"vertical_align": "bottom"}, "solid", 20, 2),  # overflow: no shift
+        ("a\nbb\nc", {"text_align": "left", "vertical_align": "bottom"}, "dashed", 12, 5),
     ]
     for content, meta, base, w, h in cases:
         block = {"id": "b1", "block_type": "divider", "x": 0, "y": 0,
@@ -342,6 +349,11 @@ def test_parity_divider_html():
         ("abcd", None, "solid", 4, 1),                   # label fills the row
         ("a\nbb\nccc", {"text_align": "left"}, "double", 20, 3),
         ("  a  ", None, "dotted", 20, 1),                # spaces count as label cells
+        # Vertical alignment: the segments follow the label's row shift
+        ("or", None, "solid", 20, 3),                    # default middle
+        ("or", {"vertical_align": "top"}, "solid", 20, 3),
+        ("or", {"vertical_align": "bottom"}, "dashed", 20, 3),
+        ("a\nbb", {"vertical_align": "middle"}, "double", 20, 5),
     ]
     for content, meta, base, w, h in cases:
         block = {"id": "b1", "block_type": "divider", "x": 0, "y": 0,

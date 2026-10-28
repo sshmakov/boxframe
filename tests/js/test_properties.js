@@ -102,6 +102,16 @@ test("schema: the current properties are described (phase 3 set)", () => {
         assert.ok(!prop.types.includes("vline"));
     }
     assert.equal(PGProperties.findProperty("text_align").rowLabel, "Align");
+    // Divider: the label is centered horizontally AND vertically
+    // (typeDefaults) — the panel shows center/middle as active for a
+    // divider without the meta key, and picking the type default clears
+    // it (clearDefault)
+    assert.ok(PGProperties.findProperty("text_align").types.includes("divider"));
+    assert.deepEqual(PGProperties.findProperty("text_align").typeDefaults,
+        { divider: "center" });
+    assert.ok(PGProperties.findProperty("vertical_align").types.includes("divider"));
+    assert.deepEqual(PGProperties.findProperty("vertical_align").typeDefaults,
+        { divider: "middle" });
     // Arrows (phase 3 of tasks/0051): meta keys, select (two selects
     // share one row — 14 buttons don't fit the panel width), lines only;
     // six head shapes; "none" is a display sentinel (noneValue: null
@@ -175,6 +185,33 @@ test("readPropValue: meta properties read block.meta[key], absent → default", 
     const noMeta = block("b3", "box", 0, 0, 5, 2);
     delete noMeta.meta;
     assert.equal(PGProperties.readPropValue(noMeta, fillProp), "none");
+});
+
+test("readPropValue: the type default wins over the schema default (divider)", () => {
+    const vAlign = PGProperties.findProperty("vertical_align");
+    const hAlign = PGProperties.findProperty("text_align");
+    // Absent meta → the type default (middle/center), not the schema one
+    const divider = block("b1", "divider", 0, 0, 30, 1);
+    assert.equal(PGProperties.readPropValue(divider, vAlign), "middle");
+    assert.equal(PGProperties.readPropValue(divider, hAlign), "center");
+    // An explicit value wins over the type default
+    const explicit = block("b2", "divider", 0, 0, 30, 1,
+        { meta: { vertical_align: "top" } });
+    assert.equal(PGProperties.readPropValue(explicit, vAlign), "top");
+    // A box keeps the schema default (top)
+    const box = block("b3", "box", 0, 0, 5, 2);
+    assert.equal(PGProperties.readPropValue(box, vAlign), "top");
+});
+
+test("_blockDefaults: divider is 30x1 with the [divider] label", () => {
+    const app = editorApp();
+    assert.deepEqual(app._blockDefaults("divider"),
+        { width: 30, height: 1, content: "[divider]" });
+    // The other types are unchanged
+    assert.deepEqual(app._blockDefaults("box"),
+        { width: 20, height: 3, content: "[box]" });
+    assert.deepEqual(app._blockDefaults("hline"),
+        { width: 20, height: 1, content: "" });
 });
 
 // ── Sections ──────────────────────────────────────────────

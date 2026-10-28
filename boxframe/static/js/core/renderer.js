@@ -340,10 +340,12 @@
     // Port of PseudoGraphicRenderer._draw_divider: a line on every row
     // of the stored size, the label lines over their rows as-is (no
     // word wrap, no whitespace collapse), each line aligned
-    // independently (meta.text_align, default center). Drawn within the
-    // stored size — no recalculation (the grow-only autosize lives in
-    // the store / LayoutService). Children are ignored (a line is an
-    // atomic element).
+    // independently (meta.text_align, default center); the line block
+    // is shifted vertically inside the stored height
+    // (meta.vertical_align, default middle — unlike box, whose default
+    // is top). Drawn within the stored size — no recalculation (the
+    // grow-only autosize lives in the store / LayoutService). Children
+    // are ignored (a line is an atomic element).
     function drawDivider(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 1));
         var y = Math.max(0, Math.min(block.y, gh - 1));
@@ -362,13 +364,19 @@
         }
 
         // Label: each content line over its row, as-is, truncated to the
-        // stored width, aligned (meta.text_align, default center)
-        var align = (block.meta || {}).text_align;
+        // stored width, aligned (meta.text_align, default center); the
+        // line block is shifted vertically (meta.vertical_align, default
+        // middle), lines past the bottom are not drawn
+        var meta = block.meta || {};
+        var align = meta.text_align;
         if (align !== "left" && align !== "center" && align !== "right") align = "center";
+        var valign = meta.vertical_align;
+        if (valign !== "top" && valign !== "middle" && valign !== "bottom") valign = "middle";
         var lines = String(block.content == null ? "" : block.content).split("\n");
+        var vOff = vAlignOffset(lines.length, h, valign);
         for (var li = 0; li < lines.length; li++) {
-            if (li >= h) break;
-            var row = y + li;
+            if (li + vOff >= h) break;
+            var row = y + vOff + li;
             if (row >= gh) break;
             var line = lines[li].slice(0, w);
             var off = hAlignOffset(line.length, w, align);
@@ -637,18 +645,24 @@
 
     // Port of _divider_segments_html: the HTML overlay of a divider
     // (variant E) — a line segment per row (up to two divs around the
-    // label); empty content — one div per row.
+    // label); empty content — one div per row. The label's row accounts
+    // for the vertical shift (meta.vertical_align, default middle).
     function dividerSegmentsHtml(bd, opts, style) {
         var width = bd.width != null ? bd.width : 20;
         var height = bd.height != null ? bd.height : 3;
         var content = bd.content || "";
-        var align = (bd.meta || {}).text_align;
+        var meta = bd.meta || {};
+        var align = meta.text_align;
         if (align !== "left" && align !== "center" && align !== "right") align = "center";
+        var valign = meta.vertical_align;
+        if (valign !== "top" && valign !== "middle" && valign !== "bottom") valign = "middle";
 
         var lines = content.split("\n");
+        var vOff = vAlignOffset(lines.length, height, valign);
         var parts = [];
         for (var row = 0; row < height; row++) {
-            var line = row < lines.length ? lines[row].slice(0, width) : "";
+            var idx = row - vOff;
+            var line = (idx >= 0 && idx < lines.length) ? lines[idx].slice(0, width) : "";
             // An empty line has no offset (alignment is a no-op) — one
             // full-width segment per row
             var off = line ? hAlignOffset(line.length, width, align) : 0;

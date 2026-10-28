@@ -1099,6 +1099,51 @@ test("divider alignment", () => {
     assert.equal(ls[2].slice(0, 20), "─".repeat(17) + "ccc");
 });
 
+test("divider vertical align: default middle", () => {
+    // The label block is vertically centered by default (meta.vertical_align
+    // absent — unlike box, whose default is top)
+    const result = render(dividerBlock("or", 20, 3));
+    const ls = lines(result);
+    assert.equal(ls[0].slice(0, 20), "─".repeat(20));
+    assert.equal(ls[1].slice(0, 20), "─".repeat(9) + "or" + "─".repeat(9));
+    assert.equal(ls[2].slice(0, 20), "─".repeat(20));
+});
+
+test("divider vertical align: top / bottom", () => {
+    let ls = lines(render(dividerBlock("or", 20, 3, { vertical_align: "top" })));
+    assert.equal(ls[0].slice(0, 20), "─".repeat(9) + "or" + "─".repeat(9));
+    assert.equal(ls[1].slice(0, 20), "─".repeat(20));
+    assert.equal(ls[2].slice(0, 20), "─".repeat(20));
+
+    ls = lines(render(dividerBlock("or", 20, 3, { vertical_align: "bottom" })));
+    assert.equal(ls[0].slice(0, 20), "─".repeat(20));
+    assert.equal(ls[1].slice(0, 20), "─".repeat(20));
+    assert.equal(ls[2].slice(0, 20), "─".repeat(9) + "or" + "─".repeat(9));
+});
+
+test("divider vertical align: multiline block shift", () => {
+    // A multiline label: the whole line block is shifted (middle — the
+    // extra row goes to the bottom)
+    const result = render(dividerBlock("a\nbb", 20, 5, { vertical_align: "middle" }));
+    const ls = lines(result);
+    // vOff = (5-2)//2 = 1
+    assert.equal(ls[0].slice(0, 20), "─".repeat(20));
+    assert.equal(ls[1].slice(0, 20), "─".repeat(9) + "a" + "─".repeat(10));
+    assert.equal(ls[2].slice(0, 20), "─".repeat(9) + "bb" + "─".repeat(9));
+    assert.equal(ls[3].slice(0, 20), "─".repeat(20));
+    assert.equal(ls[4].slice(0, 20), "─".repeat(20));
+});
+
+test("divider vertical align: overflow is not shifted", () => {
+    // Content taller than the block: no shift, the tail is clipped
+    const result = render(dividerBlock("a\nbb\nccc\ndddd", 20, 2, { vertical_align: "bottom" }));
+    const ls = lines(result);
+    assert.equal(ls[0].slice(0, 20), "─".repeat(9) + "a" + "─".repeat(10));
+    assert.equal(ls[1].slice(0, 20), "─".repeat(9) + "bb" + "─".repeat(9));
+    assert.ok(!result.includes("ccc"));
+    assert.ok(!result.includes("dddd"));
+});
+
 test("divider truncates to width", () => {
     // A line longer than the stored width is truncated (no word wrap)
     const result = render(dividerBlock("abcdefghij", 8, 1));
@@ -1525,6 +1570,34 @@ test("renderHtmlPreview divider label fills the row: no segments", () => {
         content: "abcd", border_style: "solid",
     }]);
     assert.ok(!html.includes("block-line--seg"));
+});
+
+test("renderHtmlPreview divider vertical align: segments follow the shift", () => {
+    // Default middle: the label sits on the middle row (center 21.6px)
+    let html = PG.renderHtmlPreview([{
+        id: "d4", block_type: "divider",
+        x: 0, y: 0, width: 20, height: 3,
+        content: "or", border_style: "solid",
+    }]);
+    // "or" centered in 20: offset 9 → 9-cell segments (108px) at 0 and
+    // 132px; rows 0 and 2 are full-width
+    assert.ok(html.includes('style="top:7.2px;left:0px;width:240px;"'));
+    assert.ok(html.includes('style="top:21.6px;left:0px;width:108px;"'));
+    assert.ok(html.includes('style="top:21.6px;left:132px;width:108px;"'));
+    assert.ok(html.includes('style="top:36px;left:0px;width:240px;"'));
+    assert.equal(html.split('block-line--seg').length - 1, 4);
+
+    // top: the label sits on row 0 (center 7.2px)
+    html = PG.renderHtmlPreview([{
+        id: "d5", block_type: "divider",
+        x: 0, y: 0, width: 20, height: 3,
+        content: "or", border_style: "solid",
+        meta: { vertical_align: "top" },
+    }]);
+    assert.ok(html.includes('style="top:7.2px;left:0px;width:108px;"'));
+    assert.ok(html.includes('style="top:7.2px;left:132px;width:108px;"'));
+    assert.ok(html.includes('style="top:21.6px;left:0px;width:240px;"'));
+    assert.ok(html.includes('style="top:36px;left:0px;width:240px;"'));
 });
 
 // ── Full canvas HTML (renderHtml) ─────────────────────────

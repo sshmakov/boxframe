@@ -122,8 +122,10 @@
             clearDefault: true,
             panel: "primary",
         },
-        // A divider's label is 1:1 with its rows (no vertical shift) —
-        // vertical_align does not apply to it.
+        // A divider's label block is shifted vertically inside the
+        // stored height — default MIDDLE (unlike box, whose default is
+        // top): a divider without meta.vertical_align centers its label,
+        // and picking middle clears the key (typeDefaults + clearDefault).
         {
             key: "vertical_align",
             meta: true,
@@ -134,8 +136,9 @@
             group: "Align",
             row: "align",
             types: ["box", "header", "footer", "sidebar", "content", "button",
-                    "input", "textarea", "image", "text", "grid"],
+                    "input", "textarea", "image", "text", "grid", "divider"],
             default: "top",
+            typeDefaults: { divider: "middle" },
             clearDefault: true,
             panel: "primary",
         },

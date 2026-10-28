@@ -295,20 +295,27 @@ def _divider_segments_html(
     up to two divs per row (left/right of the label), because the
     overlay sits above the ASCII layer and a full line would cross the
     text. Segments are computed from the label's position/length after
-    alignment (meta.text_align, default center); empty content — one
-    div per row.
+    alignment (meta.text_align, default center) and the vertical shift
+    of the line block (meta.vertical_align, default middle); empty
+    content — one div per row.
     """
     width = bd.get("width", 20)
     height = bd.get("height", 3)
     content = bd.get("content") or ""
-    align = (bd.get("meta") or {}).get("text_align")
+    meta = bd.get("meta") or {}
+    align = meta.get("text_align")
     if align not in ("left", "center", "right"):
         align = "center"
+    valign = meta.get("vertical_align")
+    if valign not in ("top", "middle", "bottom"):
+        valign = "middle"
 
     lines = content.split("\n")
+    v_off = v_align_offset(len(lines), height, valign)
     parts: list[str] = []
     for row in range(height):
-        line = lines[row][:width] if row < len(lines) else ""
+        idx = row - v_off
+        line = lines[idx][:width] if 0 <= idx < len(lines) else ""
         # An empty line has no offset (alignment is a no-op) — one
         # full-width segment per row
         off = h_align_offset(len(line), width, align) if line else 0
@@ -629,7 +636,10 @@ class PseudoGraphicRenderer:
         """Draw a divider (variant E, tasks/0003): a line on every row of
         the stored size, the label lines drawn over their rows as-is (no
         word wrap, no whitespace collapse), each line aligned
-        independently (meta.text_align, default center).
+        independently (meta.text_align, default center); the line block
+        is shifted vertically inside the stored height
+        (meta.vertical_align, default middle — unlike box, whose default
+        is top).
 
         The block is drawn within its stored size — no recalculation
         (the grow-only autosize lives in LayoutService). The label's own
@@ -651,14 +661,21 @@ class PseudoGraphicRenderer:
                     self._set(x + i, y + j, style["h"])
 
         # Label: each content line over its row, as-is, truncated to the
-        # stored width, aligned (meta.text_align, default center)
+        # stored width, aligned (meta.text_align, default center); the
+        # line block is shifted vertically (meta.vertical_align, default
+        # middle), lines past the bottom are not drawn
         align = (block.meta or {}).get("text_align")
         if align not in ("left", "center", "right"):
             align = "center"
-        for i, line in enumerate((block.content or "").split("\n")):
-            if i >= h:
+        valign = (block.meta or {}).get("vertical_align")
+        if valign not in ("top", "middle", "bottom"):
+            valign = "middle"
+        lines = (block.content or "").split("\n")
+        v_off = v_align_offset(len(lines), h, valign)
+        for i, line in enumerate(lines):
+            if i + v_off >= h:
                 break
-            row = y + i
+            row = y + v_off + i
             if row >= self.grid_height:
                 break
             line = line[:w]

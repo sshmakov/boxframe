@@ -1735,9 +1735,10 @@ function editorApp() {
             if (type === 'button') return { width: 16, height: 1, content: 'Button' };
             if (type === 'hline') return { width: 20, height: 1, content: '' };
             if (type === 'vline') return { width: 1, height: 5, content: '' };
-            // Divider (variant E): one line by default; the label (content)
-            // grows it — the store autosizes on create, grow-only.
-            if (type === 'divider') return { width: 20, height: 1, content: '' };
+            // Divider (variant E): one line by default with the [divider]
+            // label; the label grows it — the store autosizes on create,
+            // grow-only.
+            if (type === 'divider') return { width: 30, height: 1, content: '[divider]' };
             if (type === 'text') {
                 // Text autosizes to its content — no border by default, the
                 // size is the placeholder's fit size (the store recomputes

@@ -1221,6 +1221,60 @@ def test_divider_alignment():
     assert lines[2][:20] == "─" * 17 + "ccc"
 
 
+def test_divider_vertical_align_default_middle():
+    """The label block is vertically centered by default
+    (meta.vertical_align absent — unlike box, whose default is top)."""
+    result = _render(_divider_block(content="or", height=3))
+    lines = result.split("\n")
+    assert lines[0][:20] == "─" * 20
+    assert lines[1][:20] == "─" * 9 + "or" + "─" * 9
+    assert lines[2][:20] == "─" * 20
+
+
+def test_divider_vertical_align_top():
+    result = _render(_divider_block(
+        content="or", height=3, meta={"vertical_align": "top"}))
+    lines = result.split("\n")
+    assert lines[0][:20] == "─" * 9 + "or" + "─" * 9
+    assert lines[1][:20] == "─" * 20
+    assert lines[2][:20] == "─" * 20
+
+
+def test_divider_vertical_align_bottom():
+    result = _render(_divider_block(
+        content="or", height=3, meta={"vertical_align": "bottom"}))
+    lines = result.split("\n")
+    assert lines[0][:20] == "─" * 20
+    assert lines[1][:20] == "─" * 20
+    assert lines[2][:20] == "─" * 9 + "or" + "─" * 9
+
+
+def test_divider_vertical_align_multiline():
+    """A multiline label: the whole line block is shifted (middle — the
+    extra row goes to the bottom)."""
+    result = _render(_divider_block(
+        content="a\nbb", height=5, meta={"vertical_align": "middle"}))
+    lines = result.split("\n")
+    # v_off = (5-2)//2 = 1
+    assert lines[0][:20] == "─" * 20
+    assert lines[1][:20] == "─" * 9 + "a" + "─" * 10
+    assert lines[2][:20] == "─" * 9 + "bb" + "─" * 9
+    assert lines[3][:20] == "─" * 20
+    assert lines[4][:20] == "─" * 20
+
+
+def test_divider_vertical_align_overflow_not_shifted():
+    """Content taller than the block: no shift, the tail is clipped
+    (same rule as box)."""
+    result = _render(_divider_block(
+        content="a\nbb\nccc\ndddd", height=2, meta={"vertical_align": "bottom"}))
+    lines = result.split("\n")
+    assert lines[0][:20] == "─" * 9 + "a" + "─" * 10
+    assert lines[1][:20] == "─" * 9 + "bb" + "─" * 9
+    assert "ccc" not in result
+    assert "dddd" not in result
+
+
 def test_divider_truncates_to_width():
     """A line longer than the stored width is truncated (no word wrap)."""
     result = _render(_divider_block(content="abcdefghij", width=8))
@@ -1577,6 +1631,41 @@ def test_render_html_preview_divider_label_fills_row():
         "border_style": "solid",
     }])
     assert "block-line--seg" not in html
+
+
+def test_render_html_preview_divider_vertical_align():
+    """The segments follow the vertical shift of the label block
+    (default middle — the label sits on the middle row)."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "d4",
+        "x": 0, "y": 0,
+        "width": 20, "height": 3,
+        "block_type": "divider",
+        "content": "or",
+        "border_style": "solid",
+    }])
+    # "or" centered in 20: offset 9 → 9-cell segments (108px) at 0 and
+    # 132px on the middle row (center 21.6px); rows 0 and 2 are full-width
+    assert 'style="top:7.2px;left:0px;width:240px;"' in html
+    assert 'style="top:21.6px;left:0px;width:108px;"' in html
+    assert 'style="top:21.6px;left:132px;width:108px;"' in html
+    assert 'style="top:36px;left:0px;width:240px;"' in html
+    assert html.count('block-line--seg') == 4
+
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "d5",
+        "x": 0, "y": 0,
+        "width": 20, "height": 3,
+        "block_type": "divider",
+        "content": "or",
+        "border_style": "solid",
+        "meta": {"vertical_align": "top"},
+    }])
+    # top: the label sits on row 0 (center 7.2px)
+    assert 'style="top:7.2px;left:0px;width:108px;"' in html
+    assert 'style="top:7.2px;left:132px;width:108px;"' in html
+    assert 'style="top:21.6px;left:0px;width:240px;"' in html
+    assert 'style="top:36px;left:0px;width:240px;"' in html
 
 
 def test_render_html_preview_border_none():
