@@ -1828,3 +1828,192 @@ def test_render_html_preview_with_order():
     assert "z-index:15" in html
     assert 'data-order="0"' in html
     assert 'data-order="5"' in html
+
+
+# ── Content placeholder (todo-0004) ──────────────────────────────
+
+
+def test_content_placeholder_default_size():
+    """Empty content block 40×10 → lorem placeholder, 8 lines, last shorter."""
+    result = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 40, "height": 10,
+        "content": "",
+        "border_style": "solid",
+    }], width=40, height=10)
+    lines = result.split("\n")
+    assert len(lines) == 10
+    # Border rows
+    assert lines[0][0] == "┌"
+    assert lines[0][39] == "┐"
+    assert lines[9][0] == "└"
+    assert lines[9][39] == "┘"
+    # Content rows: 8 lines (rows 1–8)
+    content_lines = []
+    for i in range(1, 9):
+        row = lines[i]
+        assert row[0] == "│"
+        assert row[39] == "│"
+        content_lines.append(row[1:39])
+    # First line starts with "lorem"
+    assert content_lines[0].startswith("lorem")
+    # Last line is shorter than the others (~70% of 38 = 26)
+    assert len(content_lines[-1].rstrip()) < len(content_lines[0].rstrip())
+    # All lines are non-empty
+    for cl in content_lines:
+        assert cl.strip()
+
+
+def test_content_placeholder_deterministic():
+    """Same size → same placeholder (deterministic)."""
+    block = {
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 30, "height": 6,
+        "content": "",
+        "border_style": "solid",
+    }
+    r1 = _render([block], width=30, height=6)
+    r2 = _render([block], width=30, height=6)
+    assert r1 == r2
+
+
+def test_content_placeholder_resize_rewraps():
+    """Different sizes → different placeholder lines (live re-layout)."""
+    small = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 20, "height": 4,
+        "content": "",
+        "border_style": "solid",
+    }], width=20, height=4)
+    large = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 40, "height": 10,
+        "content": "",
+        "border_style": "solid",
+    }], width=40, height=10)
+    # Different sizes produce different content
+    small_content = "\n".join(l[1:19] for l in small.split("\n")[1:3])
+    large_content = "\n".join(l[1:39] for l in large.split("\n")[1:9])
+    assert small_content != large_content
+    # Both start with "lorem"
+    assert small_content.startswith("lorem")
+    assert large_content.startswith("lorem")
+
+
+def test_content_placeholder_last_line_shorter():
+    """Last line is ~70% of content width (only when h>=2 and w>=4)."""
+    result = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 40, "height": 10,
+        "content": "",
+        "border_style": "solid",
+    }], width=40, height=10)
+    lines = result.split("\n")
+    content_lines = [l[1:39] for l in lines[1:9]]
+    # Content width is 38; last line should be <= 26 chars (38*7//10=26)
+    last_len = len(content_lines[-1].rstrip())
+    assert last_len <= 26
+    assert last_len >= 3
+    # Last line is shorter than the longest content line
+    max_len = max(len(cl.rstrip()) for cl in content_lines[:-1])
+    assert last_len < max_len
+
+
+def test_content_nonempty_content_no_placeholder():
+    """Non-empty content → word-wrap as before, no lorem placeholder."""
+    result = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 20, "height": 5,
+        "content": "Hello World",
+        "border_style": "solid",
+    }], width=20, height=5)
+    lines = result.split("\n")
+    # Content should show "Hello World", not lorem
+    content_text = "\n".join(l[1:19] for l in lines[1:4])
+    assert "Hello" in content_text
+    assert "lorem" not in content_text
+
+
+def test_content_fill_suppresses_placeholder():
+    """Fill suppresses the lorem placeholder."""
+    result = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 20, "height": 5,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"fill": "░"},
+    }], width=20, height=5)
+    lines = result.split("\n")
+    # Content area should be filled with ░, no lorem
+    for i in range(1, 4):
+        row = lines[i][1:19]
+        assert "lorem" not in row
+        assert all(c == "░" for c in row)
+
+
+def test_content_placeholder_text_align():
+    """Placeholder follows meta.text_align."""
+    # Left-aligned (default)
+    left = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 30, "height": 4,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"text_align": "left"},
+    }], width=30, height=4)
+    # Center-aligned
+    center = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 30, "height": 4,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"text_align": "center"},
+    }], width=30, height=4)
+    # Last content line (row 2, shorter) should be positioned differently
+    left_last = left.split("\n")[2][1:29]
+    center_last = center.split("\n")[2][1:29]
+    assert left_last != center_last
+    # Left-aligned: starts at position 0 (no leading spaces)
+    assert left_last[0] != " "
+    # Center-aligned: has leading spaces (shorter line centered)
+    assert center_last[0] == " "
+
+
+def test_content_placeholder_no_border():
+    """Content block without border → placeholder in full area."""
+    result = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 20, "height": 4,
+        "content": "",
+        "border_style": "none",
+    }], width=20, height=4)
+    lines = result.split("\n")
+    assert len(lines) == 4
+    # No border characters, content starts at column 0
+    assert lines[0].startswith("lorem")
+
+
+def test_content_placeholder_small_block():
+    """Very small content block (2×2) → no placeholder (no content area)."""
+    result = _render([{
+        "block_type": "content",
+        "x": 0, "y": 0,
+        "width": 2, "height": 2,
+        "content": "",
+        "border_style": "solid",
+    }], width=20, height=10)
+    lines = result.split("\n")
+    # 2×2 block: just border, no content area
+    assert lines[0] == "┌┐"
+    assert lines[1] == "└┘"
+    assert "lorem" not in result

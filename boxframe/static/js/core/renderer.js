@@ -68,6 +68,14 @@
         content: true, grid: true, image: true,
     };
 
+    // Fixed lorem source for the content-block placeholder (todo-0004).
+    // Mirrors LOREM_PLACEHOLDER in services/renderer.py.
+    var LOREM_PLACEHOLDER =
+        "lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do " +
+        "eiusmod tempor incididunt ut labore et dolore magna aliqua. ut " +
+        "enim ad minim veniam, quis nostrud exercitation ullamco laboris " +
+        "nisi ut aliquip ex ea commodo consequat.";
+
     // Port of fill_char in services/renderer.py: the block's fill
     // character (meta.fill), if applicable. fill applies only to
     // FILL_TYPES; the value must be exactly one cell (a wide character
@@ -175,6 +183,23 @@
             }
         }
         return wrapped;
+    }
+
+    // Port of PseudoGraphicRenderer.placeholder_lines: lorem placeholder
+    // lines for an empty content block (todo-0004). Wraps the fixed lorem
+    // source to width w, takes the first h lines, and shortens the last
+    // line to ~70% of w (only when h >= 2 and w >= 4) — "like a paragraph".
+    // Regenerated on each render (live re-layout on resize).
+    function placeholderLines(w, h) {
+        if (w <= 0 || h <= 0) return [];
+        var text = "";
+        for (var i = 0; i < h + 1; i++) text += LOREM_PLACEHOLDER + " ";
+        var lines = wrapText(text, w).slice(0, h);
+        if (h >= 2 && w >= 4 && lines.length > 0) {
+            var last = lines.length - 1;
+            lines[last] = lines[last].slice(0, Math.max(3, Math.floor(w * 7 / 10)));
+        }
+        return lines;
     }
 
     // Port of text_block_size in services/renderer.py: the fit size of a
@@ -418,8 +443,24 @@
         }
 
         if (!block.content) {
-            // Show type hint if no content and no fill
-            if (hasBorder && w >= 4 && !fill) {
+            if (block.block_type === "content" && !fill && contentW > 0 && contentH > 0) {
+                // Lorem placeholder (todo-0004): deterministic lines wrapped
+                // to the content area, last line shorter — "like a paragraph".
+                // Regenerated on each render (live re-layout on resize).
+                var phLines = placeholderLines(contentW, contentH);
+                var phVOff = vAlignOffset(phLines.length, contentH, (block.meta || {}).vertical_align);
+                var phHAlign = (block.meta || {}).text_align;
+                for (var pli = 0; pli < phLines.length; pli++) {
+                    if (pli + phVOff >= contentH) break;
+                    var prow = contentY + pli + phVOff;
+                    if (prow >= gh) break;
+                    var pline = phLines[pli];
+                    var poff = hAlignOffset(pline.length, contentW, phHAlign);
+                    for (var pcol = 0; pcol < pline.length; pcol++) {
+                        setCell(grid, gw, gh, clip, contentX + poff + pcol, prow, pline[pcol]);
+                    }
+                }
+            } else if (hasBorder && w >= 4 && !fill) {
                 var hint = "[" + block.block_type + "]";
                 for (var i = 0; i < hint.length; i++) {
                     if (contentX + i < contentX + contentW && contentY < gh) {

@@ -154,13 +154,13 @@
 
 ## Если вариант 2
 
-- [ ] `services/renderer.py` — `placeholder_lines(w, h)` + ветка в
+- [x] `services/renderer.py` — `placeholder_lines(w, h)` + ветка в
       `_draw_content` (пустой контент, без fill, тип `content` →
       плейсхолдер через путь контента)
-- [ ] `static/js/core/renderer.js` — порт (parity побайтово)
-- [ ] `static/js/editor.js` — `_blockDefaults()`: `content` →
+- [x] `static/js/core/renderer.js` — порт (parity побайтово)
+- [x] `static/js/editor.js` — `_blockDefaults()`: `content` →
       `{ width: 40, height: 10, content: '' }`
-- [ ] Тесты: `tests/test_renderer.py` + `tests/js/test_renderer.js`:
+- [x] Тесты: `tests/test_renderer.py` + `tests/js/test_renderer.js`:
       - пустой контент → lorem-плейсхолдер (детерминированно, точные
         строки при фиксированном размере)
       - resize → плейсхолдер переносится (больше/меньше строк,
@@ -170,8 +170,8 @@
       - fill подавляет плейсхолдер
       - плейсхолдер следует `meta.text_align`
       - прогон parity
-- [ ] todo-0001 — пометить пункт по `content`
-- [ ] Полный прогон тестов (unit/API/JS; e2e — палитра без изменений, 14)
+- [x] todo-0001 — пометить пункт по `content`
+- [x] Полный прогон тестов (unit/API/JS; e2e — палитра без изменений, 14)
 
 ## Если вариант 1
 
