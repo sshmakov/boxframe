@@ -61,7 +61,15 @@ def _drop_file(page: Page, selector: str = "body") -> None:
     })
 
 
-def _create_project_with_block(page: Page) -> tuple[str, str]:
+def _create_project_with_block(
+    page: Page,
+    block_type: str = "box",
+    content: str = "Old",
+    x: int = 2,
+    y: int = 2,
+    width: int = 20,
+    height: int = 4,
+) -> tuple[str, str]:
     """Create a project and layout via the UI, add a block via the API.
 
     Returns (layout_id, block_id).
@@ -81,9 +89,9 @@ def _create_project_with_block(page: Page) -> tuple[str, str]:
     r = requests.post(
         f"{BASE_URL}/api/layouts/{layout_id}/blocks",
         json={
-            "block_type": "box",
-            "x": 2, "y": 2, "width": 20, "height": 4,
-            "content": "Old",
+            "block_type": block_type,
+            "x": x, "y": y, "width": width, "height": height,
+            "content": content,
         },
         timeout=5,
     )
@@ -158,6 +166,165 @@ def test_double_click_esc_cancels_edit(page: Page):
     r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
     block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
     assert block["content"] == "Old"
+
+
+def test_blur_saves_block_content(page: Page):
+    """Clicking away from the inline editor (blur) saves the content —
+    the same commit path as Enter."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').dblclick()
+    textarea = page.locator(".block-edit-overlay textarea")
+    expect(textarea).to_be_visible()
+
+    textarea.fill("Saved on blur")
+    # Click outside the textarea (the sidebar) — the blur commits the edit
+    page.locator(".editor-sidebar .section-title").first.click()
+
+    expect(page.locator(".block-edit-overlay")).not_to_be_visible()
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+    assert block["content"] == "Saved on blur"
+
+
+def test_shift_enter_inserts_newline(page: Page):
+    """Shift+Enter inserts a newline in the inline editor (multi-line
+    content) without saving; a plain Enter saves the result."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').dblclick()
+    textarea = page.locator(".block-edit-overlay textarea")
+    expect(textarea).to_be_visible()
+
+    textarea.fill("line one")
+    textarea.press("Shift+Enter")
+    textarea.type("line two")
+    # The editor is still open — Shift+Enter did not save
+    expect(textarea).to_be_visible()
+
+    textarea.press("Enter")
+    expect(page.locator(".block-edit-overlay")).not_to_be_visible()
+
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+    assert block["content"] == "line one\nline two"
+
+
+def test_double_click_other_block_commits_first_edit(page: Page):
+    """Double-clicking a second block while editing commits the
+    in-progress edit and reopens the editor on the new block."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    # A second block to switch to (below the first, no overlap)
+    r = requests.post(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks",
+        json={"block_type": "box", "x": 2, "y": 10, "width": 20, "height": 4,
+              "content": "Second"},
+        timeout=5,
+    )
+    assert r.status_code == 200
+    second_id = r.json()["id"]
+    page.reload()
+    expect(page.locator(f'.block-preview[data-block-id="{second_id}"]').first).to_be_visible()
+
+    # Start editing the first block
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').dblclick()
+    textarea = page.locator(".block-edit-overlay textarea")
+    expect(textarea).to_be_visible()
+    textarea.fill("First saved")
+
+    # Double-click the second block: the first edit is committed and the
+    # editor reopens on the second block with its content
+    page.locator(f'.block-preview[data-block-id="{second_id}"]').dblclick()
+    expect(textarea).to_be_visible()
+    expect(textarea).to_have_value("Second")
+
+    # The first edit landed in the database (the PUT was in flight while
+    # the editor switched — poll)
+    def db_content(block_id_):
+        r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+        return next(b for b in r.json()["blocks"] if b["id"] == block_id_)["content"]
+
+    for _ in range(20):
+        if db_content(block_id) == "First saved":
+            break
+        page.wait_for_timeout(100)
+    assert db_content(block_id) == "First saved"
+    assert db_content(second_id) == "Second"
+
+
+def test_enter_without_changes_sends_no_update(page: Page):
+    """Pressing Enter in the inline editor without changing the content
+    closes the editor and sends no update request (no-op commit)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    updates = []
+
+    def on_request(req):
+        if req.method == "PUT" and f"/blocks/{block_id}" in req.url:
+            updates.append(req)
+
+    page.on("request", on_request)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').dblclick()
+    textarea = page.locator(".block-edit-overlay textarea")
+    expect(textarea).to_be_visible()
+
+    textarea.press("Enter")
+    expect(page.locator(".block-edit-overlay")).not_to_be_visible()
+    page.wait_for_timeout(300)
+
+    assert updates == []
+
+
+def test_inline_edit_autosizes_text_block(page: Page):
+    """Saving longer text in the inline editor resizes the text block
+    (autosize, task 0049); the canvas picks up the new size from the
+    merged update response."""
+    layout_id, block_id = _create_project_with_block(
+        page, block_type="text", content="hello")
+
+    preview = page.locator(f'.block-preview[data-block-id="{block_id}"]')
+    expect(preview).to_be_visible()
+
+    # The editor re-renders the canvas once after measuring the real
+    # character size — poll until the preview has a box (bounding_box
+    # does not retry on its own)
+    def preview_width():
+        for _ in range(20):
+            box = preview.bounding_box()
+            if box:
+                return box["width"]
+            page.wait_for_timeout(100)
+        raise AssertionError("block preview has no bounding box")
+
+    width_before = preview_width()
+
+    preview.dblclick()
+    textarea = page.locator(".block-edit-overlay textarea")
+    expect(textarea).to_be_visible()
+    expect(textarea).to_have_value("hello")
+
+    textarea.fill("hello world")
+    textarea.press("Enter")
+    expect(page.locator(".block-edit-overlay")).not_to_be_visible()
+
+    # The server autosized the block to the new content (11×1, no border)
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    block = next(b for b in r.json()["blocks"] if b["id"] == block_id)
+    assert (block["width"], block["height"]) == (11, 1)
+
+    # The canvas preview grew — the editor merged the stored result back.
+    # The commit is fire-and-forget from the keydown handler, so the PUT
+    # response (and the re-render) may still be in flight — poll.
+    width_after = width_before
+    for _ in range(20):
+        box = preview.bounding_box()
+        if box and box["width"] > width_before:
+            width_after = box["width"]
+            break
+        page.wait_for_timeout(100)
+    assert width_after > width_before
 
 
 def test_single_click_selects_block(page: Page):
@@ -1840,6 +2007,31 @@ def test_static_editor_delete_block_in_memory(page: Page):
 
     expect(page.locator(".block-preview")).to_have_count(0)
     expect(page.locator(".block-item")).to_have_count(0)
+
+
+def test_static_editor_inline_edit_saves(page: Page):
+    """Double-clicking a block in the static editor opens inline editing;
+    Enter saves the content to the local store and it survives a reload
+    (localStorage)."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="box").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+
+    page.locator(".block-preview").dblclick()
+    textarea = page.locator(".block-edit-overlay textarea")
+    expect(textarea).to_be_visible()
+    expect(textarea).to_have_value("[box]")
+
+    textarea.fill("Static edit")
+    textarea.press("Enter")
+    expect(page.locator(".block-edit-overlay")).not_to_be_visible()
+
+    # The JS renderer shows the new content on the canvas
+    expect(page.locator(".canvas-container .ascii-art")).to_contain_text("Static edit")
+
+    # The change is persisted in localStorage
+    page.reload()
+    expect(page.locator(".canvas-container .ascii-art")).to_contain_text("Static edit")
 
 
 def test_static_editor_persists_layout_in_localstorage(page: Page):
