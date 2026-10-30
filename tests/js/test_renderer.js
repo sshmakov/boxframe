@@ -1903,3 +1903,183 @@ test("content placeholder small block", () => {
     assert.equal(ls[1], "└┘");
     assert.ok(!result.includes("lorem"));
 });
+
+// ── Grid tests (variant 1 — partitions, todo-0005) ─────────────────
+
+function gridBlock(width = 24, height = 8, meta, border_style = "solid",
+                   x = 0, y = 0, content = "") {
+    const b = {
+        id: "g1", block_type: "grid",
+        x, y, width, height, content, border_style,
+    };
+    if (meta) b.meta = meta;
+    return [b];
+}
+
+test("gridMetaInt: positive int or default", () => {
+    assert.equal(PG.gridMetaInt(null, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({}, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: 5 }, "cols", 3), 5);
+    assert.equal(PG.gridMetaInt({ cols: 1 }, "cols", 3), 1);
+    assert.equal(PG.gridMetaInt({ cols: 0 }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: -1 }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: "5" }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: true }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: 2.5 }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ rows: 4 }, "rows", 2), 4);
+});
+
+test("grid default 3x2", () => {
+    // Default grid (no meta → 3 cols × 2 rows), solid border: the outer
+    // frame plus inner partitions with junction nodes; empty content area.
+    const result = render(gridBlock());
+    const expected = [
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+test("grid split with remainder", () => {
+    // 21×7 → inner 19×5, cols=4 → partitions at inner 4, 9, 14
+    const result = render(gridBlock(21, 7, { cols: 4, rows: 2 }));
+    const ls = lines(result);
+    // inner_x = 1, so partitions at absolute cols 5, 10, 15
+    assert.equal(ls[0][5], "┬");
+    assert.equal(ls[0][10], "┬");
+    assert.equal(ls[0][15], "┬");
+    assert.equal(ls[6][5], "┴");
+    assert.equal(ls[6][10], "┴");
+    assert.equal(ls[6][15], "┴");
+    // rows=2 → the single horizontal partition at inner 2 → absolute row 3
+    assert.equal(ls[3][0], "├");
+    assert.equal(ls[3][20], "┤");
+    assert.equal(ls[3][5], "┼");
+    assert.equal(ls[3][10], "┼");
+    assert.equal(ls[3][15], "┼");
+});
+
+test("grid clamps cols to inner width", () => {
+    // 10×10 (inner 8) with cols=20 → 8 columns
+    const result = render(gridBlock(10, 10, { cols: 20, rows: 2 }));
+    const ls = lines(result);
+    // inner_x=1, inner_w=8 → partitions at every inner col 1..7 → abs 2..8
+    for (let col = 2; col <= 8; col++) {
+        assert.equal(ls[0][col], "┬");
+        assert.equal(ls[1][col], "│");
+    }
+});
+
+test("grid clamps rows to inner height", () => {
+    // 10×10 (inner 8) with rows=20 → 8 rows
+    const result = render(gridBlock(10, 10, { cols: 2, rows: 20 }));
+    const ls = lines(result);
+    // inner_y=1, inner_h=8 → partitions at every inner row 1..7 → abs 2..8
+    for (let row = 2; row <= 8; row++) {
+        assert.equal(ls[row][1], "─");
+        assert.equal(ls[row][8], "─");
+    }
+});
+
+test("grid none border", () => {
+    // border_style none — no outer border, solid partitions over the
+    // whole block area
+    const result = render(gridBlock(24, 8, null, "none"));
+    const ls = lines(result);
+    // 24×8, inner = whole block, cols=3 → partitions at inner 8, 16;
+    // rows=2 → the horizontal partition at inner 4
+    assert.equal(ls[0][8], "│");
+    assert.equal(ls[0][16], "│");
+    assert.equal(ls[4][0], "─");
+    assert.equal(ls[4][8], "┼");
+    assert.equal(ls[4][16], "┼");
+    assert.equal(ls[7][8], "│");
+    // no outer border characters
+    assert.ok(!result.includes("┌") && !result.includes("┐"));
+    assert.ok(!result.includes("└") && !result.includes("┘"));
+});
+
+test("grid fill under partitions", () => {
+    const result = render(gridBlock(12, 6, { cols: 2, rows: 2, fill: "░" }));
+    const ls = lines(result);
+    // inner 10×4, partition at inner 5 → abs col 6 (the partition takes a
+    // cell, so the columns are 5 and 4 wide); row partition at abs 3
+    assert.equal(ls[1], "│░░░░░│░░░░│");
+    assert.equal(ls[2], "│░░░░░│░░░░│");
+    assert.equal(ls[3], "├─────┼────┤");
+    assert.equal(ls[4], "│░░░░░│░░░░│");
+});
+
+test("grid children render over partitions", () => {
+    // Children are drawn after the partitions: the child's border and
+    // content overwrite the partition where they coincide; the partition
+    // stays visible outside the child.
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 0, y: 0,
+          width: 10, height: 3, content: "0123456789", border_style: "solid" },
+    ]);
+    const ls = lines(result);
+    // child box at abs (1,1) 10×3 covers the partition at abs col 8, rows 1..3
+    assert.equal(ls[1][8], "─"); // child top border overwrote the partition
+    assert.equal(ls[2][8], "6"); // child content overwrote the partition
+    assert.equal(ls[3][8], "─"); // child bottom border overwrote the partition
+    assert.equal(ls[5][8], "│"); // partition still visible below the child
+});
+
+test("grid degenerate 2x2 is plain border", () => {
+    // A 2×2 grid has no inner area → just the border, no partitions
+    const result = render(gridBlock(2, 2));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌┐");
+    assert.equal(ls[1], "└┘");
+});
+
+test("grid hint suppressed", () => {
+    // A grid is a structural element: no [grid] hint is drawn
+    const result = render(gridBlock());
+    assert.ok(!result.includes("[grid]"));
+});
+
+test("grid content not rendered", () => {
+    // The grid's content is not rendered (like a line)
+    const result = render(gridBlock(24, 8, null, "solid", 0, 0, "hello"));
+    assert.ok(!result.includes("hello"));
+});
+
+test("grid single col single row", () => {
+    // cols=1, rows=1 → no partitions, just the outer border
+    const result = render(gridBlock(24, 8, { cols: 1, rows: 1 }));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌" + "─".repeat(22) + "┐");
+    assert.equal(ls[3], "│" + " ".repeat(22) + "│");
+    assert.equal(ls[7], "└" + "─".repeat(22) + "┘");
+    // no interior partition nodes
+    assert.ok(!result.includes("┬") && !result.includes("┼") && !result.includes("┴"));
+});
+
+test("grid double border", () => {
+    // border_style double — the frame and the partitions use the double
+    // style map
+    const result = render(gridBlock(24, 8, null, "double"));
+    const ls = lines(result);
+    assert.equal(ls[0][0], "╔");
+    assert.equal(ls[0][8], "╦");
+    assert.equal(ls[0][15], "╦");
+    assert.equal(ls[0][23], "╗");
+    assert.equal(ls[1][0], "║");
+    assert.equal(ls[1][8], "║");
+    assert.equal(ls[4][0], "╠");
+    assert.equal(ls[4][8], "╬");
+    assert.equal(ls[4][23], "╣");
+    assert.equal(ls[7][0], "╚");
+    assert.equal(ls[7][8], "╩");
+    assert.equal(ls[7][23], "╝");
+});

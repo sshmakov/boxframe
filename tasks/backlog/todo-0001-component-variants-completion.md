@@ -36,8 +36,13 @@
       обоих рендерерах, autosize только роста (`divider_fit_size()`),
       HTML-оверлей сегментами, дефолт 20×1 в редакторе, `text_align`
       дефолт center; оба набора тестов + parity; палитра без изменений (14)
-- [ ] `grid`: реализовать рендер сетки (параметры в `meta`, например
-      `{"cols": 3}`: отрисовка внутренних перегородок) или убрать из палитры
+- [x] `grid`: закрыто 2026-10-30 — вариант 1 (перегородки, без номеров
+      ячеек) из `todo-0005-grid-design.md`: `_draw_grid()` в обоих
+      рендерерах (внешняя рамка + внутренние перегородки из
+      `meta.cols`/`meta.rows`, clamp к внутренней области, fill под
+      перегородками, дети поверх), hint/content не рендерятся (структурный
+      элемент), `border_style=none` → без внешней рамки, дефолт 24×8,
+      контейнер (как box); оба набора тестов + parity + API + e2e
 - [x] `button`: закрыто задачей 0022 (2026-09-10) — форма зависит от
       высоты: h=1 `[label]`, h=2 без верхней рамки, h≥3 полная рамка,
       label по центру (`meta.text_align`); оба рендерера + тесты; дефолт
@@ -72,8 +77,10 @@
       устоявшийся механизм расширенных свойств: `fill` (FILL_TYPES),
       `arrow_start`/`arrow_end` (hline/vline, 6 форм наконечника),
       `text_align`/`vertical_align`; редактируется в панели свойств
-- [ ] Двойной клик: не открывать редактор контента для `hline`/`vline`
-      (контент линии никогда не рендерится)
+- [x] Двойной клик: не открывать редактор контента для `hline`/`vline`
+      (контент линии никогда не рендерится) — закрыто 2026-10-30 вместе
+      с `grid` (todo-0005): `onCanvasDblClick()` пропускает
+      `hline`/`vline`/`grid`
 - [ ] Мёртвый код: удалить `syncFromRaw()` из `editor.js` (не вызывается
       ни из одного шаблона); классы `block-{type}` в HTML-превью —
       простилзовать или убрать
@@ -101,14 +108,15 @@ CSS, `tests/`.
 | hline | линия 1 строка (─┄┈═) + стрелки `meta.arrow_*` | CSS-линия | 20×1, без контента | сервис фиксирует h=1; стрелки, align | ✅ полный, 10 тестов |
 | vline | линия 1 колонка (│┆┊║) + стрелки | CSS-линия | 1×5, без контента | сервис фиксирует w=1; стрелки, align | ✅ полный, 10 тестов |
 | text | autosize по содержимому, по умолчанию без рамки (0049) | рамка/none | fit `[text]`, border none | autosize (`text_block_size()`), align | ✅ полный |
-| grid | как box (+ fill) | как box | 20×3 `[grid]` | fill | ❌ нет логики сетки |
+| grid | рамка + внутренние перегородки из `meta.cols`/`rows` (вариант 1, todo-0005) | рамка (общий путь) | 24×8, без контента | `_draw_grid()`, fill, контейнер | ✅ полный |
 
 Ключевые факты (2026-10-22):
 
 1. Особые пути отрисовки — `_draw_line()` (hline/vline, со стрелками),
-   `_draw_button()` (button), `_draw_divider()` (divider, вариант E) и
-   autosize текста (`text_block_size()`); все остальные типы проходят
-   общий путь `_draw_border()` + `_draw_content()`.
+   `_draw_button()` (button), `_draw_divider()` (divider, вариант E),
+   `_draw_grid()` (grid, вариант 1, перегородки) и autosize текста
+   (`text_block_size()`); все остальные типы проходят общий путь
+   `_draw_border()` + `_draw_content()`.
 2. `meta` — устоявшийся механизм расширенных свойств (0051): `fill`
    (FILL_TYPES: box/header/footer/sidebar/content/grid/image),
    `arrow_start`/`arrow_end` (hline/vline), `text_align`/`vertical_align`;
@@ -130,9 +138,11 @@ CSS, `tests/`.
 8. Покрытие тестами: `hline`/`vline` — 10+ специфичных тестов; `button` —
    полный набор по 0022 (все высоты + стили, parity); `text` — autosize
    (0049); `divider` — полный набор по варианту E (todo-0003: ASCII,
-   autosize-рост, HTML-сегменты, API, store, parity); `box` — только
-   общие; `grid`, `image`, `input`, `textarea`, `sidebar`, `footer`,
-   `header` — специфичных тестов нет.
+   autosize-рост, HTML-сегменты, API, store, parity); `grid` — полный
+   набор по варианту 1 (todo-0005: ASCII, clamp, fill, дети, none,
+   parity, API, properties, e2e); `box` — только общие; `image`,
+   `input`, `textarea`, `sidebar`, `footer`, `header` — специфичных
+   тестов нет.
 
 # Выполнение задачи
 
@@ -147,9 +157,13 @@ CSS, `tests/`.
 - todo-0003 (2026-10-28): `divider` — вариант E (мультилинейный): линия
   на каждой строке, подпись как есть, autosize только роста, HTML-оверлей
   сегментами; оба рендерера + оба набора тестов + parity
+- todo-0005 (2026-10-30): `grid` — вариант 1 (перегородки, без номеров
+  ячеек): `_draw_grid()` в обоих рендерерах, параметры в
+  `meta.cols`/`meta.rows`, контейнер; оба набора тестов + parity + API +
+  properties + e2e
 
-Остаток в бэклоге: grid, input/textarea/image,
-header/footer/sidebar, API-валидация, двойной клик по линиям, мёртвый код.
+Остаток в бэклоге: input/textarea/image,
+header/footer/sidebar, API-валидация, мёртвый код.
 
 # Замечания
 

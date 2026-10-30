@@ -7,6 +7,7 @@ Run with: pytest tests/e2e/ -v --asyncio-mode=auto
 
 import json
 import re
+import time
 
 import requests
 from playwright.sync_api import Page, expect
@@ -2615,3 +2616,119 @@ def test_panel_copy_selection_to_clipboard(page: Page):
         "│  [Go]            │\n"
         "└──────────────────┘"
     )
+
+
+# ── Grid (variant 1 — partitions, todo-0005) ───────────────
+
+
+def _top_row_junctions(page: Page) -> int:
+    """The number of ┬ (top frame nodes) on the first non-empty canvas row
+    — for a lone grid that is the number of vertical partitions (cols − 1)."""
+    return page.evaluate(
+        """() => {
+            const t = document.querySelector('.canvas-container .ascii-art').textContent;
+            for (const r of t.split('\\n')) {
+                if (r.trim() === '') continue;
+                return (r.match(/┬/g) || []).length;
+            }
+            return -1;
+        }"""
+    )
+
+
+def _poll_until(predicate, page: Page, timeout: float = 5.0) -> None:
+    """Poll ``predicate(page)`` until truthy (this Playwright has no expect.poll)."""
+    deadline = time.monotonic() + timeout
+    while not predicate(page):
+        if time.monotonic() >= deadline:
+            raise AssertionError("polling timed out")
+        page.wait_for_timeout(100)
+
+
+def test_static_editor_grid_renders_partitions(page: Page):
+    """Clicking the grid palette button adds a grid whose ASCII art shows
+    the outer frame and the inner partitions (variant 1, todo-0005)."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="grid").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+    expect(page.locator(".block-item__info strong")).to_have_text("grid")
+
+    # The default grid (24×8, 3 cols × 2 rows) renders the frame and the
+    # inner partitions — the junction nodes appear in the ASCII art
+    art = page.locator(".canvas-container .ascii-art")
+    for ch in ["┌", "┬", "├", "┼", "┴", "┘"]:
+        expect(art).to_contain_text(ch)
+    # No [grid] hint and no content (a structural element)
+    expect(art).not_to_contain_text("[grid]")
+
+
+def test_web_editor_grid_cols_live_rerender(page: Page):
+    """Changing the grid's cols in the properties panel re-renders the
+    ASCII art with the new number of columns (live, todo-0005)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+
+    # Select the grid (click its center — it has no children)
+    metrics = _canvas_metrics(page, grid_id, 24, 8)
+    x, y = _grid_point(metrics, 2 + 12, 2 + 4)
+    page.mouse.click(x, y)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    # Default 3 cols → 2 vertical partitions → 2 ┬ on the top border
+    _poll_until(lambda p: _top_row_junctions(p) == 2, page)
+
+    # Change cols to 5 in the Grid section of the panel
+    cols_input = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]').first
+    cols_input.fill("5")
+    cols_input.dispatch_event("change")
+
+    # 5 cols → 4 vertical partitions → 4 ┬ on the top border
+    _poll_until(lambda p: _top_row_junctions(p) == 4, page)
+
+
+def test_web_editor_grid_is_a_container(page: Page):
+    """Dropping a palette block onto a grid makes it the grid's child —
+    the grid is a container like a box (todo-0005)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+
+    metrics = _canvas_metrics(page, grid_id, 24, 8)
+    # Drop a button (8×1) at grid (5, 4) — its center (9, 4.5) is inside
+    # the grid (2..26 × 2..10)
+    x, y = _grid_point(metrics, 5.5, 4.5)
+
+    page.evaluate(
+        """(args) => {
+            const [x, y] = args;
+            const dt = new DataTransfer();
+            const btn = document.querySelector('.palette-btn[data-block-type="button"]');
+            btn.dispatchEvent(new DragEvent('dragstart', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+            }));
+            const canvas = document.querySelector('.canvas-container');
+            canvas.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: x, clientY: y,
+            }));
+            canvas.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: x, clientY: y,
+            }));
+            btn.dispatchEvent(new DragEvent('dragend', {bubbles: true}));
+        }""",
+        [x, y],
+    )
+    page.wait_for_timeout(400)
+
+    # The new button is a child of the grid
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    children = [b for b in blocks.values() if b["parent_id"] == grid_id]
+    assert len(children) == 1
+    assert children[0]["block_type"] == "button"

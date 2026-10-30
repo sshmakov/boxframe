@@ -2104,3 +2104,200 @@ def test_content_placeholder_small_block():
     assert lines[0] == "┌┐"
     assert lines[1] == "└┘"
     assert "lorem" not in result
+
+
+# ── Grid tests (variant 1 — partitions, todo-0005) ─────────────────
+
+def _grid_block(width=24, height=8, meta=None, border_style="solid",
+                x=0, y=0, content="", children=None):
+    data = {
+        "block_type": "grid",
+        "x": x, "y": y,
+        "width": width, "height": height,
+        "content": content,
+        "border_style": border_style,
+    }
+    if meta is not None:
+        data["meta"] = meta
+    if children is not None:
+        data["children"] = children
+    return [data]
+
+
+def test_grid_meta_int():
+    """cols/rows from meta: a positive int, otherwise the default
+    (absent, < 1, non-int, bool, float all fall back)."""
+    from boxframe.services.renderer import grid_meta_int
+    assert grid_meta_int(None, "cols", 3) == 3
+    assert grid_meta_int({}, "cols", 3) == 3
+    assert grid_meta_int({"cols": 5}, "cols", 3) == 5
+    assert grid_meta_int({"cols": 1}, "cols", 3) == 1
+    assert grid_meta_int({"cols": 0}, "cols", 3) == 3
+    assert grid_meta_int({"cols": -1}, "cols", 3) == 3
+    assert grid_meta_int({"cols": "5"}, "cols", 3) == 3
+    assert grid_meta_int({"cols": True}, "cols", 3) == 3
+    assert grid_meta_int({"cols": 2.5}, "cols", 3) == 3
+    assert grid_meta_int({"rows": 4}, "rows", 2) == 4
+
+
+def test_grid_default_3x2():
+    """Default grid (no meta → 3 cols × 2 rows), solid border: the outer
+    frame plus inner partitions with junction nodes; the content area is
+    empty (no hint, no content)."""
+    result = _render(_grid_block())
+    expected = "\n".join([
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ])
+    assert result == expected
+
+
+def test_grid_split_with_remainder():
+    """Uneven inner width: integer division, the remainder goes to the
+    last column (partitions at the requested column starts)."""
+    # 21×7 → inner 19×5, cols=4 → partitions at inner 4, 9, 14
+    result = _render(_grid_block(width=21, height=7, meta={"cols": 4, "rows": 2}))
+    lines = result.split("\n")
+    # inner_x = 1, so partitions at absolute cols 5, 10, 15
+    assert lines[0][5] == "┬"
+    assert lines[0][10] == "┬"
+    assert lines[0][15] == "┬"
+    assert lines[6][5] == "┴"
+    assert lines[6][10] == "┴"
+    assert lines[6][15] == "┴"
+    # rows=2 → the single horizontal partition at inner 2 → absolute row 3
+    assert lines[3][0] == "├"
+    assert lines[3][20] == "┤"
+    assert lines[3][5] == "┼"
+    assert lines[3][10] == "┼"
+    assert lines[3][15] == "┼"
+
+
+def test_grid_clamps_cols_to_inner_width():
+    """meta.cols larger than the inner width is clamped (every column is
+    at least 1 cell): a 10×10 grid (inner 8) with cols=20 → 8 columns."""
+    result = _render(_grid_block(width=10, height=10, meta={"cols": 20, "rows": 2}))
+    lines = result.split("\n")
+    # inner_x=1, inner_w=8 → partitions at every inner col 1..7 → abs 2..8
+    for col in range(2, 9):
+        assert lines[0][col] == "┬"
+        assert lines[1][col] == "│"
+
+
+def test_grid_clamps_rows_to_inner_height():
+    """meta.rows larger than the inner height is clamped: a 10×10 grid
+    (inner 8) with rows=20 → 8 rows."""
+    result = _render(_grid_block(width=10, height=10, meta={"cols": 2, "rows": 20}))
+    lines = result.split("\n")
+    # inner_y=1, inner_h=8 → partitions at every inner row 1..7 → abs 2..8
+    for row in range(2, 9):
+        assert lines[row][1] == "─"
+        assert lines[row][8] == "─"
+
+
+def test_grid_none_border():
+    """border_style none — no outer border, solid partitions over the
+    whole block area."""
+    result = _render(_grid_block(border_style="none"))
+    lines = result.split("\n")
+    # 24×8, inner = whole block, cols=3 → partitions at inner 8, 16;
+    # rows=2 → the horizontal partition at inner 4
+    assert lines[0][8] == "│"
+    assert lines[0][16] == "│"
+    assert lines[4][0] == "─"
+    assert lines[4][8] == "┼"
+    assert lines[4][16] == "┼"
+    assert lines[7][8] == "│"
+    # no outer border characters
+    assert "┌" not in result and "┐" not in result
+    assert "└" not in result and "┘" not in result
+
+
+def test_grid_fill_under_partitions():
+    """meta.fill paints the inner area under the partitions."""
+    result = _render(_grid_block(
+        width=12, height=6, meta={"cols": 2, "rows": 2, "fill": "░"}))
+    lines = result.split("\n")
+    # inner 10×4, partition at inner 5 → abs col 6 (the partition takes a
+    # cell, so the columns are 5 and 4 wide); row partition at abs 3
+    assert lines[1] == "│░░░░░│░░░░│"
+    assert lines[2] == "│░░░░░│░░░░│"
+    # the partition row: fill except the junction
+    assert lines[3] == "├─────┼────┤"
+    assert lines[4] == "│░░░░░│░░░░│"
+
+
+def test_grid_children_render_over_partitions():
+    """Children are drawn after the partitions: the child's border and
+    content overwrite the partition where they coincide (the child
+    interior is transparent, like any block); the partition stays
+    visible outside the child."""
+    result = _render(_grid_block(children=[{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 10, "height": 3,
+        "content": "0123456789",
+        "border_style": "solid",
+    }]))
+    lines = result.split("\n")
+    # child box at abs (1,1) 10×3 covers the partition at abs col 8, rows 1..3
+    assert lines[1][8] == "─"  # child top border overwrote the partition
+    assert lines[2][8] == "6"  # child content overwrote the partition
+    assert lines[3][8] == "─"  # child bottom border overwrote the partition
+    assert lines[5][8] == "│"  # partition still visible below the child
+
+
+def test_grid_degenerate_2x2_is_plain_border():
+    """A 2×2 grid has no inner area → just the border, no partitions."""
+    result = _render(_grid_block(width=2, height=2))
+    lines = result.split("\n")
+    assert lines[0] == "┌┐"
+    assert lines[1] == "└┘"
+
+
+def test_grid_hint_suppressed():
+    """A grid is a structural element: no [grid] hint is drawn."""
+    result = _render(_grid_block())
+    assert "[grid]" not in result
+
+
+def test_grid_content_not_rendered():
+    """The grid's content is not rendered (like a line)."""
+    result = _render(_grid_block(content="hello"))
+    assert "hello" not in result
+
+
+def test_grid_single_col_single_row():
+    """cols=1, rows=1 → no partitions, just the outer border."""
+    result = _render(_grid_block(meta={"cols": 1, "rows": 1}))
+    lines = result.split("\n")
+    assert lines[0] == "┌" + "─" * 22 + "┐"
+    assert lines[3] == "│" + " " * 22 + "│"
+    assert lines[7] == "└" + "─" * 22 + "┘"
+    # no interior partition nodes
+    assert "┬" not in result and "┼" not in result and "┴" not in result
+
+
+def test_grid_double_border():
+    """border_style double — the frame and the partitions use the double
+    style map."""
+    result = _render(_grid_block(border_style="double"))
+    lines = result.split("\n")
+    assert lines[0][0] == "╔"
+    assert lines[0][8] == "╦"
+    assert lines[0][15] == "╦"
+    assert lines[0][23] == "╗"
+    assert lines[1][0] == "║"
+    assert lines[1][8] == "║"
+    assert lines[4][0] == "╠"
+    assert lines[4][8] == "╬"
+    assert lines[4][23] == "╣"
+    assert lines[7][0] == "╚"
+    assert lines[7][8] == "╩"
+    assert lines[7][23] == "╝"

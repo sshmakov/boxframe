@@ -533,13 +533,14 @@ function editorApp() {
             };
         },
 
-        // The container (box) that a point falls into: the innermost box
+        // The container that a point falls into: the innermost container
         // whose absolute area contains the point. excludeIds — block ids to
-        // ignore (the dragged block's own subtree, so a box cannot be
+        // ignore (the dragged block's own subtree, so a container cannot be
         // dropped into itself or its descendants — that would be a cycle).
+        // Containers: box and grid (todo-0005).
         _findDropContainer(cx, cy, excludeIds) {
             const candidates = this.blocks.filter(b => {
-                if (b.block_type !== 'box') return false;
+                if (b.block_type !== 'box' && b.block_type !== 'grid') return false;
                 if (excludeIds && excludeIds.includes(b.id)) return false;
                 const r = this._absoluteRect(b);
                 return cx >= r.x && cy >= r.y &&
@@ -1453,6 +1454,10 @@ function editorApp() {
             // the click selection — see _blockAt)
             const block = this._blockAt(pos.x, pos.y);
             if (!block) return;
+            // Lines and grids have no rendered content — don't open the
+            // content editor (todo-0001)
+            if (block.block_type === 'hline' || block.block_type === 'vline'
+                || block.block_type === 'grid') return;
 
             // Clear move-drag state left over from the preceding mousedowns
             this._clearDragState();
@@ -1754,6 +1759,9 @@ function editorApp() {
             // Content (todo-0004): semantic default 40×10, empty content —
             // the renderer draws a lorem placeholder.
             if (type === 'content') return { width: 40, height: 10, content: '' };
+            // Grid (todo-0005): partitions per meta.cols/rows; 24×8 gives
+            // 3 columns × 8 cells, 2 rows × 4 cells.
+            if (type === 'grid') return { width: 24, height: 8, content: '' };
             return { width: 20, height: 3, content: `[${type}]` };
         },
 

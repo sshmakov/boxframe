@@ -1875,3 +1875,75 @@ def test_create_block_missing_parent_rejected(client: TestClient):
         "parent_id": "00000000-0000-0000-0000-000000000000",
     })
     assert r.status_code == 400
+
+
+# ── Grid tests (variant 1 — partitions, todo-0005) ─────────
+
+def test_create_grid_keeps_size_and_meta(client: TestClient):
+    """A grid is not autosized: the given size is kept and meta.cols/rows
+    pass through create/update/batch and the JSON export (metadata)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create with meta.cols/rows — the size is kept as given (no autosize)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "meta": {"cols": 4, "rows": 3},
+    })
+    assert r.status_code == 200
+    block_id = r.json()["id"]
+    assert r.json()["width"] == 24
+    assert r.json()["height"] == 8
+    assert r.json()["meta"] == {"cols": 4, "rows": 3}
+
+    # Update: the meta object is replaced (the client sends the merged meta)
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "meta": {"cols": 2, "rows": 2},
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {"cols": 2, "rows": 2}
+
+    # Manual resize is kept (no autosize), the meta is untouched
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "width": 30, "height": 10,
+    })
+    assert r.status_code == 200
+    assert r.json()["width"] == 30
+    assert r.json()["height"] == 10
+    assert r.json()["meta"] == {"cols": 2, "rows": 2}
+
+    # Batch update: meta passes through
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [{"id": block_id, "meta": {"cols": 5, "rows": 4}}],
+    })
+    assert r.status_code == 200
+    assert r.json()["updated"][0]["meta"] == {"cols": 5, "rows": 4}
+
+    # Export JSON: metadata carries cols/rows
+    r = client.get(f"/api/layouts/{layout_id}/export")
+    assert r.status_code == 200
+    exported = r.json()["layout_json"]["blocks"][0]
+    assert exported["metadata"] == {"cols": 5, "rows": 4}
+
+
+def test_grid_is_a_container(client: TestClient):
+    """A grid accepts children (parent_id) like a box."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+    })
+    assert r.status_code == 200
+    grid_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 1, "y": 1, "width": 8, "height": 3,
+        "parent_id": grid_id,
+    })
+    assert r.status_code == 200
+    child_id = r.json()["id"]
+    assert r.json()["parent_id"] == grid_id
+
+    # Deleting the grid cascades to its children
+    r = client.delete(f"/api/layouts/{layout_id}/blocks/{grid_id}")
+    assert r.status_code == 200
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.json()["blocks"] == []

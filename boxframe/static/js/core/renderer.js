@@ -257,6 +257,18 @@
         return [Math.max(width, longest), Math.max(height, nLines)];
     }
 
+    // Port of grid_meta_int in services/renderer.py: a grid's cols/rows
+    // from meta (todo-0005) — a positive int, or the default. An absent
+    // or invalid value (not an integer, < 1) falls back — the renderer
+    // is tolerant, like fillChar.
+    function gridMetaInt(meta, key, dflt) {
+        var v = meta ? meta[key] : undefined;
+        if (typeof v !== "number" || !isFinite(v) || v < 1 || Math.floor(v) !== v) {
+            return dflt;
+        }
+        return v;
+    }
+
     // ── Grid drawing (ports of the PseudoGraphicRenderer methods) ──
 
     // Write a cell, respecting the grid bounds and the active clip rect
@@ -469,6 +481,99 @@
         }
     }
 
+    // Port of PseudoGraphicRenderer._draw_grid: the outer border (per
+    // border_style) plus inner partitions — vertical (eff_cols − 1) and
+    // horizontal (eff_rows − 1) — with junction nodes from the style map.
+    // meta.cols / meta.rows (defaults 3/2, invalid → default) give the
+    // requested number of columns/rows; the effective count is clamped to
+    // the inner area (every column/row is at least 1 cell). The inner area
+    // is split evenly with integer division (the remainder goes to the
+    // last column/row). The content is not rendered (a grid is a
+    // structural element, like a line) and the [type] hint is suppressed;
+    // fill (meta.fill) is painted under the partitions; children are
+    // rendered over the partitions (by the caller). border_style none —
+    // no outer border, solid partitions.
+    function drawGrid(block, style, grid, gw, gh, clip) {
+        var x = Math.max(0, Math.min(block.x, gw - 2));
+        var y = Math.max(0, Math.min(block.y, gh - 2));
+        var w = Math.min(block.width, gw - x);
+        var h = Math.min(block.height, gh - y);
+
+        if (w < 1 || h < 1) return;
+
+        var framed = block.border_style !== "none" && w >= 2 && h >= 2;
+        var innerX, innerY, innerW, innerH;
+        if (framed) {
+            drawBorder(block, style, grid, gw, gh, clip);
+            innerX = x + 1;
+            innerY = y + 1;
+            innerW = w - 2;
+            innerH = h - 2;
+        } else {
+            innerX = x;
+            innerY = y;
+            innerW = w;
+            innerH = h;
+        }
+
+        if (innerW <= 0 || innerH <= 0) return;
+
+        // Fill under the partitions (meta.fill)
+        var fill = fillChar(block.block_type, block.meta);
+        if (fill) {
+            for (var fj = 0; fj < innerH; fj++) {
+                var frow = innerY + fj;
+                if (frow >= gh) break;
+                for (var fi = 0; fi < innerW; fi++) {
+                    setCell(grid, gw, gh, clip, innerX + fi, frow, fill);
+                }
+            }
+        }
+
+        var meta = block.meta || {};
+        var effCols = Math.min(gridMetaInt(meta, "cols", 3), innerW);
+        var effRows = Math.min(gridMetaInt(meta, "rows", 2), innerH);
+
+        // Partitions: the frame's style (none → solid)
+        var part = framed ? style : BORDERS.solid;
+
+        var colX = [];
+        for (var i = 0; i <= effCols; i++) colX.push(Math.floor((i * innerW) / effCols));
+        var rowY = [];
+        for (var j = 0; j <= effRows; j++) rowY.push(Math.floor((j * innerH) / effRows));
+
+        // Vertical partitions (with the top/bottom frame nodes)
+        for (var vi = 1; vi < effCols; vi++) {
+            var cx = innerX + colX[vi];
+            for (var vj = 0; vj < innerH; vj++) {
+                setCell(grid, gw, gh, clip, cx, innerY + vj, part.v);
+            }
+            if (framed) {
+                setCell(grid, gw, gh, clip, cx, y, part.t_t);
+                setCell(grid, gw, gh, clip, cx, y + h - 1, part.b_l);
+            }
+        }
+
+        // Horizontal partitions (with the left/right frame nodes)
+        for (var hj = 1; hj < effRows; hj++) {
+            var ry = innerY + rowY[hj];
+            for (var hi = 0; hi < innerW; hi++) {
+                setCell(grid, gw, gh, clip, innerX + hi, ry, part.h);
+            }
+            if (framed) {
+                setCell(grid, gw, gh, clip, x, ry, part.t_l);
+                setCell(grid, gw, gh, clip, x + w - 1, ry, part.t_r);
+            }
+        }
+
+        // Interior junctions
+        for (var ii = 1; ii < effCols; ii++) {
+            for (var ij = 1; ij < effRows; ij++) {
+                setCell(grid, gw, gh, clip, innerX + colX[ii], innerY + rowY[ij], part.b_b);
+            }
+        }
+    }
+
     function drawContent(block, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
@@ -619,6 +724,15 @@
 
         if (block.block_type === "divider") {
             drawDivider(block, style, grid, gw, gh, clip);
+            return;
+        }
+
+        if (block.block_type === "grid") {
+            drawGrid(block, style, grid, gw, gh, clip);
+            var hasGridChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
+            if (hasGridChildren) {
+                renderChildrenInContainer(block, style, grid, gw, gh, allBlocks, clip);
+            }
             return;
         }
 
@@ -995,6 +1109,7 @@
         textBlockSize: textBlockSize,
         buttonBlockSize: buttonBlockSize,
         dividerFitSize: dividerFitSize,
+        gridMetaInt: gridMetaInt,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,
         renderBoundsHtml: renderBoundsHtml,

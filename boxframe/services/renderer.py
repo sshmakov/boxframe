@@ -300,6 +300,16 @@ def divider_fit_size(content: str, width: int, height: int) -> tuple[int, int]:
     return max(width, longest), max(height, n_lines)
 
 
+def grid_meta_int(meta: dict | None, key: str, default: int) -> int:
+    """A grid's cols/rows from meta (todo-0005): a positive int, or the
+    default. An absent or invalid value (not an int, < 1) falls back —
+    the renderer is tolerant, like fill_char."""
+    v = (meta or {}).get(key)
+    if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+        return default
+    return v
+
+
 def _line_segment_html(
     top: float, col: int, length: int, char_width_px: float, style: str
 ) -> str:
@@ -530,6 +540,12 @@ class PseudoGraphicRenderer:
             self._draw_divider(block, style_map)
             return
 
+        if block.block_type == "grid":
+            self._draw_grid(block, style_map)
+            if block.children:
+                self._render_children_in_container(block, style_map)
+            return
+
         has_border = block.border_style != "none" and block.width >= 2 and block.height >= 2
 
         if has_border:
@@ -738,6 +754,84 @@ class PseudoGraphicRenderer:
             off = h_align_offset(len(line), w, align)
             for col, ch in enumerate(line):
                 self._set(x + off + col, row, ch)
+
+    def _draw_grid(self, block: RenderBlock, style: dict[str, str]) -> None:
+        """Draw a grid (todo-0005): the outer border (per border_style)
+        plus inner partitions — vertical (eff_cols − 1) and horizontal
+        (eff_rows − 1) — with junction nodes from the style map.
+
+        meta.cols / meta.rows (defaults 3/2, invalid → default) give the
+        requested number of columns/rows; the effective count is clamped
+        to the inner area (every column/row is at least 1 cell). The
+        inner area is split evenly with integer division (the remainder
+        goes to the last column/row). The content is not rendered (a grid
+        is a structural element, like a line) and the [type] hint is
+        suppressed; fill (meta.fill) is painted under the partitions;
+        children are rendered over the partitions (by the caller).
+        border_style none — no outer border, solid partitions.
+        """
+        x = max(0, min(block.x, self.grid_width - 2))
+        y = max(0, min(block.y, self.grid_height - 2))
+        w = min(block.width, self.grid_width - x)
+        h = min(block.height, self.grid_height - y)
+
+        if w < 1 or h < 1:
+            return
+
+        framed = block.border_style != "none" and w >= 2 and h >= 2
+        if framed:
+            self._draw_border(block, style)
+            inner_x, inner_y = x + 1, y + 1
+            inner_w, inner_h = w - 2, h - 2
+        else:
+            inner_x, inner_y = x, y
+            inner_w, inner_h = w, h
+
+        if inner_w <= 0 or inner_h <= 0:
+            return
+
+        # Fill under the partitions (meta.fill)
+        fill = fill_char(block.block_type, block.meta)
+        if fill:
+            for j in range(inner_h):
+                row = inner_y + j
+                if row >= self.grid_height:
+                    break
+                for i in range(inner_w):
+                    self._set(inner_x + i, row, fill)
+
+        meta = block.meta or {}
+        eff_cols = min(grid_meta_int(meta, "cols", 3), inner_w)
+        eff_rows = min(grid_meta_int(meta, "rows", 2), inner_h)
+
+        # Partitions: the frame's style (none → solid)
+        part = style if framed else BORDERS["solid"]
+
+        col_x = [(i * inner_w) // eff_cols for i in range(eff_cols + 1)]
+        row_y = [(j * inner_h) // eff_rows for j in range(eff_rows + 1)]
+
+        # Vertical partitions (with the top/bottom frame nodes)
+        for i in range(1, eff_cols):
+            cx = inner_x + col_x[i]
+            for j in range(inner_h):
+                self._set(cx, inner_y + j, part["v"])
+            if framed:
+                self._set(cx, y, part["t_t"])
+                self._set(cx, y + h - 1, part["b_l"])
+
+        # Horizontal partitions (with the left/right frame nodes)
+        for j in range(1, eff_rows):
+            ry = inner_y + row_y[j]
+            for i in range(inner_w):
+                self._set(inner_x + i, ry, part["h"])
+            if framed:
+                self._set(x, ry, part["t_l"])
+                self._set(x + w - 1, ry, part["t_r"])
+
+        # Interior junctions
+        for i in range(1, eff_cols):
+            for j in range(1, eff_rows):
+                self._set(inner_x + col_x[i], inner_y + row_y[j], part["b_b"])
 
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""

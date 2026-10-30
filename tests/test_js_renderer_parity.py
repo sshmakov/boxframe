@@ -567,6 +567,71 @@ def test_parity_grid_expansion():
     assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 14)
 
 
+def test_parity_grid_ascii():
+    """Grids (variant 1 — partitions, todo-0005) render identically in
+    both renderers."""
+    cases = [
+        # (meta, border_style, width, height)
+        (None, "solid", 24, 8),                              # default 3×2
+        ({"cols": 4, "rows": 2}, "solid", 21, 7),            # remainder split
+        ({"cols": 20, "rows": 2}, "solid", 10, 10),          # clamp cols
+        ({"cols": 2, "rows": 20}, "solid", 10, 10),          # clamp rows
+        (None, "none", 24, 8),                               # no outer border
+        ({"cols": 2, "rows": 2, "fill": "░"}, "solid", 12, 6),  # fill under partitions
+        ({"cols": 1, "rows": 1}, "solid", 24, 8),            # no partitions
+        (None, "double", 24, 8),                             # double style
+        (None, "dashed", 24, 8),                             # dashed style
+        (None, "dotted", 24, 8),                             # dotted style
+        ({"cols": 0, "rows": -1}, "solid", 24, 8),           # invalid meta → default
+        ({"cols": "3", "rows": 2.5}, "solid", 24, 8),        # invalid meta (non-int)
+        ({"cols": 5, "rows": 4}, "solid", 6, 4),             # small: clamped hard
+        (None, "solid", 2, 2),                               # degenerate: no inner
+        (None, "solid", 1, 1),                               # degenerate 1×1
+        ({"cols": 3, "rows": 2}, "none", 24, 8),             # none + explicit meta
+    ]
+    for meta, base, w, h in cases:
+        block = {"id": "b1", "block_type": "grid", "x": 0, "y": 0,
+                 "width": w, "height": h, "content": "",
+                 "border_style": base, "order": 0}
+        if meta is not None:
+            block["meta"] = meta
+        py_blocks = [{k: v for k, v in block.items() if k != "id"}]
+        assert render_js([block], 40, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 12), \
+            (meta, base, w, h)
+
+
+def test_parity_grid_content_and_hint():
+    """A grid's content is not rendered and the hint is suppressed —
+    identically in both renderers."""
+    block = {"id": "b1", "block_type": "grid", "x": 0, "y": 0,
+             "width": 24, "height": 8, "content": "hello world",
+             "border_style": "solid", "order": 0}
+    py_blocks = [{k: v for k, v in block.items() if k != "id"}]
+    js = render_js([block], 40, 12)
+    py = PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
+    assert js == py
+    assert "hello" not in js
+    assert "[grid]" not in js
+
+
+def test_parity_grid_children():
+    """Children inside a grid render over the partitions, identically in
+    both renderers (clipped to the grid's inner area)."""
+    js_blocks = [
+        {"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+         "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+        {"id": "c1", "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 3,
+         "content": "0123456789", "border_style": "solid", "parent_id": "g", "order": 0},
+        {"id": "c2", "block_type": "text", "x": 12, "y": 4, "width": 8, "height": 2,
+         "content": "cell", "border_style": "none", "parent_id": "g", "order": 1},
+        {"id": "c3", "block_type": "box", "x": 18, "y": 1, "width": 20, "height": 10,
+         "content": "big", "border_style": "dashed", "parent_id": "g", "order": 2},
+    ]
+    assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+        to_nested(js_blocks), 40, 12
+    )
+
+
 def test_parity_no_dimensions():
     """Unset layout dimensions: the canvas is the 80×24 default floor."""
     blocks = [

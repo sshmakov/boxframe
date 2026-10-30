@@ -116,7 +116,7 @@
             row: "align",
             rowLabel: "Align",
             types: ["box", "header", "footer", "sidebar", "content", "button",
-                    "input", "textarea", "image", "divider", "text", "grid"],
+                    "input", "textarea", "image", "divider", "text"],
             default: "left",
             typeDefaults: { divider: "center", button: "center" },
             clearDefault: true,
@@ -137,7 +137,7 @@
             group: "Align",
             row: "align",
             types: ["box", "header", "footer", "sidebar", "content", "button",
-                    "input", "textarea", "image", "text", "grid", "divider"],
+                    "input", "textarea", "image", "text", "divider"],
             default: "top",
             typeDefaults: { divider: "middle", button: "middle" },
             clearDefault: true,
@@ -191,6 +191,32 @@
             types: ["hline", "vline"],
             default: "none",
             noneValue: null,
+            panel: "primary",
+        },
+        // Grid (todo-0005): meta.cols / meta.rows — the requested number
+        // of columns/rows; the effective count is clamped to the inner
+        // area at render (every column/row is at least 1 cell). Number
+        // inputs, primary panel.
+        {
+            key: "cols",
+            meta: true,
+            label: "Cols",
+            kind: "number",
+            group: "Grid",
+            types: ["grid"],
+            min: 1,
+            default: 3,
+            panel: "primary",
+        },
+        {
+            key: "rows",
+            meta: true,
+            label: "Rows",
+            kind: "number",
+            group: "Grid",
+            types: ["grid"],
+            min: 1,
+            default: 2,
             panel: "primary",
         },
         // cols: 3 — the five fields sit in three columns (X Y W / H

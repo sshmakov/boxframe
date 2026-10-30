@@ -56,6 +56,7 @@ test("schema: the current properties are described (phase 3 set)", () => {
     assert.deepEqual(keys, [
         "border_style", "fill",
         "text_align", "vertical_align", "arrow_start", "arrow_end",
+        "cols", "rows",
         "x", "y", "width", "height", "order", "content",
     ]);
     const style = PGProperties.findProperty("border_style");
@@ -226,6 +227,13 @@ test("_blockDefaults: button is sized by the fit function (task 0060)", () => {
         { width: 8, height: 1, content: "Button" });
 });
 
+test("_blockDefaults: grid is 24x8 with empty content (todo-0005)", () => {
+    const app = editorApp();
+    // A structural container: no hint, no content
+    assert.deepEqual(app._blockDefaults("grid"),
+        { width: 24, height: 8, content: "" });
+});
+
 // ── Sections ──────────────────────────────────────────────
 
 test("sectionsForType: groups in declaration order, all properties applicable", () => {
@@ -322,6 +330,28 @@ test("sectionsForType: Arrows are applicable to lines only", () => {
     for (const type of ["box", "button", "text"]) {
         assert.ok(!PGProperties.sectionsForType(type).some(s => s.name === "Arrows"), type);
     }
+});
+
+test("sectionsForType: grid has a Grid section (cols/rows), Fill, no Align (todo-0005)", () => {
+    const sections = PGProperties.sectionsForType("grid");
+    // The Grid section carries the cols/rows number inputs
+    const grid = sections.find(s => s.name === "Grid");
+    assert.ok(grid, "Grid section is present");
+    assert.deepEqual(grid.props.map(p => p.key), ["cols", "rows"]);
+    assert.equal(grid.props[0].meta, true);
+    assert.equal(grid.props[0].min, 1);
+    assert.equal(grid.props[0].default, 3);
+    assert.equal(grid.props[1].default, 2);
+    // Grid is fillable (FILL_TYPES) but not aligned (content is not
+    // rendered), and has no arrows
+    assert.ok(sections.some(s => s.name === "Fill"), "Fill applies to grid");
+    assert.ok(!sections.some(s => s.name === "Align"), "no Align for grid");
+    assert.ok(!sections.some(s => s.name === "Arrows"), "no Arrows for grid");
+    // The primary panel keeps the Grid section (cols/rows are primary)
+    assert.ok(
+        PGProperties.sectionsForType("grid", "primary")
+            .some(s => s.name === "Grid"),
+    );
 });
 
 test("sectionsForType: the types filter drops inapplicable properties and empty groups", () => {
