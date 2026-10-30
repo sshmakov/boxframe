@@ -871,29 +871,30 @@ def test_button_text_align():
         assert result.split("\n")[0] == expected, align
 
 
-# ── Button tests (tasks/0021-0030/0022-button.md) ────────
+# ── Button tests (tasks/0021-0030/0022-button.md, 0060) ─────
 
 
 def _button(height: int, width: int = 16, content: str = "Button",
-            border_style: str = "solid") -> list[dict]:
+            border_style: str = "solid", meta: dict | None = None) -> list[dict]:
     return [{
         "block_type": "button",
         "x": 0, "y": 0,
         "width": width, "height": height,
         "content": content,
         "border_style": border_style,
+        "meta": meta or {},
     }]
 
 
 def test_button_height_1():
     result = _render(_button(1))
-    assert result.split("\n")[0] == "[Button        ]"
+    assert result.split("\n")[0] == "[    Button    ]"
 
 
 def test_button_height_2():
     result = _render(_button(2))
     lines = result.split("\n")
-    assert lines[0] == "│Button        │"
+    assert lines[0] == "│    Button    │"
     assert lines[1] == "└──────────────┘"
 
 
@@ -901,7 +902,7 @@ def test_button_height_3():
     result = _render(_button(3))
     lines = result.split("\n")
     assert lines[0] == "┌──────────────┐"
-    assert lines[1] == "│Button        │"
+    assert lines[1] == "│    Button    │"
     assert lines[2] == "└──────────────┘"
 
 
@@ -909,7 +910,7 @@ def test_button_height_4_label_upper_middle():
     result = _render(_button(4))
     lines = result.split("\n")
     assert lines[0] == "┌──────────────┐"
-    assert lines[1] == "│Button        │"
+    assert lines[1] == "│    Button    │"
     assert lines[2] == "│              │"
     assert lines[3] == "└──────────────┘"
 
@@ -919,7 +920,7 @@ def test_button_height_5_label_centered():
     lines = result.split("\n")
     assert lines[0] == "┌──────────────┐"
     assert lines[1] == "│              │"
-    assert lines[2] == "│Button        │"
+    assert lines[2] == "│    Button    │"
     assert lines[3] == "│              │"
     assert lines[4] == "└──────────────┘"
 
@@ -928,44 +929,104 @@ def test_button_border_styles():
     # h=2: side + bottom border use the style characters
     result = _render(_button(2, border_style="dashed"))
     lines = result.split("\n")
-    assert lines[0] == "┆Button        ┆"
+    assert lines[0] == "┆    Button    ┆"
     assert lines[1] == "└" + "┄" * 14 + "┘"
 
     # h=3: full box in the style
     result = _render(_button(3, border_style="double"))
     lines = result.split("\n")
     assert lines[0] == "╔══════════════╗"
-    assert lines[1] == "║Button        ║"
+    assert lines[1] == "║    Button    ║"
     assert lines[2] == "╚══════════════╝"
 
     # h=1: [label] for any style
     for style in ["solid", "dashed", "dotted", "double"]:
         result = _render(_button(1, border_style=style))
-        assert result.split("\n")[0] == "[Button        ]", style
+        assert result.split("\n")[0] == "[    Button    ]", style
 
 
 def test_button_border_none():
     result = _render(_button(3, border_style="none"))
     lines = result.split("\n")
     assert lines[0] == ""
-    assert lines[1] == "Button"
+    assert lines[1] == "     Button"
     assert len(lines) == 2  # trailing empty rows are stripped
 
 
-def test_button_label_truncated_not_wrapped():
+def test_button_label_word_wrapped():
+    """The label is word-wrapped to the inner width; lines past the
+    inner height are not drawn (manual resize smaller than the fit)."""
     result = _render(_button(3, width=10, content="A very long label"))
     lines = result.split("\n")
-    # Inner width = 8: label truncated, no wrapping
+    # Inner 8×1: "A very " / "long " / "label" → only the first line
     assert lines[0] == "┌" + "─" * 8 + "┐"
-    assert lines[1] == "│A very l│"
+    assert lines[1] == "│A very  │"
     assert lines[2] == "└" + "─" * 8 + "┘"
 
 
-def test_button_label_ignores_newlines():
-    result = _render(_button(3, content="Line1\nLine2"))
+def test_button_multiline():
+    """Explicit newlines are kept: each line on its row, centered."""
+    result = _render(_button(4, width=7, content="hi\nthere"))
     lines = result.split("\n")
-    assert lines[1] == "│Line1" + " " * 9 + "│"
+    assert lines[0] == "┌─────┐"
+    assert lines[1] == "│ hi  │"
+    assert lines[2] == "│there│"
+    assert lines[3] == "└─────┘"
+
+
+def test_button_multiline_h1_clips_to_first_line():
+    result = _render(_button(1, width=12, content="a\nb"))
+    assert result.split("\n")[0] == "[    a     ]"
+
+
+def test_button_multiline_h2_manual_form():
+    """The manual h=2 form (no top border) keeps one inner row."""
+    result = _render(_button(2, content="Line1\nLine2"))
+    lines = result.split("\n")
+    assert lines[0] == "│    Line1     │"
+    assert lines[1] == "└──────────────┘"
     assert "Line2" not in result
+
+
+def test_button_vertical_align():
+    """vertical_align shifts the line block inside the inner height
+    (default middle)."""
+    for valign, hi_row, there_row in [
+        ("top", 1, 2),
+        ("middle", 2, 3),
+        ("bottom", 3, 4),
+    ]:
+        result = _render(_button(
+            6, width=7, content="hi\nthere",
+            meta={"vertical_align": valign},
+        ))
+        lines = result.split("\n")
+        assert lines[hi_row] == "│ hi  │", valign
+        assert lines[there_row] == "│there│", valign
+
+
+def test_button_text_align_multiline():
+    """text_align aligns each line (default center)."""
+    for align, hi, there in [
+        ("left", "│hi   │", "│there│"),
+        ("center", "│ hi  │", "│there│"),
+        ("right", "│   hi│", "│there│"),
+    ]:
+        result = _render(_button(
+            4, width=7, content="hi\nthere",
+            meta={"text_align": align},
+        ))
+        lines = result.split("\n")
+        assert lines[1] == hi, align
+        assert lines[2] == there, align
+
+
+def test_button_border_none_multiline():
+    result = _render(_button(2, width=5, content="hi\nthere",
+                             border_style="none"))
+    lines = result.split("\n")
+    assert lines[0] == " hi"  # rstripped
+    assert lines[1] == "there"
 
 
 def test_button_empty_content():
@@ -974,6 +1035,32 @@ def test_button_empty_content():
     assert lines[0] == "┌──────────────┐"
     assert lines[1] == "│              │"
     assert lines[2] == "└──────────────┘"
+
+
+def test_button_empty_content_h1():
+    """An empty framed button keeps the canonical h=1 form."""
+    result = _render(_button(1, width=3, content=""))
+    assert result.split("\n")[0] == "[ ]"
+
+
+# ── button_block_size tests (task 0060) ───────────────────
+
+
+def test_button_block_size_unit():
+    """Fit size: 1 line → [label] (h=1), N>=2 lines → full box (h=N+2),
+    none → the text's extent."""
+    from boxframe.services.renderer import button_block_size
+
+    assert button_block_size("", "solid") == (3, 1)
+    assert button_block_size("Button", "solid") == (8, 1)
+    assert button_block_size("a", "solid") == (3, 1)
+    assert button_block_size("a\nb", "solid") == (3, 4)
+    assert button_block_size("hi\nthere", "solid") == (7, 4)
+    assert button_block_size("a\n", "solid") == (3, 4)
+    assert button_block_size("hi\nthere", "dashed") == (7, 4)
+    assert button_block_size("", "none") == (1, 1)
+    assert button_block_size("hi", "none") == (2, 1)
+    assert button_block_size("a\nbb", "none") == (2, 2)
 
 
 # ── Word wrap tests ───────────────────────────────────────

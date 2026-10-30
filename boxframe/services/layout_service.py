@@ -17,6 +17,7 @@ from boxframe.models.project import Project
 from boxframe.services.renderer import (
     RenderBlock,
     PseudoGraphicRenderer,
+    button_block_size,
     divider_fit_size,
     text_block_size,
 )
@@ -151,13 +152,17 @@ class LayoutService:
 
         # Lines are always 1 cell thick — the thin dimension is fixed;
         # text autosizes to its content (the border is included);
-        # divider autosizes to its content, grow-only (never shrinks)
+        # button autosizes to its content (the border depends on the
+        # height, task 0060); divider autosizes to its content,
+        # grow-only (never shrinks)
         if block_type == "hline":
             height = 1
         elif block_type == "vline":
             width = 1
         elif block_type == "text":
             width, height = text_block_size(content, border_style)
+        elif block_type == "button":
+            width, height = button_block_size(content, border_style)
         elif block_type == "divider":
             width, height = divider_fit_size(content, width, height)
 
@@ -194,6 +199,8 @@ class LayoutService:
             # (also applies when block_type is changed to a line type);
             # text autosizes to its content when the text or the border
             # changes (a plain size update is a manual resize — kept);
+            # button autosizes to its content when the text or the border
+            # changes (a plain size update is a manual resize — kept);
             # divider autosizes to its content, grow-only, when the
             # content or the type changes (the border does not affect
             # the fit size; a plain size update is a manual resize —
@@ -206,6 +213,10 @@ class LayoutService:
                 "content" in kwargs or "border_style" in kwargs or "block_type" in kwargs
             ):
                 block.width, block.height = text_block_size(block.content, block.border_style)
+            elif block.block_type == "button" and (
+                "content" in kwargs or "border_style" in kwargs or "block_type" in kwargs
+            ):
+                block.width, block.height = button_block_size(block.content, block.border_style)
             elif block.block_type == "divider" and (
                 "content" in kwargs or "block_type" in kwargs
             ):
@@ -366,13 +377,17 @@ class LayoutService:
                     border_style = default_border_style(block_type)
                 # Lines are always 1 cell thick — the thin dimension is
                 # fixed; text autosizes to its content (the border is
-                # included); divider autosizes to its content, grow-only
+                # included); button autosizes to its content (the border
+                # depends on the height, task 0060); divider autosizes to
+                # its content, grow-only
                 if block_type == "hline":
                     height = 1
                 elif block_type == "vline":
                     width = 1
                 elif block_type == "text":
                     width, height = text_block_size(content, border_style)
+                elif block_type == "button":
+                    width, height = button_block_size(content, border_style)
                 elif block_type == "divider":
                     width, height = divider_fit_size(content, width, height)
                 order = data.get("order") or 0
@@ -419,6 +434,8 @@ class LayoutService:
             # Lines are always 1 cell thick (also when block_type changes);
             # text autosizes to its content when the text or the border
             # changes (a plain size update is a manual resize — kept);
+            # button autosizes to its content when the text or the border
+            # changes (a plain size update is a manual resize — kept);
             # divider autosizes to its content, grow-only, when the
             # content or the type changes
             if block.block_type == "hline":
@@ -429,6 +446,10 @@ class LayoutService:
                 "content" in data or "border_style" in data or "block_type" in data
             ):
                 block.width, block.height = text_block_size(block.content, block.border_style)
+            elif block.block_type == "button" and (
+                "content" in data or "border_style" in data or "block_type" in data
+            ):
+                block.width, block.height = button_block_size(block.content, block.border_style)
             elif block.block_type == "divider" and (
                 "content" in data or "block_type" in data
             ):

@@ -418,6 +418,116 @@ test("memory store: batchBlocks normalizes text", async () => {
     assert.equal(result2.updated[0].height, 2);
 });
 
+// ── Button autosize (task 0060) ───────────────────────────
+
+test("memory store: button block autosizes to fit size on create", async () => {
+    const store = createMemoryStore();
+
+    // One line → the canonical h=1 form [label] (the requested 50×5 is
+    // ignored)
+    const button = await store.createBlock({
+        block_type: "button", x: 0, y: 0, width: 50, height: 5, content: "Button",
+    });
+    assert.equal(button.width, 8);
+    assert.equal(button.height, 1);
+
+    // N>=2 lines → a full box (h=N+2)
+    const multi = await store.createBlock({
+        block_type: "button", x: 0, y: 5, content: "hi\nthere",
+    });
+    assert.equal(multi.width, 7);
+    assert.equal(multi.height, 4);
+
+    // Empty content → [ ] (3×1)
+    const empty = await store.createBlock({ block_type: "button", x: 0, y: 10 });
+    assert.equal(empty.width, 3);
+    assert.equal(empty.height, 1);
+});
+
+test("memory store: button block autosizes with border none", async () => {
+    const store = createMemoryStore();
+    const button = await store.createBlock({
+        block_type: "button", x: 0, y: 0, content: "hi", border_style: "none",
+    });
+    // The text's extent, no frame cells
+    assert.equal(button.width, 2);
+    assert.equal(button.height, 1);
+});
+
+test("memory store: button content update re-fits the block", async () => {
+    const store = createMemoryStore();
+    const button = await store.createBlock({
+        block_type: "button", x: 0, y: 0, content: "hi",
+    });
+
+    const updated = await store.updateBlock(button.id, { content: "hi\nthere" });
+    assert.equal(updated.width, 7);
+    assert.equal(updated.height, 4);
+});
+
+test("memory store: button border update re-fits the block", async () => {
+    const store = createMemoryStore();
+    const button = await store.createBlock({
+        block_type: "button", x: 0, y: 0, content: "hi",
+    });
+
+    let updated = await store.updateBlock(button.id, { border_style: "none" });
+    assert.equal(updated.width, 2);
+    assert.equal(updated.height, 1);
+
+    updated = await store.updateBlock(button.id, { border_style: "solid" });
+    assert.equal(updated.width, 4);
+    assert.equal(updated.height, 1);
+});
+
+test("memory store: button manual resize is kept until the next content change", async () => {
+    const store = createMemoryStore();
+    const button = await store.createBlock({
+        block_type: "button", x: 0, y: 0, content: "Button",
+    });
+
+    // A plain size update is a manual resize — kept
+    let updated = await store.updateBlock(button.id, { width: 20, height: 5 });
+    assert.equal(updated.width, 20);
+    assert.equal(updated.height, 5);
+
+    // Position-only updates do not re-fit either
+    updated = await store.updateBlock(button.id, { x: 5 });
+    assert.equal(updated.x, 5);
+    assert.equal(updated.width, 20);
+    assert.equal(updated.height, 5);
+
+    // The next content change snaps back to the fit size
+    updated = await store.updateBlock(button.id, { content: "Go" });
+    assert.equal(updated.width, 4);
+    assert.equal(updated.height, 1);
+});
+
+test("memory store: batchBlocks normalizes button", async () => {
+    const store = createMemoryStore();
+    const button = await store.createBlock({
+        block_type: "button", x: 0, y: 0, content: "Go",
+    });
+
+    const result = await store.batchBlocks({
+        create: [{ block_type: "button", x: 0, y: 5, width: 40, height: 4, content: "hi\nthere" }],
+        update: [{ id: button.id, content: "Go\nnow" }],
+    });
+    // "hi\nthere" + solid → 7×4 (the requested 40×4 is ignored)
+    assert.equal(result.created[0].width, 7);
+    assert.equal(result.created[0].height, 4);
+    // The content update re-fitted: "Go\nnow" → 5×4
+    assert.equal(result.updated[0].width, 5);
+    assert.equal(result.updated[0].height, 4);
+
+    // A plain size update is a manual resize — kept
+    const result2 = await store.batchBlocks({
+        update: [{ id: button.id, width: 12, height: 2 }],
+    });
+    assert.equal(result2.updated[0].width, 12);
+    assert.equal(result2.updated[0].height, 2);
+});
+
 // ── Divider autosize (variant E, tasks/0003) ──────────────
 
 test("memory store: divider grows to fit content on create", async () => {

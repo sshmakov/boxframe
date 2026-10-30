@@ -220,6 +220,29 @@
         return [Math.max(1, textW), textH];
     }
 
+    // Port of button_block_size in services/renderer.py: the fit size of
+    // a button (task 0060) — the content's extent plus the button's
+    // border, which depends on the height. One line (including empty)
+    // fits the canonical h=1 form ([label]; an empty label keeps one
+    // inner cell: [ ]); N>=2 lines fit a full box, the label flush with
+    // the border (like text). A border (any style except "none") adds
+    // the frame cells; "none" is the text's extent (min 1x1).
+    function buttonBlockSize(content, borderStyle) {
+        var lines = String(content == null ? "" : content).split("\n");
+        var textW = 0;
+        for (var i = 0; i < lines.length; i++) {
+            if (lines[i].length > textW) textW = lines[i].length;
+        }
+        var nLines = Math.max(1, lines.length);
+        if (borderStyle === "none") {
+            return [Math.max(1, textW), nLines];
+        }
+        if (nLines === 1) {
+            return [Math.max(3, textW + 2), 1];
+        }
+        return [textW + 2, nLines + 2];
+    }
+
     // Port of divider_fit_size in services/renderer.py: the grow-only
     // fit size of a divider (variant E, tasks/0003) — the stored size
     // grown to fit the content, never shrunk (unlike textBlockSize,
@@ -308,7 +331,14 @@
         }
     }
 
-    // Port of PseudoGraphicRenderer._draw_button
+    // Port of PseudoGraphicRenderer._draw_button: the shape depends on
+    // the height (h=1 [label]; h=2 no top border; h>=3 full box). The
+    // label is word-wrapped to the inner width (explicit newlines are
+    // kept); the line block is vertically aligned (meta.vertical_align,
+    // default middle — unlike box, whose default is top) and each line
+    // is horizontally aligned (meta.text_align, default center — unlike
+    // box, whose default is left). Lines past the inner height are not
+    // drawn (the border is drawn first and is not overwritten).
     function drawButton(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
@@ -346,17 +376,45 @@
             }
         }
 
-        // Label — single line, vertically centered, truncated to fit,
-        // horizontally aligned (meta.text_align)
+        // Label — word-wrapped to the inner width, the line block
+        // vertically aligned (meta.vertical_align, default middle) and
+        // each line horizontally aligned (meta.text_align, default
+        // center). The inner area: h=1/h=2 — one row (row y), h>=3 —
+        // the rows between the borders, none — the whole block.
         if (block.content) {
-            var row = y + Math.floor((h - 1) / 2);
-            var innerX = x + (framed ? 1 : 0);
-            var innerW = w - (framed ? 2 : 0);
-            if (innerW > 0 && row < gh) {
-                var label = String(block.content).split("\n")[0].slice(0, innerW);
-                var off = hAlignOffset(label.length, innerW, (block.meta || {}).text_align);
-                for (var c = 0; c < label.length; c++) {
-                    setCell(grid, gw, gh, clip, innerX + off + c, row, label[c]);
+            var innerX, innerY, innerW, innerH;
+            if (framed) {
+                innerX = x + 1;
+                innerW = w - 2;
+                if (h >= 3) {
+                    innerY = y + 1;
+                    innerH = h - 2;
+                } else {
+                    innerY = y;
+                    innerH = 1;
+                }
+            } else {
+                innerX = x;
+                innerY = y;
+                innerW = w;
+                innerH = h;
+            }
+            if (innerW > 0 && innerH > 0) {
+                var meta = block.meta || {};
+                var align = meta.text_align;
+                if (align !== "left" && align !== "center" && align !== "right") align = "center";
+                var valign = meta.vertical_align;
+                if (valign !== "top" && valign !== "middle" && valign !== "bottom") valign = "middle";
+                var lines = wrapText(block.content, innerW);
+                var vOff = vAlignOffset(lines.length, innerH, valign);
+                for (var li = 0; li < lines.length; li++) {
+                    if (li + vOff >= innerH) break;
+                    var row = innerY + li + vOff;
+                    if (row >= gh) break;
+                    var off = hAlignOffset(lines[li].length, innerW, align);
+                    for (var c = 0; c < lines[li].length; c++) {
+                        setCell(grid, gw, gh, clip, innerX + off + c, row, lines[li][c]);
+                    }
                 }
             }
         }
@@ -935,6 +993,7 @@
         vAlignOffset: vAlignOffset,
         wrapText: wrapText,
         textBlockSize: textBlockSize,
+        buttonBlockSize: buttonBlockSize,
         dividerFitSize: dividerFitSize,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,

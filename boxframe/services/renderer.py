@@ -265,6 +265,26 @@ def text_block_size(content: str, border_style: str) -> tuple[int, int]:
     return max(1, text_w), text_h
 
 
+def button_block_size(content: str, border_style: str) -> tuple[int, int]:
+    """Fit size of a button (task 0060): the content's extent plus the
+    button's border, which depends on the height.
+
+    One line (including empty) fits the canonical h=1 form — ``[label]``
+    (an empty label keeps one inner cell: ``[ ]``); N>=2 lines fit a full
+    box, the label flush with the border (like text). A border (any style
+    except "none") adds the frame cells; "none" is the text's extent
+    (min 1x1).
+    """
+    lines = (content or "").split("\n")
+    text_w = max((len(line) for line in lines), default=0)
+    n_lines = max(1, len(lines))
+    if border_style == "none":
+        return max(1, text_w), n_lines
+    if n_lines == 1:
+        return max(3, text_w + 2), 1
+    return text_w + 2, n_lines + 2
+
+
 def divider_fit_size(content: str, width: int, height: int) -> tuple[int, int]:
     """Grow-only fit size of a divider (variant E, tasks/0003).
 
@@ -592,10 +612,15 @@ class PseudoGraphicRenderer:
         h=1:  [label        ]
         h=2:  │label        │   (no top border)
               └──────────────┘
-        h>=3: full box, label on the middle row (upper middle for even h)
+        h>=3: full box
 
-        The label is a single line: newlines are ignored and the text is
-        truncated to the inner width.
+        The label is word-wrapped to the inner width (explicit newlines
+        are kept); the line block is vertically aligned
+        (meta.vertical_align, default middle — unlike box, whose default
+        is top) and each line is horizontally aligned
+        (meta.text_align, default center — unlike box, whose default is
+        left). Lines past the inner height are not drawn (the border is
+        drawn first and is not overwritten).
         """
         # Clamp to grid (same logic as _draw_border)
         x = max(0, min(block.x, self.grid_width - 2))
@@ -629,17 +654,39 @@ class PseudoGraphicRenderer:
                     for i in range(1, w - 1):
                         self._set(x + i, y, style["h"])
 
-        # Label — single line, vertically centered, truncated to fit,
-        # horizontally aligned (meta.text_align)
+        # Label — word-wrapped to the inner width, the line block
+        # vertically aligned (meta.vertical_align, default middle) and
+        # each line horizontally aligned (meta.text_align, default
+        # center). The inner area: h=1/h=2 — one row (row y), h>=3 —
+        # the rows between the borders, none — the whole block.
         if block.content:
-            row = y + (h - 1) // 2
-            inner_x = x + (1 if framed else 0)
-            inner_w = w - (2 if framed else 0)
-            if inner_w > 0 and row < self.grid_height:
-                label = block.content.split("\n")[0][:inner_w]
-                off = h_align_offset(len(label), inner_w, (block.meta or {}).get("text_align"))
-                for i, ch in enumerate(label):
-                    self._set(inner_x + off + i, row, ch)
+            if framed:
+                inner_x, inner_w = x + 1, w - 2
+                if h >= 3:
+                    inner_y, inner_h = y + 1, h - 2
+                else:
+                    inner_y, inner_h = y, 1
+            else:
+                inner_x, inner_y, inner_w, inner_h = x, y, w, h
+            if inner_w > 0 and inner_h > 0:
+                meta = block.meta or {}
+                align = meta.get("text_align")
+                if align not in ("left", "center", "right"):
+                    align = "center"
+                valign = meta.get("vertical_align")
+                if valign not in ("top", "middle", "bottom"):
+                    valign = "middle"
+                lines = self._wrap_text(block.content, inner_w)
+                v_off = v_align_offset(len(lines), inner_h, valign)
+                for line_idx, line in enumerate(lines):
+                    if line_idx + v_off >= inner_h:
+                        break
+                    row = inner_y + line_idx + v_off
+                    if row >= self.grid_height:
+                        break
+                    off = h_align_offset(len(line), inner_w, align)
+                    for col_idx, ch in enumerate(line):
+                        self._set(inner_x + off + col_idx, row, ch)
 
     def _draw_divider(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw a divider (variant E, tasks/0003): a line on every row of

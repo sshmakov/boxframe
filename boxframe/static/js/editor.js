@@ -1732,7 +1732,12 @@ function editorApp() {
         },
 
         _blockDefaults(type) {
-            if (type === 'button') return { width: 16, height: 1, content: 'Button' };
+            if (type === 'button') {
+                // Button autosizes to its content (0060) — the size is
+                // the label's fit size (the store recomputes it on create).
+                const size = PGRenderer.buttonBlockSize('Button', 'solid');
+                return { width: size[0], height: size[1], content: 'Button' };
+            }
             if (type === 'hline') return { width: 20, height: 1, content: '' };
             if (type === 'vline') return { width: 1, height: 5, content: '' };
             // Divider (variant E): one line by default with the [divider]

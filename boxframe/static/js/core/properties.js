@@ -96,15 +96,15 @@
         // meta.vertical_align position the wrapped content inside the
         // content area (defaults left/top render as before). Picking the
         // default clears the meta key (clearDefault — the default is
-        // implicit). Not applicable to lines. For a button, text_align
-        // aligns the label (the label is already vertically centered).
+        // implicit). Not applicable to lines.
         // typeDefaults: a divider's label is CENTERED by default (variant
-        // E, tasks/0003) — the panel shows center as active for a
-        // divider without meta.text_align, and picking center clears the
-        // key. row: "align" — the two properties share ONE panel row (a
-        // button group each, one shared label). iconPrefix: the buttons
-        // show SVG icons (static/icons/align-*.svg, masked in
-        // editor.css) instead of the option text.
+        // E, tasks/0003) and a button's label is CENTERED by default
+        // (task 0060) — the panel shows center as active without
+        // meta.text_align, and picking center clears the key. row:
+        // "align" — the two properties share ONE panel row (a button
+        // group each, one shared label). iconPrefix: the buttons show
+        // SVG icons (static/icons/align-*.svg, masked in editor.css)
+        // instead of the option text.
         {
             key: "text_align",
             meta: true,
@@ -118,14 +118,15 @@
             types: ["box", "header", "footer", "sidebar", "content", "button",
                     "input", "textarea", "image", "divider", "text", "grid"],
             default: "left",
-            typeDefaults: { divider: "center" },
+            typeDefaults: { divider: "center", button: "center" },
             clearDefault: true,
             panel: "primary",
         },
         // A divider's label block is shifted vertically inside the
         // stored height — default MIDDLE (unlike box, whose default is
-        // top): a divider without meta.vertical_align centers its label,
-        // and picking middle clears the key (typeDefaults + clearDefault).
+        // top); a button's label block is centered vertically by default
+        // (task 0060). Picking middle clears the key (typeDefaults +
+        // clearDefault).
         {
             key: "vertical_align",
             meta: true,
@@ -138,7 +139,7 @@
             types: ["box", "header", "footer", "sidebar", "content", "button",
                     "input", "textarea", "image", "text", "grid", "divider"],
             default: "top",
-            typeDefaults: { divider: "middle" },
+            typeDefaults: { divider: "middle", button: "middle" },
             clearDefault: true,
             panel: "primary",
         },

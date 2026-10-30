@@ -799,25 +799,26 @@ test("button text align", () => {
     }
 });
 
-// ── Button tests (tasks/0021-0030/0022-button.md) ────────
+// ── Button tests (tasks/0021-0030/0022-button.md, 0060) ─────
 
-function button(height, width = 16, content = "Button", border_style = "solid") {
+function button(height, width = 16, content = "Button", border_style = "solid",
+               meta = {}) {
     return [{
         id: "b1", block_type: "button",
         x: 0, y: 0, width, height,
-        content, border_style,
+        content, border_style, meta,
     }];
 }
 
 test("button height 1", () => {
     const result = render(button(1));
-    assert.equal(lines(result)[0], "[Button        ]");
+    assert.equal(lines(result)[0], "[    Button    ]");
 });
 
 test("button height 2", () => {
     const result = render(button(2));
     const ls = lines(result);
-    assert.equal(ls[0], "│Button        │");
+    assert.equal(ls[0], "│    Button    │");
     assert.equal(ls[1], "└──────────────┘");
 });
 
@@ -825,7 +826,7 @@ test("button height 3", () => {
     const result = render(button(3));
     const ls = lines(result);
     assert.equal(ls[0], "┌──────────────┐");
-    assert.equal(ls[1], "│Button        │");
+    assert.equal(ls[1], "│    Button    │");
     assert.equal(ls[2], "└──────────────┘");
 });
 
@@ -833,7 +834,7 @@ test("button height 4 label upper middle", () => {
     const result = render(button(4));
     const ls = lines(result);
     assert.equal(ls[0], "┌──────────────┐");
-    assert.equal(ls[1], "│Button        │");
+    assert.equal(ls[1], "│    Button    │");
     assert.equal(ls[2], "│              │");
     assert.equal(ls[3], "└──────────────┘");
 });
@@ -843,7 +844,7 @@ test("button height 5 label centered", () => {
     const ls = lines(result);
     assert.equal(ls[0], "┌──────────────┐");
     assert.equal(ls[1], "│              │");
-    assert.equal(ls[2], "│Button        │");
+    assert.equal(ls[2], "│    Button    │");
     assert.equal(ls[3], "│              │");
     assert.equal(ls[4], "└──────────────┘");
 });
@@ -851,41 +852,96 @@ test("button height 5 label centered", () => {
 test("button border styles", () => {
     // h=2: side + bottom border use the style characters
     let ls = lines(render(button(2, 16, "Button", "dashed")));
-    assert.equal(ls[0], "┆Button        ┆");
+    assert.equal(ls[0], "┆    Button    ┆");
     assert.equal(ls[1], "└" + "┄".repeat(14) + "┘");
 
     // h=3: full box in the style
     ls = lines(render(button(3, 16, "Button", "double")));
     assert.equal(ls[0], "╔══════════════╗");
-    assert.equal(ls[1], "║Button        ║");
+    assert.equal(ls[1], "║    Button    ║");
     assert.equal(ls[2], "╚══════════════╝");
 
     // h=1: [label] for any style
     for (const style of ["solid", "dashed", "dotted", "double"]) {
         assert.equal(lines(render(button(1, 16, "Button", style)))[0],
-            "[Button        ]", style);
+            "[    Button    ]", style);
     }
 });
 
 test("button border none", () => {
     const ls = lines(render(button(3, 16, "Button", "none")));
     assert.equal(ls[0], "");
-    assert.equal(ls[1], "Button");
+    assert.equal(ls[1], "     Button");
     assert.equal(ls.length, 2); // trailing empty rows are stripped
 });
 
-test("button label truncated not wrapped", () => {
+test("button label word wrapped", () => {
+    // The label is word-wrapped to the inner width; lines past the inner
+    // height are not drawn (manual resize smaller than the fit)
     const ls = lines(render(button(3, 10, "A very long label")));
-    // Inner width = 8: label truncated, no wrapping
+    // Inner 8×1: "A very " / "long " / "label" → only the first line
     assert.equal(ls[0], "┌" + "─".repeat(8) + "┐");
-    assert.equal(ls[1], "│A very l│");
+    assert.equal(ls[1], "│A very  │");
     assert.equal(ls[2], "└" + "─".repeat(8) + "┘");
 });
 
-test("button label ignores newlines", () => {
-    const result = render(button(3, 16, "Line1\nLine2"));
-    assert.equal(lines(result)[1], "│Line1" + " ".repeat(9) + "│");
+test("button multiline", () => {
+    // Explicit newlines are kept: each line on its row, centered
+    const ls = lines(render(button(4, 7, "hi\nthere")));
+    assert.equal(ls[0], "┌─────┐");
+    assert.equal(ls[1], "│ hi  │");
+    assert.equal(ls[2], "│there│");
+    assert.equal(ls[3], "└─────┘");
+});
+
+test("button multiline h1 clips to first line", () => {
+    assert.equal(lines(render(button(1, 12, "a\nb")))[0], "[    a     ]");
+});
+
+test("button multiline h2 manual form", () => {
+    // The manual h=2 form (no top border) keeps one inner row
+    const result = render(button(2, 16, "Line1\nLine2"));
+    const ls = lines(result);
+    assert.equal(ls[0], "│    Line1     │");
+    assert.equal(ls[1], "└──────────────┘");
     assert.ok(!result.includes("Line2"));
+});
+
+test("button vertical align", () => {
+    // vertical_align shifts the line block inside the inner height
+    // (default middle)
+    const expected = {
+        top: [1, 2],
+        middle: [2, 3],
+        bottom: [3, 4],
+    };
+    for (const [valign, [hiRow, thereRow]] of Object.entries(expected)) {
+        const ls = lines(render(button(6, 7, "hi\nthere", "solid",
+            { vertical_align: valign })));
+        assert.equal(ls[hiRow], "│ hi  │", valign);
+        assert.equal(ls[thereRow], "│there│", valign);
+    }
+});
+
+test("button text align multiline", () => {
+    // text_align aligns each line (default center)
+    const expected = {
+        left: ["│hi   │", "│there│"],
+        center: ["│ hi  │", "│there│"],
+        right: ["│   hi│", "│there│"],
+    };
+    for (const [align, [hi, there]] of Object.entries(expected)) {
+        const ls = lines(render(button(4, 7, "hi\nthere", "solid",
+            { text_align: align })));
+        assert.equal(ls[1], hi, align);
+        assert.equal(ls[2], there, align);
+    }
+});
+
+test("button border none multiline", () => {
+    const ls = lines(render(button(2, 5, "hi\nthere", "none")));
+    assert.equal(ls[0], " hi"); // rstripped
+    assert.equal(ls[1], "there");
 });
 
 test("button empty content", () => {
@@ -893,6 +949,28 @@ test("button empty content", () => {
     assert.equal(ls[0], "┌──────────────┐");
     assert.equal(ls[1], "│              │");
     assert.equal(ls[2], "└──────────────┘");
+});
+
+test("button empty content h1", () => {
+    // An empty framed button keeps the canonical h=1 form
+    assert.equal(lines(render(button(1, 3, "")))[0], "[ ]");
+});
+
+// ── buttonBlockSize tests (task 0060) ─────────────────────
+
+test("button block size unit", () => {
+    // Fit size: 1 line → [label] (h=1), N>=2 lines → full box (h=N+2),
+    // none → the text's extent
+    assert.deepEqual(PG.buttonBlockSize("", "solid"), [3, 1]);
+    assert.deepEqual(PG.buttonBlockSize("Button", "solid"), [8, 1]);
+    assert.deepEqual(PG.buttonBlockSize("a", "solid"), [3, 1]);
+    assert.deepEqual(PG.buttonBlockSize("a\nb", "solid"), [3, 4]);
+    assert.deepEqual(PG.buttonBlockSize("hi\nthere", "solid"), [7, 4]);
+    assert.deepEqual(PG.buttonBlockSize("a\n", "solid"), [3, 4]);
+    assert.deepEqual(PG.buttonBlockSize("hi\nthere", "dashed"), [7, 4]);
+    assert.deepEqual(PG.buttonBlockSize("", "none"), [1, 1]);
+    assert.deepEqual(PG.buttonBlockSize("hi", "none"), [2, 1]);
+    assert.deepEqual(PG.buttonBlockSize("a\nbb", "none"), [2, 2]);
 });
 
 // ── Word wrap tests ───────────────────────────────────────

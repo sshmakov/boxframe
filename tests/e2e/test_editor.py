@@ -2303,16 +2303,17 @@ def test_drag_block_into_box_reparents(page: Page):
     block becomes the box's child with coordinates relative to the box."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
-        {"block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 40, "y": 20, "width": 4, "height": 1,
          "content": "Go"},  # free block, outside the container
     ]
     layout_id, (box_id, free_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
-    # Grab the free block at its center (40,20) 10×2 → (45, 21) and drop it
-    # so its top-left lands at grid (5, 3): center (10, 4) is inside the box.
-    start = _grid_point(metrics, 45, 21)
-    end = _grid_point(metrics, 10, 4)
+    # Grab the free block at its center (40,20) 4×1 → (42, 20.5) and drop it
+    # so its top-left lands at grid (8, 4): center (10, 4.5) is inside the box.
+    start = _grid_point(metrics, 42, 20.5)
+    end = _grid_point(metrics, 10, 4.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2323,8 +2324,8 @@ def test_drag_block_into_box_reparents(page: Page):
         lambda b: b["parent_id"] == box_id,
     )
     assert block["parent_id"] == box_id
-    # Relative to the box at (0,0): abs (5, 3) → rel (5 - 1, 3 - 1)
-    assert (block["x"], block["y"]) == (4, 2)
+    # Relative to the box at (0,0): abs (8, 4) → rel (8 - 1, 4 - 1)
+    assert (block["x"], block["y"]) == (7, 3)
 
 
 def test_drag_child_out_of_box_unparents(page: Page):
@@ -2332,17 +2333,18 @@ def test_drag_child_out_of_box_unparents(page: Page):
     block returns to the root with absolute coordinates."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
-        {"block_type": "button", "x": 2, "y": 2, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 2, "y": 2, "width": 4, "height": 1,
          "content": "Go", "parent_index": 0},  # child inside the box
     ]
     layout_id, (box_id, child_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
-    # The child is at relative (2, 2) → absolute (3, 3), 10×2 → center (8, 4).
-    # Drag it so its top-left lands at grid (40, 20): center (45, 21) is
+    # The child is at relative (2, 2) → absolute (3, 3), 4×1 → center (5, 3.5).
+    # Drag it so its top-left lands at grid (43, 20): center (45, 20.5) is
     # outside the box → un-parent.
-    start = _grid_point(metrics, 8, 4)
-    end = _grid_point(metrics, 45, 21)
+    start = _grid_point(metrics, 5, 3.5)
+    end = _grid_point(metrics, 45, 20.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2353,7 +2355,7 @@ def test_drag_child_out_of_box_unparents(page: Page):
         lambda b: b["parent_id"] is None and b["x"] > 30,
     )
     assert block["parent_id"] is None
-    assert (block["x"], block["y"]) == (40, 20)
+    assert (block["x"], block["y"]) == (43, 20)
 
 
 def test_drag_preselected_child_out_of_box_stays_visible(page: Page):
@@ -2364,19 +2366,20 @@ def test_drag_preselected_child_out_of_box_stays_visible(page: Page):
     frame follows the block. The re-parenting still happens on commit."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
-        {"block_type": "button", "x": 2, "y": 2, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 2, "y": 2, "width": 4, "height": 1,
          "content": "Go", "parent_index": 0},  # child inside the box
     ]
     layout_id, (box_id, child_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
-    # The child is at relative (2, 2) → absolute (3, 3), 10×2 → center (8, 4).
+    # The child is at relative (2, 2) → absolute (3, 3), 4×1 → center (5, 3.5).
     # Pre-select it with a click, then drag it outside the box.
-    start = _grid_point(metrics, 8, 4)
+    start = _grid_point(metrics, 5, 3.5)
     page.mouse.click(*start)
     expect(page.locator(".block-selection")).to_be_visible()
 
-    end = _grid_point(metrics, 45, 20)
+    end = _grid_point(metrics, 45, 20.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2410,7 +2413,7 @@ def test_drag_preselected_child_out_of_box_stays_visible(page: Page):
         lambda b: b["parent_id"] is None and b["x"] > 30,
     )
     assert block["parent_id"] is None
-    assert (block["x"], block["y"]) == (40, 19)
+    assert (block["x"], block["y"]) == (43, 20)
 
 
 # ── Drop-target highlight (the box that will become the parent) ──
@@ -2421,16 +2424,17 @@ def test_drag_block_highlights_drop_target(page: Page):
     box is highlighted; the highlight is removed on mouseup."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
-        {"block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 40, "y": 20, "width": 4, "height": 1,
          "content": "Go"},
     ]
     layout_id, (box_id, free_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
-    # Grab the free block at its center (45, 21) and drag it so its top-left
-    # lands at grid (5, 3): center (10, 4) is inside the box.
-    start = _grid_point(metrics, 45, 21)
-    end = _grid_point(metrics, 10, 4)
+    # Grab the free block at its center (42, 20.5) and drag it so its
+    # top-left lands at grid (8, 4): center (10, 4.5) is inside the box.
+    start = _grid_point(metrics, 42, 20.5)
+    end = _grid_point(metrics, 10, 4.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2457,15 +2461,16 @@ def test_drag_block_no_highlight_outside_box(page: Page):
     shows no drop-target highlight."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},
-        {"block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 40, "y": 20, "width": 4, "height": 1,
          "content": "Go"},
     ]
     layout_id, (box_id, free_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
     # Drag the free block further away from the box
-    start = _grid_point(metrics, 45, 21)
-    end = _grid_point(metrics, 55, 21)
+    start = _grid_point(metrics, 42, 20.5)
+    end = _grid_point(metrics, 55, 20.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2578,7 +2583,8 @@ def test_panel_copy_selection_to_clipboard(page: Page):
     specs = [
         {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 4,
          "content": "Old"},
-        {"block_type": "button", "x": 2, "y": 1, "width": 10, "height": 1,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 2, "y": 1, "width": 4, "height": 1,
          "content": "Go", "border_style": "dashed", "parent_index": 0},
     ]
     layout_id, (box_id, child_id) = _create_project_with_blocks(page, specs)
@@ -2586,7 +2592,7 @@ def test_panel_copy_selection_to_clipboard(page: Page):
     page.context.grant_permissions(["clipboard-read", "clipboard-write"])
 
     # Select the box: click its top border row (grid (3, 2.5)) — inside the
-    # box but outside the child button (absolute (5, 4)), so the hit-test
+    # box but outside the child button (absolute (4, 3)), so the hit-test
     # picks the box, not the child.
     metrics = _canvas_metrics(page, box_id, 20, 4)
     x, y = _grid_point(metrics, 3, 2.5)
@@ -2606,6 +2612,6 @@ def test_panel_copy_selection_to_clipboard(page: Page):
     assert text == (
         "┌──────────────────┐\n"
         "│Old               │\n"
-        "│  [Go      ]      │\n"
+        "│  [Go]            │\n"
         "└──────────────────┘"
     )

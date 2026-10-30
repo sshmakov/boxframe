@@ -57,31 +57,31 @@
 
 # План работ
 
-- [ ] Составить план работ
-- [ ] `services/renderer.py` — `button_block_size(content, border_style)`
+- [x] Составить план работ
+- [x] `services/renderer.py` — `button_block_size(content, border_style)`
       (модульная функция рядом с `text_block_size`)
-- [ ] `services/renderer.py` — `_draw_button()`: многострочный label
+- [x] `services/renderer.py` — `_draw_button()`: многострочный label
       (word-wrap по внутренней ширине, обрезка блока строк по
       внутренней области, `v_align_offset`/`h_align_offset`,
       дефолты middle/center)
-- [ ] `static/js/core/renderer.js` — порт (parity побайтово):
+- [x] `static/js/core/renderer.js` — порт (parity побайтово):
       `buttonBlockSize` + `drawButton`
-- [ ] `services/layout_service.py` — ветки autosize в `create_block` /
+- [x] `services/layout_service.py` — ветки autosize в `create_block` /
       `update_block` / `batch_blocks` (create + update)
-- [ ] `static/js/core/store.js` — `normalizeButton` +
+- [x] `static/js/core/store.js` — `normalizeButton` +
       `buttonAutosizeTriggered` в `createBlock` / `updateBlock` /
       `batchBlocks` (create + update)
-- [ ] `static/js/core/properties.js` — `typeDefaults`: `text_align`
+- [x] `static/js/core/properties.js` — `typeDefaults`: `text_align`
       `{ button: "center" }`, `vertical_align` `{ button: "middle" }`;
       комментарий про button обновить
-- [ ] `static/js/editor.js` — `_blockDefaults("button")`: размер из
+- [x] `static/js/editor.js` — `_blockDefaults("button")`: размер из
       `buttonBlockSize` (content 'Button' → 8×1)
-- [ ] Тесты: `tests/test_renderer.py`, `tests/js/test_renderer.js`,
+- [x] Тесты: `tests/test_renderer.py`, `tests/js/test_renderer.js`,
       `tests/test_js_renderer_parity.py`, `tests/api/test_layouts.py`,
       `tests/js/test_store.js`, `tests/js/test_properties.js`
-- [ ] Документация: AGENTS.md (секция `button`), кросс-ссылки
+- [x] Документация: AGENTS.md (секция `button`), кросс-ссылки
       (0022, 0049, 0057/0058)
-- [ ] Проверка: `pytest tests/ --ignore=tests/e2e`,
+- [x] Проверка: `pytest tests/ --ignore=tests/e2e`,
       `node --test "tests/js/*.js"`, `pytest tests/e2e/` (сервер на :8000)
 
 # Исследование
@@ -164,14 +164,56 @@
 
 1. **Padding для N≥2 строк (framed):** h=N+2 (рекомендация — label
    впритык к рамке, консистентно с `text` 0049) или h=N+4 («воздушная»
-   кнопка с padding-строками)?
+   кнопка с padding-строками)? — **решено: h=N+2** (рекомендация).
 2. **`vertical_align` — настраиваемый meta (рекомендация, дефолт
    middle, контрол уже в панели) или захардкоженный middle** (меньше
-   кода, но контрол в панели остаётся «мёртвым» для button)?
+   кода, но контрол в панели остаётся «мёртвым» для button)? —
+   **решено: настраиваемый meta** (рекомендация).
 
 # Выполнение задачи
 
-(заполнить при выполнении)
+Реализовано по плану, оба открытых вопроса — по рекомендациям.
+
+- **Рендерер (оба, parity побайтово).** `button_block_size()` /
+  `buttonBlockSize()` — fit-функция по таблице (1 строка framed →
+  `max(3, w+2)×1`; N≥2 framed → `w+2×(N+2)`; `none` → `w×N`, пустой →
+  1×1). `_draw_button()` / `drawButton()`: внутренняя область
+  (framed h=1/h=2 — 1 строка на y; framed h≥3 — y+1, h-2; `none` —
+  весь блок), label = `_wrap_text`/`wrapText` по `inner_w` →
+  `v_align_offset` (дефолт `middle`) → `h_align_offset` (дефолт
+  `center`), строки за `inner_h` не рисуются (рамка рисуется первой).
+  `buttonBlockSize` добавлена в публичный API `PGRenderer`.
+- **Autosize.** Python: ветки `button` в `create_block` /
+  `update_block` / `batch_blocks` (create + update; триггеры
+  `content`/`border_style`/`block_type`) рядом с `text`/`divider`.
+  JS: `normalizeButton` + `buttonAutosizeTriggered` в `createBlock` /
+  `updateBlock` / `batchBlocks` (create + update). `replace_blocks` /
+  `replaceState` размер не пересчитывают; ручной resize сохраняется.
+- **Панель и дефолт.** `typeDefaults`: `text_align` →
+  `{ divider: "center", button: "center" }`, `vertical_align` →
+  `{ divider: "middle", button: "middle" }` (`clearDefault` сохранён).
+  `_blockDefaults("button")`: 16×1 → 8×1 (размер из
+  `buttonBlockSize('Button', 'solid')`).
+- **Тесты.** `test_renderer.py` (138): переписаны ожидания
+  однострочных кнопок (центрирование), новые — word-wrap,
+  мультилиней, clip h=1, ручная h=2, vertical_align, text_align
+  мультилинейный, `none` мультилинейный, пустой h=1, unit
+  `button_block_size` (10 кейсов). `tests/js/test_renderer.js` (132) —
+  зеркало. Parity: +8 кейсов alignment, +4 кейса button_heights, новый
+  `test_parity_button_block_size` (11 кейсов). API (10 новых):
+  create/update/batch autosize, ручной resize, смена типа,
+  replace-без-пересчёта. Store (6 новых): зеркало API. Properties:
+  typeDefaults + readPropValue (button) + `_blockDefaults` 8×1.
+- **E2E.** Тесты с кнопками явного размера (drag/clipboard) обновлены
+  под autosize: «Go» → 4×1, геометрия drag-точек пересчитана
+  (drag-старты по центру 4×1, дропы с целыми top-left).
+- **Документация.** AGENTS.md — секция `button` переписана
+  (многострочный label, word-wrap, autosize, дефолты center/middle,
+  8×1, h=2 — только ручной resize); кросс-ссылки 0022/0049/0051/
+  0057/0058.
+- **Проверка.** `pytest tests/ --ignore=tests/e2e` — 256 passed;
+  `node --test "tests/js/*.js"` — 326 passed; `pytest tests/e2e/` —
+  90 passed (сервер на :8000, `scripts/server.sh`).
 
 # Замечания
 
@@ -194,3 +236,8 @@
    `_commitEdit`), 0051 (механизм word-wrap/align), 0057/0058
    (прецеденты `typeDefaults`/`clearDefault` и дефолтов в
    `_blockDefaults`).
+5. **E2E и dev-сервер.** `scripts/server.sh` запускает uvicorn БЕЗ
+   `--reload`: долгоживущий сервер держит старый Python-код, а JS-файлы
+   раздаёт с диска — при изменениях рендерера/autosize e2e падают
+   «смешанной» картиной (старый размер API + новый клиентский
+   рендер). Перед e2e-прогоном — `bash scripts/server.sh restart`.

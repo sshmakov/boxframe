@@ -73,6 +73,22 @@ def text_size_js(content: str, border_style: str) -> tuple[int, int]:
     return w, h
 
 
+def button_size_js(content: str, border_style: str) -> tuple[int, int]:
+    """Compute the button fit size with the JS renderer via a node one-liner."""
+    script = (
+        f"const PG = require({json.dumps(RENDERER_JS)});"
+        f"process.stdout.write(JSON.stringify(PG.buttonBlockSize("
+        f"{json.dumps(content)}, {json.dumps(border_style)})));")
+    result = subprocess.run(
+        [NODE, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    w, h = json.loads(result.stdout)
+    return w, h
+
+
 def divider_fit_size_js(content: str, width: int, height: int) -> tuple[int, int]:
     """Compute the divider grow-only fit size via a node one-liner."""
     script = (
@@ -259,7 +275,15 @@ def test_parity_alignment():
         ("header", {"text_align": "center"}, "Header", "double", 20, 4),
         ("button", {"text_align": "center"}, "Button", "solid", 14, 2),
         ("button", {"text_align": "right"}, "Button", "dashed", 14, 3),
-        ("button", {"vertical_align": "bottom"}, "Button", "solid", 14, 3),  # no-op for buttons
+        ("button", {"vertical_align": "bottom"}, "Button", "solid", 14, 3),  # no-op: one line, one inner row
+        ("button", {}, "hi\nthere", "solid", 7, 4),  # multiline, default center/middle
+        ("button", {"vertical_align": "top"}, "hi\nthere", "solid", 7, 6),
+        ("button", {"vertical_align": "bottom"}, "hi\nthere", "dashed", 7, 6),
+        ("button", {"text_align": "left"}, "hi\nthere", "solid", 7, 4),
+        ("button", {"text_align": "right", "vertical_align": "middle"}, "hi\nthere", "double", 7, 6),
+        ("button", {}, "A very long label", "solid", 10, 3),  # wrap + clip
+        ("button", {}, "a\nb", "solid", 12, 1),  # multiline clipped to h=1
+        ("button", {}, "hi\nthere", "none", 5, 2),  # no border, whole block inner
         ("hline", {"text_align": "center"}, "", "solid", 8, 1),  # lines ignore alignment
         ("vline", {"vertical_align": "bottom"}, "", "solid", 1, 8),
     ]
@@ -484,7 +508,8 @@ def test_parity_deep_nesting():
 
 
 def test_parity_button_heights():
-    """Buttons of all heights (h=1 [label], h=2 no top border, h>=3 full box)."""
+    """Buttons of all heights (h=1 [label], h=2 no top border, h>=3 full box),
+    multiline labels, and manual resizes smaller than the fit (task 0060)."""
     blocks = [
         {"id": "b1", "block_type": "button", "x": 0, "y": 0, "width": 16, "height": 1,
          "content": "Button", "border_style": "solid", "order": 0},
@@ -496,9 +521,38 @@ def test_parity_button_heights():
          "content": "Button", "border_style": "solid", "order": 3},
         {"id": "b5", "block_type": "button", "x": 20, "y": 0, "width": 10, "height": 4,
          "content": "A very long label", "border_style": "none", "order": 4},
+        {"id": "b6", "block_type": "button", "x": 20, "y": 5, "width": 7, "height": 4,
+         "content": "hi\nthere", "border_style": "solid", "order": 5},
+        {"id": "b7", "block_type": "button", "x": 20, "y": 10, "width": 7, "height": 6,
+         "content": "hi\nthere", "border_style": "solid",
+         "meta": {"vertical_align": "bottom"}, "order": 6},
+        {"id": "b8", "block_type": "button", "x": 30, "y": 5, "width": 10, "height": 3,
+         "content": "A very long label", "border_style": "solid", "order": 7},
+        {"id": "b9", "block_type": "button", "x": 30, "y": 9, "width": 3, "height": 1,
+         "content": "", "border_style": "solid", "order": 8},
     ]
     py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
     assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 14)
+
+
+def test_parity_button_block_size():
+    """The button fit size (autosize) must agree between the renderers."""
+    from boxframe.services.renderer import button_block_size
+    cases = [
+        ("", "none"),
+        ("", "solid"),
+        ("Button", "solid"),
+        ("a", "solid"),
+        ("a\nb", "solid"),
+        ("hi\nthere", "solid"),
+        ("hi\nthere", "dashed"),
+        ("a\n", "solid"),
+        ("  spaced  ", "solid"),
+        ("hi", "none"),
+        ("a\nbb", "none"),
+    ]
+    for content, style in cases:
+        assert button_block_size(content, style) == button_size_js(content, style), (content, style)
 
 
 def test_parity_grid_expansion():

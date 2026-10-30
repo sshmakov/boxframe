@@ -107,11 +107,12 @@ test("schema: the current properties are described (phase 3 set)", () => {
     // divider without the meta key, and picking the type default clears
     // it (clearDefault)
     assert.ok(PGProperties.findProperty("text_align").types.includes("divider"));
-    assert.deepEqual(PGProperties.findProperty("text_align").typeDefaults,
-        { divider: "center" });
     assert.ok(PGProperties.findProperty("vertical_align").types.includes("divider"));
+    // Button: the label is centered on both axes too (task 0060)
+    assert.deepEqual(PGProperties.findProperty("text_align").typeDefaults,
+        { divider: "center", button: "center" });
     assert.deepEqual(PGProperties.findProperty("vertical_align").typeDefaults,
-        { divider: "middle" });
+        { divider: "middle", button: "middle" });
     // Arrows (phase 3 of tasks/0051): meta keys, select (two selects
     // share one row — 14 buttons don't fit the panel width), lines only;
     // six head shapes; "none" is a display sentinel (noneValue: null
@@ -201,6 +202,10 @@ test("readPropValue: the type default wins over the schema default (divider)", (
     // A box keeps the schema default (top)
     const box = block("b3", "box", 0, 0, 5, 2);
     assert.equal(PGProperties.readPropValue(box, vAlign), "top");
+    // Button: the type default (center/middle) wins too (task 0060)
+    const button = block("b4", "button", 0, 0, 8, 1);
+    assert.equal(PGProperties.readPropValue(button, vAlign), "middle");
+    assert.equal(PGProperties.readPropValue(button, hAlign), "center");
 });
 
 test("_blockDefaults: divider is 30x1 with the [divider] label", () => {
@@ -212,6 +217,13 @@ test("_blockDefaults: divider is 30x1 with the [divider] label", () => {
         { width: 20, height: 3, content: "[box]" });
     assert.deepEqual(app._blockDefaults("hline"),
         { width: 20, height: 1, content: "" });
+});
+
+test("_blockDefaults: button is sized by the fit function (task 0060)", () => {
+    const app = editorApp();
+    // 'Button' + solid frame → 8×1 (was a fixed 16×1)
+    assert.deepEqual(app._blockDefaults("button"),
+        { width: 8, height: 1, content: "Button" });
 });
 
 // ── Sections ──────────────────────────────────────────────

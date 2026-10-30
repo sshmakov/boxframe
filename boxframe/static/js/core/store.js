@@ -224,6 +224,23 @@
             return !!props && ("content" in props || "border_style" in props || "block_type" in props);
         }
 
+        // Button autosizes to its content (the border depends on the
+        // height, task 0060) — mirrors LayoutService rules. Applied on
+        // create and when an update carries content / border_style /
+        // block_type; a plain size update is a manual resize and is kept.
+        function normalizeButton(block) {
+            if (block.block_type !== "button") return;
+            var size = PGRenderer.buttonBlockSize(block.content, block.border_style);
+            block.width = size[0];
+            block.height = size[1];
+        }
+
+        // True when an update payload changes what a button autosizes
+        // from (its content or its border).
+        function buttonAutosizeTriggered(props) {
+            return !!props && ("content" in props || "border_style" in props || "block_type" in props);
+        }
+
         // Divider autosizes to its content, grow-only (variant E,
         // tasks/0003) — mirrors LayoutService rules: the size grows to
         // fit the content but never shrinks (a manual resize is kept
@@ -296,6 +313,7 @@
                 };
                 normalizeLine(block);
                 normalizeText(block);
+                normalizeButton(block);
                 normalizeDivider(block);
                 layout.blocks.push(block);
                 mutate();
@@ -317,6 +335,7 @@
                 });
                 normalizeLine(block);
                 if (textAutosizeTriggered(props)) normalizeText(block);
+                if (buttonAutosizeTriggered(props)) normalizeButton(block);
                 if (dividerAutosizeTriggered(props)) normalizeDivider(block);
                 block.updated_at = new Date().toISOString();
                 mutate();
@@ -379,6 +398,7 @@
                     };
                     normalizeLine(block);
                     normalizeText(block);
+                    normalizeButton(block);
                     normalizeDivider(block);
                     layout.blocks.push(block);
                     created.push(Object.assign({}, block));
@@ -399,6 +419,7 @@
                     });
                     normalizeLine(block);
                     if (textAutosizeTriggered(data)) normalizeText(block);
+                    if (buttonAutosizeTriggered(data)) normalizeButton(block);
                     if (dividerAutosizeTriggered(data)) normalizeDivider(block);
                     block.updated_at = new Date().toISOString();
                     updated.push(Object.assign({}, block));
