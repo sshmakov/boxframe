@@ -21,6 +21,15 @@ _RESIZE_HANDLE_SVG = (
     '%3E%3C/path%3E%3C/svg%3E'
 )
 
+# Fixed lorem source for the content-block placeholder (todo-0004).
+# ~245 chars; repeated (h+1) times to guarantee ≥ h wrapped lines at any width.
+LOREM_PLACEHOLDER = (
+    "lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do "
+    "eiusmod tempor incididunt ut labore et dolore magna aliqua. ut "
+    "enim ad minim veniam, quis nostrud exercitation ullamco laboris "
+    "nisi ut aliquip ex ea commodo consequat."
+)
+
 
 @dataclass
 class RenderBlock:
@@ -718,8 +727,23 @@ class PseudoGraphicRenderer:
                     self._set(content_x + i, row, fill)
 
         if not block.content:
-            # Show type hint if no content and no fill
-            if has_border and w >= 4 and not fill:
+            if block.block_type == "content" and not fill and content_w > 0 and content_h > 0:
+                # Lorem placeholder (todo-0004): deterministic lines wrapped
+                # to the content area, last line shorter — "like a paragraph".
+                # Regenerated on each render (live re-layout on resize).
+                lines = self.placeholder_lines(content_w, content_h)
+                v_off = v_align_offset(len(lines), content_h, (block.meta or {}).get("vertical_align"))
+                h_align = (block.meta or {}).get("text_align")
+                for line_idx, line in enumerate(lines):
+                    if line_idx + v_off >= content_h:
+                        break
+                    row = content_y + line_idx + v_off
+                    if row >= self.grid_height:
+                        break
+                    off = h_align_offset(len(line), content_w, h_align)
+                    for col_idx, ch in enumerate(line):
+                        self._set(content_x + off + col_idx, row, ch)
+            elif has_border and w >= 4 and not fill:
                 hint = f"[{block.block_type}]"
                 for i, ch in enumerate(hint):
                     if content_x + i < content_x + content_w and content_y < self.grid_height:
@@ -792,6 +816,22 @@ class PseudoGraphicRenderer:
             elif not tokens:
                 wrapped.append("")
         return wrapped
+
+    def placeholder_lines(self, w: int, h: int) -> list[str]:
+        """Lorem placeholder lines for an empty content block (todo-0004).
+
+        Wraps the fixed lorem source to width *w*, takes the first *h*
+        lines, and shortens the last line to ~70% of *w* (only when
+        h >= 2 and w >= 4) — "like a paragraph". Regenerated on each
+        render from the current size (live re-layout on resize).
+        """
+        if w <= 0 or h <= 0:
+            return []
+        text = (LOREM_PLACEHOLDER + " ") * (h + 1)
+        lines = self._wrap_text(text, w)[:h]
+        if h >= 2 and w >= 4 and lines:
+            lines[-1] = lines[-1][: max(3, w * 7 // 10)]
+        return lines
 
     def _render_children_in_container(self, parent: RenderBlock, style: dict[str, str]) -> None:
         """Render child blocks inside a parent container with padding.

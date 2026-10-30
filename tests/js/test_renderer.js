@@ -1671,3 +1671,157 @@ test("renderHtml escapes html in ascii", () => {
     assert.ok(html.includes("&lt;b&gt;&amp;&lt;/b&gt;"));
     assert.ok(!html.includes("<b>"));
 });
+
+// ── Content placeholder (todo-0004) ──────────────────────────────
+
+test("content placeholder default size", () => {
+    const result = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 40, height: 10,
+        content: "", border_style: "solid",
+    }], 40, 10);
+    const ls = lines(result);
+    assert.equal(ls.length, 10);
+    // Border rows
+    assert.equal(ls[0][0], "┌");
+    assert.equal(ls[0][39], "┐");
+    assert.equal(ls[9][0], "└");
+    assert.equal(ls[9][39], "┘");
+    // Content rows: 8 lines (rows 1–8)
+    const contentLines = [];
+    for (let i = 1; i < 9; i++) {
+        assert.equal(ls[i][0], "│");
+        assert.equal(ls[i][39], "│");
+        contentLines.push(ls[i].slice(1, 39));
+    }
+    // First line starts with "lorem"
+    assert.ok(contentLines[0].startsWith("lorem"));
+    // Last line is shorter than the others
+    assert.ok(contentLines[contentLines.length - 1].replace(/\s+$/, "").length <
+              contentLines[0].replace(/\s+$/, "").length);
+    // All lines are non-empty
+    for (const cl of contentLines) {
+        assert.ok(cl.trim().length > 0);
+    }
+});
+
+test("content placeholder deterministic", () => {
+    const block = {
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 30, height: 6,
+        content: "", border_style: "solid",
+    };
+    const r1 = render([block], 30, 6);
+    const r2 = render([block], 30, 6);
+    assert.equal(r1, r2);
+});
+
+test("content placeholder resize rewraps", () => {
+    const small = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 20, height: 4,
+        content: "", border_style: "solid",
+    }], 20, 4);
+    const large = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 40, height: 10,
+        content: "", border_style: "solid",
+    }], 40, 10);
+    const smallContent = lines(small).slice(1, 3).map(l => l.slice(1, 19)).join("\n");
+    const largeContent = lines(large).slice(1, 9).map(l => l.slice(1, 39)).join("\n");
+    assert.notEqual(smallContent, largeContent);
+    assert.ok(smallContent.startsWith("lorem"));
+    assert.ok(largeContent.startsWith("lorem"));
+});
+
+test("content placeholder last line shorter", () => {
+    const result = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 40, height: 10,
+        content: "", border_style: "solid",
+    }], 40, 10);
+    const ls = lines(result);
+    const contentLines = ls.slice(1, 9).map(l => l.slice(1, 39));
+    // Content width is 38; last line should be <= 26 chars (38*7//10=26)
+    const lastLen = contentLines[contentLines.length - 1].replace(/\s+$/, "").length;
+    assert.ok(lastLen <= 26);
+    assert.ok(lastLen >= 3);
+    // Last line is shorter than the longest content line
+    const maxLen = Math.max(...contentLines.slice(0, -1).map(cl => cl.replace(/\s+$/, "").length));
+    assert.ok(lastLen < maxLen);
+});
+
+test("content nonempty content no placeholder", () => {
+    const result = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 20, height: 5,
+        content: "Hello World", border_style: "solid",
+    }], 20, 5);
+    const ls = lines(result);
+    const contentText = ls.slice(1, 4).map(l => l.slice(1, 19)).join("\n");
+    assert.ok(contentText.includes("Hello"));
+    assert.ok(!contentText.includes("lorem"));
+});
+
+test("content fill suppresses placeholder", () => {
+    const result = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 20, height: 5,
+        content: "", border_style: "solid",
+        meta: { fill: "░" },
+    }], 20, 5);
+    const ls = lines(result);
+    for (let i = 1; i < 4; i++) {
+        const row = ls[i].slice(1, 19);
+        assert.ok(!row.includes("lorem"));
+        assert.ok([...row].every(c => c === "░"));
+    }
+});
+
+test("content placeholder text align", () => {
+    const left = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 30, height: 4,
+        content: "", border_style: "solid",
+        meta: { text_align: "left" },
+    }], 30, 4);
+    const center = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 30, height: 4,
+        content: "", border_style: "solid",
+        meta: { text_align: "center" },
+    }], 30, 4);
+    // Last content line (row 2, shorter) should be positioned differently
+    const leftLast = lines(left)[2].slice(1, 29);
+    const centerLast = lines(center)[2].slice(1, 29);
+    assert.notEqual(leftLast, centerLast);
+    // Left-aligned: starts at position 0 (no leading spaces)
+    assert.ok(leftLast[0] !== " ");
+    // Center-aligned: has leading spaces (shorter line centered)
+    assert.ok(centerLast[0] === " ");
+});
+
+test("content placeholder no border", () => {
+    const result = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 20, height: 4,
+        content: "", border_style: "none",
+    }], 20, 4);
+    const ls = lines(result);
+    assert.equal(ls.length, 4);
+    // No border characters, content starts at column 0
+    assert.ok(ls[0].startsWith("lorem"));
+});
+
+test("content placeholder small block", () => {
+    const result = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 2, height: 2,
+        content: "", border_style: "solid",
+    }], 20, 10);
+    const ls = lines(result);
+    // 2×2 block: just border, no content area
+    assert.equal(ls[0], "┌┐");
+    assert.equal(ls[1], "└┘");
+    assert.ok(!result.includes("lorem"));
+});

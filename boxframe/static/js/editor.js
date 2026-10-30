@@ -1746,6 +1746,9 @@ function editorApp() {
                 const size = PGRenderer.textBlockSize('[text]', 'none');
                 return { width: size[0], height: size[1], content: '[text]', border_style: 'none' };
             }
+            // Content (todo-0004): semantic default 40×10, empty content —
+            // the renderer draws a lorem placeholder.
+            if (type === 'content') return { width: 40, height: 10, content: '' };
             return { width: 20, height: 3, content: `[${type}]` };
         },
 
