@@ -2736,7 +2736,9 @@ def test_web_editor_grid_is_a_container(page: Page):
 
 def test_web_editor_grid_span_suppresses_partitions(page: Page):
     """A child spanning two cells — the partition between them is not
-    drawn in the ASCII art, the span looks like one intact cell (0062)."""
+    drawn in the ASCII art, the span looks like one intact cell (0062);
+    the frame node over the spanned partition degrades to a plain line
+    and the junction below the child loses its upper arm (0063)."""
     layout_id, (grid_id, child_id) = _create_project_with_blocks(page, [
         {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
         # box (no autosize, unlike text) spanning cells 1–2 of the top
@@ -2754,10 +2756,11 @@ def test_web_editor_grid_span_suppresses_partitions(page: Page):
         # grid at (2,2) 24×8: vertical partitions at abs cols 10, 17; the
         # box child (abs (3,3) 13×3) covers col 10 rows 3..5
         return (
-            lines[3][10] == "─"  # box top border, partition suppressed
+            lines[2][10] == "─"  # top frame node degraded (0063)
+            and lines[3][10] == "─"  # box top border, partition suppressed
             and lines[4][10] == " "  # box interior, partition suppressed
             and lines[5][10] == "─"  # box bottom border, partition suppressed
-            and lines[6][10] == "┼"  # junction below the child stays
+            and lines[6][10] == "┬"  # junction below the child: upper arm gone
             and lines[7][10] == "│"  # partition below the child stays
             and lines[3][17] == "│"  # the other partition is untouched
         )

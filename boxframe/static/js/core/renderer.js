@@ -269,6 +269,33 @@
         return v;
     }
 
+    // Port of _grid_junction in services/renderer.py: the box-drawing
+    // character of a grid junction (an interior cross or a frame node)
+    // from the four partition segments actually drawn around it (0063).
+    // A suppressed segment (under a child's span, 0062) degrades the
+    // node — ┼ → ├/┤/┬/┴/│/─ — so no line ends stick out of a spanned
+    // cell. null — no segment is drawn, nothing to place.
+    function gridJunction(part, up, down, left, right) {
+        if (up && down) {
+            if (left && right) return part.b_b;
+            if (left) return part.t_r;
+            if (right) return part.t_l;
+            return part.v;
+        }
+        if (left && right) {
+            if (up) return part.b_l;
+            if (down) return part.t_t;
+            return part.h;
+        }
+        if (up && left) return part.bl;
+        if (up && right) return part.tr;
+        if (down && left) return part.br;
+        if (down && right) return part.tl;
+        if (up || down) return part.v;
+        if (left || right) return part.h;
+        return null;
+    }
+
     // ── Grid drawing (ports of the PseudoGraphicRenderer methods) ──
 
     // Write a cell, respecting the grid bounds and the active clip rect
@@ -496,8 +523,10 @@
     // Partitions are not drawn under the children's rectangles (0062):
     // a child spanning several cells looks like one intact cell. The skip
     // is applied at draw time (the fill/space under a skipped partition
-    // cell is left untouched); the frame nodes on the outer border are
-    // outside the inner area and are never skipped.
+    // cell is left untouched). The frame nodes on the outer border and
+    // the interior junctions reflect the segments actually drawn around
+    // them (0063): a suppressed segment degrades the node (┬ → ─,
+    // ├ → │, ┼ → ├/┬/│/─), so no line ends stick out of a spanned cell.
     function drawGrid(block, style, grid, gw, gh, clip, allBlocks) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
@@ -547,11 +576,13 @@
         var rowY = [];
         for (var j = 0; j <= effRows; j++) rowY.push(Math.floor((j * innerH) / effRows));
 
-        // Children's rectangles (absolute, half-open, clipped to the inner
-        // area) — partitions are not drawn under them: a child spanning
-        // several cells looks like one intact cell (0062). Same origin as
-        // renderChildrenInContainer (1-cell padding).
-        var childRects = [];
+        // Span regions (absolute, half-open): the union of the whole grid
+        // cells each child's rectangle intersects (0062, refined in 0064) —
+        // a child touching cells 1–2 spans them, and the partitions inside
+        // the spanned block are not drawn. Same origin as
+        // renderChildrenInContainer (1-cell padding), clipped to the inner
+        // area.
+        var spanRects = [];
         for (var ci = 0; ci < allBlocks.length; ci++) {
             var cb = allBlocks[ci];
             if (cb.parent_id !== block.id) continue;
@@ -560,49 +591,90 @@
             var ry0 = Math.max(block.y + 1 + cb.y, innerY);
             var rx1 = Math.min(block.x + 1 + cb.x + cb.width, innerX + innerW);
             var ry1 = Math.min(block.y + 1 + cb.y + cb.height, innerY + innerH);
-            if (rx1 > rx0 && ry1 > ry0) childRects.push([rx0, ry0, rx1, ry1]);
+            if (!(rx1 > rx0 && ry1 > ry0)) continue;
+            var ix0 = rx0 - innerX, iy0 = ry0 - innerY;
+            var ix1 = rx1 - innerX, iy1 = ry1 - innerY;
+            var sCol0 = -1, sCol1 = -1, sRow0 = -1, sRow1 = -1;
+            for (var si = 0; si < effCols; si++) {
+                if (colX[si] < ix1 && colX[si + 1] > ix0) {
+                    if (sCol0 < 0) sCol0 = si;
+                    sCol1 = si;
+                }
+            }
+            for (var sj = 0; sj < effRows; sj++) {
+                if (rowY[sj] < iy1 && rowY[sj + 1] > iy0) {
+                    if (sRow0 < 0) sRow0 = sj;
+                    sRow1 = sj;
+                }
+            }
+            if (sCol0 < 0 || sRow0 < 0) continue;
+            spanRects.push([
+                innerX + colX[sCol0],
+                innerY + rowY[sRow0],
+                innerX + colX[sCol1 + 1],
+                innerY + rowY[sRow1 + 1]
+            ]);
         }
 
         // r = [rx0, ry0, rx1, ry1]
-        function coveredByChild(px, py) {
-            for (var k = 0; k < childRects.length; k++) {
-                var r = childRects[k];
+        function coveredBySpan(px, py) {
+            for (var k = 0; k < spanRects.length; k++) {
+                var r = spanRects[k];
                 if (px >= r[0] && px < r[2] && py >= r[1] && py < r[3]) return true;
             }
             return false;
         }
 
-        // Vertical partitions (with the top/bottom frame nodes)
+        // Vertical partitions
         for (var vi = 1; vi < effCols; vi++) {
             var cx = innerX + colX[vi];
             for (var vj = 0; vj < innerH; vj++) {
-                if (coveredByChild(cx, innerY + vj)) continue;
+                if (coveredBySpan(cx, innerY + vj)) continue;
                 setCell(grid, gw, gh, clip, cx, innerY + vj, part.v);
-            }
-            if (framed) {
-                setCell(grid, gw, gh, clip, cx, y, part.t_t);
-                setCell(grid, gw, gh, clip, cx, y + h - 1, part.b_l);
             }
         }
 
-        // Horizontal partitions (with the left/right frame nodes)
+        // Horizontal partitions
         for (var hj = 1; hj < effRows; hj++) {
             var ry = innerY + rowY[hj];
             for (var hi = 0; hi < innerW; hi++) {
-                if (coveredByChild(innerX + hi, ry)) continue;
+                if (coveredBySpan(innerX + hi, ry)) continue;
                 setCell(grid, gw, gh, clip, innerX + hi, ry, part.h);
-            }
-            if (framed) {
-                setCell(grid, gw, gh, clip, x, ry, part.t_l);
-                setCell(grid, gw, gh, clip, x + w - 1, ry, part.t_r);
             }
         }
 
-        // Interior junctions
+        // Frame nodes and interior junctions reflect the partition
+        // segments actually drawn around them (0063): a segment
+        // suppressed by a child's span (0062/0064) degrades the node, so
+        // no line ends stick out of a spanned cell.
+        if (framed) {
+            for (var fi = 1; fi < effCols; fi++) {
+                var fcx = innerX + colX[fi];
+                setCell(grid, gw, gh, clip, fcx, y,
+                    coveredBySpan(fcx, innerY) ? part.h : part.t_t);
+                setCell(grid, gw, gh, clip, fcx, y + h - 1,
+                    coveredBySpan(fcx, innerY + innerH - 1) ? part.h : part.b_l);
+            }
+            for (var fj = 1; fj < effRows; fj++) {
+                var fry = innerY + rowY[fj];
+                setCell(grid, gw, gh, clip, x, fry,
+                    coveredBySpan(innerX, fry) ? part.v : part.t_l);
+                setCell(grid, gw, gh, clip, x + w - 1, fry,
+                    coveredBySpan(innerX + innerW - 1, fry) ? part.v : part.t_r);
+            }
+        }
+
         for (var ii = 1; ii < effCols; ii++) {
             for (var ij = 1; ij < effRows; ij++) {
-                if (coveredByChild(innerX + colX[ii], innerY + rowY[ij])) continue;
-                setCell(grid, gw, gh, clip, innerX + colX[ii], innerY + rowY[ij], part.b_b);
+                var px = innerX + colX[ii];
+                var py = innerY + rowY[ij];
+                if (coveredBySpan(px, py)) continue;
+                var jch = gridJunction(part,
+                    !coveredBySpan(px, py - 1),
+                    !coveredBySpan(px, py + 1),
+                    !coveredBySpan(px - 1, py),
+                    !coveredBySpan(px + 1, py));
+                if (jch) setCell(grid, gw, gh, clip, px, py, jch);
             }
         }
     }
@@ -1143,6 +1215,7 @@
         buttonBlockSize: buttonBlockSize,
         dividerFitSize: dividerFitSize,
         gridMetaInt: gridMetaInt,
+        gridJunction: gridJunction,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,
         renderBoundsHtml: renderBoundsHtml,

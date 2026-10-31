@@ -310,6 +310,43 @@ def grid_meta_int(meta: dict | None, key: str, default: int) -> int:
     return v
 
 
+def _grid_junction(
+    part: dict[str, str], up: bool, down: bool, left: bool, right: bool
+) -> str | None:
+    """The box-drawing character of a grid junction (an interior cross or
+    a frame node) from the four partition segments actually drawn around
+    it (0063). A suppressed segment (under a child's span, 0062) degrades
+    the node — ┼ → ├/┤/┬/┴/│/─ — so no line ends stick out of a spanned
+    cell. None — no segment is drawn, nothing to place."""
+    if up and down:
+        if left and right:
+            return part["b_b"]
+        if left:
+            return part["t_r"]
+        if right:
+            return part["t_l"]
+        return part["v"]
+    if left and right:
+        if up:
+            return part["b_l"]
+        if down:
+            return part["t_t"]
+        return part["h"]
+    if up and left:
+        return part["bl"]
+    if up and right:
+        return part["tr"]
+    if down and left:
+        return part["br"]
+    if down and right:
+        return part["tl"]
+    if up or down:
+        return part["v"]
+    if left or right:
+        return part["h"]
+    return None
+
+
 def _line_segment_html(
     top: float, col: int, length: int, char_width_px: float, style: str
 ) -> str:
@@ -770,11 +807,16 @@ class PseudoGraphicRenderer:
         children are rendered over the partitions (by the caller).
         border_style none — no outer border, solid partitions.
 
-        Partitions are not drawn under the children's rectangles (0062):
-        a child spanning several cells looks like one intact cell. The
-        skip is applied at draw time (the fill/space under a skipped
-        partition cell is left untouched); the frame nodes on the outer
-        border are outside the inner area and are never skipped.
+        Partitions are not drawn inside the children's span regions
+        (0062, refined in 0064): a child's span region is the union of
+        the whole grid cells its rectangle intersects — a child touching
+        cells 1–2 spans them, and the span looks like one intact cell.
+        The skip is applied at draw time (the fill/space under a skipped
+        partition cell is left untouched). The frame nodes on the outer
+        border and the interior junctions reflect the segments actually
+        drawn around them (0063): a suppressed segment degrades the node
+        (┬ → ─, ├ → │, ┼ → ├/┬/│/─), so no line ends stick out of a
+        spanned cell.
         """
         x = max(0, min(block.x, self.grid_width - 2))
         y = max(0, min(block.y, self.grid_height - 2))
@@ -816,11 +858,13 @@ class PseudoGraphicRenderer:
         col_x = [(i * inner_w) // eff_cols for i in range(eff_cols + 1)]
         row_y = [(j * inner_h) // eff_rows for j in range(eff_rows + 1)]
 
-        # Children's rectangles (absolute, half-open, clipped to the inner
-        # area) — partitions are not drawn under them: a child spanning
-        # several cells looks like one intact cell (0062). Same origin as
-        # _render_children_in_container (1-cell padding).
-        child_rects = []
+        # Span regions (absolute, half-open): the union of the whole grid
+        # cells each child's rectangle intersects (0062, refined in 0064) —
+        # a child touching cells 1–2 spans them, and the partitions inside
+        # the spanned block are not drawn. Same origin as
+        # _render_children_in_container (1-cell padding), clipped to the
+        # inner area.
+        span_rects = []
         for c in block.children:
             if c.width < 1 or c.height < 1:
                 continue
@@ -828,43 +872,84 @@ class PseudoGraphicRenderer:
             ry0 = max(block.y + 1 + c.y, inner_y)
             rx1 = min(block.x + 1 + c.x + c.width, inner_x + inner_w)
             ry1 = min(block.y + 1 + c.y + c.height, inner_y + inner_h)
-            if rx1 > rx0 and ry1 > ry0:
-                child_rects.append((rx0, ry0, rx1, ry1))
+            if not (rx1 > rx0 and ry1 > ry0):
+                continue
+            ix0, iy0 = rx0 - inner_x, ry0 - inner_y
+            ix1, iy1 = rx1 - inner_x, ry1 - inner_y
+            cols = [i for i in range(eff_cols)
+                    if col_x[i] < ix1 and col_x[i + 1] > ix0]
+            rows = [j for j in range(eff_rows)
+                    if row_y[j] < iy1 and row_y[j + 1] > iy0]
+            if not cols or not rows:
+                continue
+            span_rects.append((
+                inner_x + col_x[cols[0]],
+                inner_y + row_y[rows[0]],
+                inner_x + col_x[cols[-1] + 1],
+                inner_y + row_y[rows[-1] + 1],
+            ))
 
         def covered(px: int, py: int) -> bool:
-            for rx0, ry0, rx1, ry1 in child_rects:
+            for rx0, ry0, rx1, ry1 in span_rects:
                 if rx0 <= px < rx1 and ry0 <= py < ry1:
                     return True
             return False
 
-        # Vertical partitions (with the top/bottom frame nodes)
+        # Vertical partitions
         for i in range(1, eff_cols):
             cx = inner_x + col_x[i]
             for j in range(inner_h):
                 if covered(cx, inner_y + j):
                     continue
                 self._set(cx, inner_y + j, part["v"])
-            if framed:
-                self._set(cx, y, part["t_t"])
-                self._set(cx, y + h - 1, part["b_l"])
 
-        # Horizontal partitions (with the left/right frame nodes)
+        # Horizontal partitions
         for j in range(1, eff_rows):
             ry = inner_y + row_y[j]
             for i in range(inner_w):
                 if covered(inner_x + i, ry):
                     continue
                 self._set(inner_x + i, ry, part["h"])
-            if framed:
-                self._set(x, ry, part["t_l"])
-                self._set(x + w - 1, ry, part["t_r"])
 
-        # Interior junctions
+        # Frame nodes and interior junctions reflect the partition
+        # segments actually drawn around them (0063): a segment
+        # suppressed by a child's span (0062/0064) degrades the node, so
+        # no line ends stick out of a spanned cell.
+        if framed:
+            for i in range(1, eff_cols):
+                cx = inner_x + col_x[i]
+                self._set(
+                    cx, y,
+                    part["t_t"] if not covered(cx, inner_y) else part["h"])
+                self._set(
+                    cx, y + h - 1,
+                    part["b_l"] if not covered(cx, inner_y + inner_h - 1)
+                    else part["h"])
+            for j in range(1, eff_rows):
+                ry = inner_y + row_y[j]
+                self._set(
+                    x, ry,
+                    part["t_l"] if not covered(inner_x, ry) else part["v"])
+                self._set(
+                    x + w - 1, ry,
+                    part["t_r"] if not covered(inner_x + inner_w - 1, ry)
+                    else part["v"])
+
         for i in range(1, eff_cols):
             for j in range(1, eff_rows):
-                if covered(inner_x + col_x[i], inner_y + row_y[j]):
+                px = inner_x + col_x[i]
+                py = inner_y + row_y[j]
+                if covered(px, py):
                     continue
-                self._set(inner_x + col_x[i], inner_y + row_y[j], part["b_b"])
+                ch = _grid_junction(
+                    part,
+                    not covered(px, py - 1),
+                    not covered(px, py + 1),
+                    not covered(px - 1, py),
+                    not covered(px + 1, py),
+                )
+                if ch is not None:
+                    self._set(px, py, ch)
 
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""
