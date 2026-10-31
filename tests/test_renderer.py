@@ -2234,10 +2234,9 @@ def test_grid_fill_under_partitions():
 
 
 def test_grid_children_render_over_partitions():
-    """Children are drawn after the partitions: the child's border and
-    content overwrite the partition where they coincide (the child
-    interior is transparent, like any block); the partition stays
-    visible outside the child."""
+    """Children are drawn after the partitions: the partition under the
+    child is not drawn at all (0062), the child's border and content are
+    drawn there; the partition stays visible outside the child."""
     result = _render(_grid_block(children=[{
         "block_type": "box",
         "x": 0, "y": 0,
@@ -2301,3 +2300,159 @@ def test_grid_double_border():
     assert lines[7][0] == "╚"
     assert lines[7][8] == "╩"
     assert lines[7][23] == "╝"
+
+
+# ── Grid span: partitions are not drawn under children (0062) ─────────
+
+
+def test_grid_span_suppresses_partitions_under_child():
+    """A borderless child spanning two cells (aligned to the cell
+    boundaries) — the partition between the spanned cells is not drawn,
+    the span looks like one intact cell; partitions outside the child
+    (and the junction below it) stay."""
+    result = _render(_grid_block(children=[{
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "width": 14, "height": 3,
+        "content": "SPAN",
+        "border_style": "none",
+    }]))
+    lines = result.split("\n")
+    # child at abs (1,1) 14×3 covers the partition at abs col 8, rows 1..3
+    assert lines[1][1] == "S"  # child content is drawn
+    assert lines[1][8] == " "  # partition suppressed under the child
+    assert lines[2][8] == " "
+    assert lines[3][8] == " "
+    assert lines[4][8] == "┼"  # junction below the child stays
+    assert lines[5][8] == "│"  # partition below the child stays
+    assert lines[1][15] == "│"  # the other partition is untouched
+
+
+def test_grid_span_vertical():
+    """A child spanning two rows — the horizontal partition under it is
+    not drawn; the vertical partition and the junction outside the child
+    stay."""
+    result = _render(_grid_block(children=[{
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "width": 7, "height": 6,
+        "content": "",
+        "border_style": "none",
+    }]))
+    lines = result.split("\n")
+    # child at abs (1,1) 7×6 covers the row partition (abs row 4), cols 1..7
+    assert lines[4][1] == " "
+    assert lines[4][7] == " "
+    assert lines[4][8] == "┼"  # junction outside the child stays
+    assert lines[4][9] == "─"  # the partition continues
+    assert lines[1][8] == "│"  # the vertical partition stays
+
+
+def test_grid_span_2x2():
+    """A child spanning two columns and two rows — both inner partitions
+    under it are not drawn (including the interior junction)."""
+    result = _render(_grid_block(children=[{
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "width": 14, "height": 6,
+        "content": "",
+        "border_style": "none",
+    }]))
+    lines = result.split("\n")
+    # child at abs (1,1) 14×6 covers col 8 (rows 1..6) and row 4 (cols 1..14)
+    for row in range(1, 7):
+        assert lines[row][8] == " "
+    for col in range(1, 15):
+        assert lines[4][col] == " "
+    assert lines[4][15] == "┼"  # junction outside the child stays
+    assert lines[1][15] == "│"  # the other vertical partition stays
+
+
+def test_grid_span_misaligned_child():
+    """A child not aligned to the cell boundaries — the partition
+    segments under its rectangle are still not drawn (the general rule);
+    the segments outside the rectangle stay (including the junction
+    under the child)."""
+    result = _render(_grid_block(children=[{
+        "block_type": "text",
+        "x": 2, "y": 2,
+        "width": 10, "height": 3,
+        "content": "",
+        "border_style": "none",
+    }]))
+    lines = result.split("\n")
+    # child at abs (3,3) 10×3 covers col 8 rows 3..5 and row 4 cols 3..12
+    assert lines[1][8] == "│"  # above the child — stays
+    assert lines[2][8] == "│"
+    assert lines[3][8] == " "  # under the child — suppressed
+    assert lines[4][8] == " "  # junction under the child — suppressed
+    assert lines[5][8] == " "
+    assert lines[6][8] == "│"  # below the child — stays
+    assert lines[4][2] == "─"  # left of the child — stays
+    assert lines[4][3] == " "  # under the child — suppressed
+    assert lines[4][12] == " "
+    assert lines[4][13] == "─"  # right of the child — stays
+
+
+def test_grid_span_fill_kept_under_child():
+    """meta.fill is kept under the child: a suppressed partition cell
+    shows the fill, not a space. The child spans both columns of the top
+    row (the partition between them is under the child)."""
+    result = _render(_grid_block(
+        width=12, height=6, meta={"cols": 2, "rows": 2, "fill": "░"},
+        children=[{
+            "block_type": "text",
+            "x": 0, "y": 0,
+            "width": 10, "height": 2,
+            "content": "",
+            "border_style": "none",
+        }]))
+    lines = result.split("\n")
+    # child at abs (1,1) 10×2 covers the col partition (abs 6) rows 1..2
+    assert lines[1] == "│░░░░░░░░░░│"
+    assert lines[2] == "│░░░░░░░░░░│"
+    assert lines[3] == "├─────┼────┤"  # row partition below the child stays
+    assert lines[4] == "│░░░░░│░░░░│"
+
+
+def test_grid_span_child_covers_whole_inner_area():
+    """A child covering the whole inner area — no inner partitions; the
+    frame nodes on the outer border stay (they are outside the inner
+    area)."""
+    result = _render(_grid_block(children=[{
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "width": 22, "height": 6,
+        "content": "",
+        "border_style": "none",
+    }]))
+    lines = result.split("\n")
+    # the inner partitions are gone; the frame nodes on the outer border
+    # (┬┴├┤) stay — they are outside the inner area
+    assert lines[4] == "├" + " " * 22 + "┤"
+    assert "┼" not in result
+    assert lines[0][8] == "┬"
+    assert lines[7][8] == "┴"
+
+
+def test_grid_span_none_border():
+    """border_style none (solid partitions over the whole area) — the
+    suppression works the same; the junction under the child is
+    suppressed too."""
+    result = _render(_grid_block(border_style="none", children=[{
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "width": 8, "height": 4,
+        "content": "",
+        "border_style": "none",
+    }]))
+    lines = result.split("\n")
+    # child at abs (1,1) 8×4 covers col 8 rows 1..4 and row 4 cols 1..8
+    assert lines[0][8] == "│"  # above the child — stays
+    assert lines[2][8] == " "  # under the child — suppressed
+    assert lines[5][8] == "│"  # below the child — stays
+    assert lines[4][0] == "─"  # left of the child — stays
+    assert lines[4][1] == " "  # under the child — suppressed
+    assert lines[4][8] == " "  # junction under the child — suppressed
+    assert lines[4][16] == "┼"  # the other junction stays
+    assert lines[2][16] == "│"  # the other vertical partition stays

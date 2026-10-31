@@ -632,6 +632,74 @@ def test_parity_grid_children():
     )
 
 
+def test_parity_grid_span():
+    """Partitions under the children's rectangles are not drawn (0062) —
+    identically in both renderers: aligned spans, a 2×2 span, a
+    misaligned child, fill under the child, a child covering the whole
+    inner area, and a borderless grid."""
+    def grid_case(grid: dict, children: list[dict]) -> list[dict]:
+        blocks = [grid]
+        for i, c in enumerate(children):
+            blocks.append(dict(c, id=f"c{i}", parent_id=grid["id"]))
+        return blocks
+
+    cases = [
+        # aligned horizontal span (borderless child, 2 cells)
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 14, "height": 3,
+           "content": "SPAN", "border_style": "none", "order": 0}]),
+        # aligned vertical span
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 7, "height": 6,
+           "content": "", "border_style": "none", "order": 0}]),
+        # 2×2 span
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 14, "height": 6,
+           "content": "", "border_style": "none", "order": 0}]),
+        # misaligned child
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 2, "y": 2, "width": 10, "height": 3,
+           "content": "", "border_style": "none", "order": 0}]),
+        # fill under the child
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 12, "height": 6,
+          "content": "", "border_style": "solid",
+          "meta": {"cols": 2, "rows": 2, "fill": "░"}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 10, "height": 2,
+           "content": "", "border_style": "none", "order": 0}]),
+        # child covering the whole inner area
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 22, "height": 6,
+           "content": "", "border_style": "none", "order": 0}]),
+        # borderless grid + span
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "none", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 8, "height": 4,
+           "content": "", "border_style": "none", "order": 0}]),
+        # two children: one spanning, one in a single cell
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 14, "height": 3,
+           "content": "SPAN", "border_style": "none", "order": 0},
+          {"block_type": "box", "x": 16, "y": 4, "width": 6, "height": 2,
+           "content": "ok", "border_style": "solid", "order": 1}]),
+        # framed child spanning (its border over the suppressed partition)
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "box", "x": 0, "y": 0, "width": 14, "height": 3,
+           "content": "0123456789", "border_style": "solid", "order": 0}]),
+    ]
+    for grid, children in cases:
+        js_blocks = grid_case(grid, children)
+        assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+            to_nested(js_blocks), 40, 12
+        ), (grid.get("meta"), [c.get("width") for c in children])
+
+
 def test_parity_no_dimensions():
     """Unset layout dimensions: the canvas is the 80×24 default floor."""
     blocks = [

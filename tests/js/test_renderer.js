@@ -2017,9 +2017,9 @@ test("grid fill under partitions", () => {
 });
 
 test("grid children render over partitions", () => {
-    // Children are drawn after the partitions: the child's border and
-    // content overwrite the partition where they coincide; the partition
-    // stays visible outside the child.
+    // Children are drawn after the partitions: the partition under the
+    // child is not drawn at all (0062), the child's border and content
+    // are drawn there; the partition stays visible outside the child.
     const result = render([
         { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
           content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
@@ -2082,4 +2082,136 @@ test("grid double border", () => {
     assert.equal(ls[7][0], "╚");
     assert.equal(ls[7][8], "╩");
     assert.equal(ls[7][23], "╝");
+});
+
+// ── Grid span: partitions are not drawn under children (0062) ─────────
+
+function gridWithChild(child) {
+    return [
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        Object.assign({ id: "c1", parent_id: "g1", content: "",
+                        border_style: "none" }, child),
+    ];
+}
+
+test("grid span suppresses partitions under child", () => {
+    // A borderless child spanning two cells (aligned to the cell
+    // boundaries) — the partition between the spanned cells is not
+    // drawn; partitions outside the child (and the junction below it)
+    // stay.
+    const result = render(gridWithChild({ block_type: "text",
+        x: 0, y: 0, width: 14, height: 3, content: "SPAN" }));
+    const ls = lines(result);
+    // child at abs (1,1) 14×3 covers the partition at abs col 8, rows 1..3
+    assert.equal(ls[1][1], "S"); // child content is drawn
+    assert.equal(ls[1][8], " "); // partition suppressed under the child
+    assert.equal(ls[2][8], " ");
+    assert.equal(ls[3][8], " ");
+    assert.equal(ls[4][8], "┼"); // junction below the child stays
+    assert.equal(ls[5][8], "│"); // partition below the child stays
+    assert.equal(ls[1][15], "│"); // the other partition is untouched
+});
+
+test("grid span vertical", () => {
+    // A child spanning two rows — the horizontal partition under it is
+    // not drawn; the vertical partition and the junction outside the
+    // child stay.
+    const result = render(gridWithChild({ block_type: "text",
+        x: 0, y: 0, width: 7, height: 6 }));
+    const ls = lines(result);
+    // child at abs (1,1) 7×6 covers the row partition (abs row 4), cols 1..7
+    assert.equal(ls[4][1], " ");
+    assert.equal(ls[4][7], " ");
+    assert.equal(ls[4][8], "┼"); // junction outside the child stays
+    assert.equal(ls[4][9], "─"); // the partition continues
+    assert.equal(ls[1][8], "│"); // the vertical partition stays
+});
+
+test("grid span 2x2", () => {
+    // A child spanning two columns and two rows — both inner partitions
+    // under it are not drawn (including the interior junction).
+    const result = render(gridWithChild({ block_type: "text",
+        x: 0, y: 0, width: 14, height: 6 }));
+    const ls = lines(result);
+    // child at abs (1,1) 14×6 covers col 8 (rows 1..6) and row 4 (cols 1..14)
+    for (let row = 1; row <= 6; row++) assert.equal(ls[row][8], " ");
+    for (let col = 1; col <= 14; col++) assert.equal(ls[4][col], " ");
+    assert.equal(ls[4][15], "┼"); // junction outside the child stays
+    assert.equal(ls[1][15], "│"); // the other vertical partition stays
+});
+
+test("grid span misaligned child", () => {
+    // A child not aligned to the cell boundaries — the partition
+    // segments under its rectangle are still not drawn (the general
+    // rule); the segments outside the rectangle stay (including the
+    // junction under the child).
+    const result = render(gridWithChild({ block_type: "text",
+        x: 2, y: 2, width: 10, height: 3 }));
+    const ls = lines(result);
+    // child at abs (3,3) 10×3 covers col 8 rows 3..5 and row 4 cols 3..12
+    assert.equal(ls[1][8], "│"); // above the child — stays
+    assert.equal(ls[2][8], "│");
+    assert.equal(ls[3][8], " "); // under the child — suppressed
+    assert.equal(ls[4][8], " "); // junction under the child — suppressed
+    assert.equal(ls[5][8], " ");
+    assert.equal(ls[6][8], "│"); // below the child — stays
+    assert.equal(ls[4][2], "─"); // left of the child — stays
+    assert.equal(ls[4][3], " "); // under the child — suppressed
+    assert.equal(ls[4][12], " ");
+    assert.equal(ls[4][13], "─"); // right of the child — stays
+});
+
+test("grid span fill kept under child", () => {
+    // meta.fill is kept under the child: a suppressed partition cell
+    // shows the fill, not a space. The child spans both columns of the
+    // top row (the partition between them is under the child).
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 12, height: 6,
+          content: "", border_style: "solid",
+          meta: { cols: 2, rows: 2, fill: "░" } },
+        { id: "c1", block_type: "text", parent_id: "g1", x: 0, y: 0,
+          width: 10, height: 2, content: "", border_style: "none" },
+    ]);
+    const ls = lines(result);
+    // child at abs (1,1) 10×2 covers the col partition (abs 6) rows 1..2
+    assert.equal(ls[1], "│░░░░░░░░░░│");
+    assert.equal(ls[2], "│░░░░░░░░░░│");
+    assert.equal(ls[3], "├─────┼────┤"); // row partition below the child stays
+    assert.equal(ls[4], "│░░░░░│░░░░│");
+});
+
+test("grid span child covers whole inner area", () => {
+    // A child covering the whole inner area — no inner partitions; the
+    // frame nodes on the outer border stay (they are outside the inner
+    // area).
+    const result = render(gridWithChild({ block_type: "text",
+        x: 0, y: 0, width: 22, height: 6 }));
+    const ls = lines(result);
+    assert.equal(ls[4], "├" + " ".repeat(22) + "┤");
+    assert.ok(!result.includes("┼"));
+    assert.equal(ls[0][8], "┬");
+    assert.equal(ls[7][8], "┴");
+});
+
+test("grid span none border", () => {
+    // border_style none (solid partitions over the whole area) — the
+    // suppression works the same; the junction under the child is
+    // suppressed too.
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "none", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "text", parent_id: "g1", x: 0, y: 0,
+          width: 8, height: 4, content: "", border_style: "none" },
+    ]);
+    const ls = lines(result);
+    // child at abs (1,1) 8×4 covers col 8 rows 1..4 and row 4 cols 1..8
+    assert.equal(ls[0][8], "│"); // above the child — stays
+    assert.equal(ls[2][8], " "); // under the child — suppressed
+    assert.equal(ls[5][8], "│"); // below the child — stays
+    assert.equal(ls[4][0], "─"); // left of the child — stays
+    assert.equal(ls[4][1], " "); // under the child — suppressed
+    assert.equal(ls[4][8], " "); // junction under the child — suppressed
+    assert.equal(ls[4][16], "┼"); // the other junction stays
+    assert.equal(ls[2][16], "│"); // the other vertical partition stays
 });

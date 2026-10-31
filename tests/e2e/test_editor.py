@@ -2732,3 +2732,34 @@ def test_web_editor_grid_is_a_container(page: Page):
     children = [b for b in blocks.values() if b["parent_id"] == grid_id]
     assert len(children) == 1
     assert children[0]["block_type"] == "button"
+
+
+def test_web_editor_grid_span_suppresses_partitions(page: Page):
+    """A child spanning two cells — the partition between them is not
+    drawn in the ASCII art, the span looks like one intact cell (0062)."""
+    layout_id, (grid_id, child_id) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+        # box (no autosize, unlike text) spanning cells 1–2 of the top
+        # row: abs (3,3) 13×3 covers the vertical partition at abs col 10
+        {"block_type": "box", "x": 0, "y": 0, "width": 13, "height": 3,
+         "content": "", "border_style": "solid", "parent_index": 0},
+    ])
+
+    def span_state(p):
+        t = p.evaluate(
+            "() => document.querySelector('.canvas-container .ascii-art')"
+            ".textContent"
+        )
+        lines = t.split("\n")
+        # grid at (2,2) 24×8: vertical partitions at abs cols 10, 17; the
+        # box child (abs (3,3) 13×3) covers col 10 rows 3..5
+        return (
+            lines[3][10] == "─"  # box top border, partition suppressed
+            and lines[4][10] == " "  # box interior, partition suppressed
+            and lines[5][10] == "─"  # box bottom border, partition suppressed
+            and lines[6][10] == "┼"  # junction below the child stays
+            and lines[7][10] == "│"  # partition below the child stays
+            and lines[3][17] == "│"  # the other partition is untouched
+        )
+
+    _poll_until(span_state, page)

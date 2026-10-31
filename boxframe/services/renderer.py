@@ -769,6 +769,12 @@ class PseudoGraphicRenderer:
         suppressed; fill (meta.fill) is painted under the partitions;
         children are rendered over the partitions (by the caller).
         border_style none — no outer border, solid partitions.
+
+        Partitions are not drawn under the children's rectangles (0062):
+        a child spanning several cells looks like one intact cell. The
+        skip is applied at draw time (the fill/space under a skipped
+        partition cell is left untouched); the frame nodes on the outer
+        border are outside the inner area and are never skipped.
         """
         x = max(0, min(block.x, self.grid_width - 2))
         y = max(0, min(block.y, self.grid_height - 2))
@@ -810,10 +816,33 @@ class PseudoGraphicRenderer:
         col_x = [(i * inner_w) // eff_cols for i in range(eff_cols + 1)]
         row_y = [(j * inner_h) // eff_rows for j in range(eff_rows + 1)]
 
+        # Children's rectangles (absolute, half-open, clipped to the inner
+        # area) — partitions are not drawn under them: a child spanning
+        # several cells looks like one intact cell (0062). Same origin as
+        # _render_children_in_container (1-cell padding).
+        child_rects = []
+        for c in block.children:
+            if c.width < 1 or c.height < 1:
+                continue
+            rx0 = max(block.x + 1 + c.x, inner_x)
+            ry0 = max(block.y + 1 + c.y, inner_y)
+            rx1 = min(block.x + 1 + c.x + c.width, inner_x + inner_w)
+            ry1 = min(block.y + 1 + c.y + c.height, inner_y + inner_h)
+            if rx1 > rx0 and ry1 > ry0:
+                child_rects.append((rx0, ry0, rx1, ry1))
+
+        def covered(px: int, py: int) -> bool:
+            for rx0, ry0, rx1, ry1 in child_rects:
+                if rx0 <= px < rx1 and ry0 <= py < ry1:
+                    return True
+            return False
+
         # Vertical partitions (with the top/bottom frame nodes)
         for i in range(1, eff_cols):
             cx = inner_x + col_x[i]
             for j in range(inner_h):
+                if covered(cx, inner_y + j):
+                    continue
                 self._set(cx, inner_y + j, part["v"])
             if framed:
                 self._set(cx, y, part["t_t"])
@@ -823,6 +852,8 @@ class PseudoGraphicRenderer:
         for j in range(1, eff_rows):
             ry = inner_y + row_y[j]
             for i in range(inner_w):
+                if covered(inner_x + i, ry):
+                    continue
                 self._set(inner_x + i, ry, part["h"])
             if framed:
                 self._set(x, ry, part["t_l"])
@@ -831,6 +862,8 @@ class PseudoGraphicRenderer:
         # Interior junctions
         for i in range(1, eff_cols):
             for j in range(1, eff_rows):
+                if covered(inner_x + col_x[i], inner_y + row_y[j]):
+                    continue
                 self._set(inner_x + col_x[i], inner_y + row_y[j], part["b_b"])
 
     def _draw_content(self, block: RenderBlock) -> None:

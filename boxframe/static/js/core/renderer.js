@@ -493,7 +493,12 @@
     // fill (meta.fill) is painted under the partitions; children are
     // rendered over the partitions (by the caller). border_style none —
     // no outer border, solid partitions.
-    function drawGrid(block, style, grid, gw, gh, clip) {
+    // Partitions are not drawn under the children's rectangles (0062):
+    // a child spanning several cells looks like one intact cell. The skip
+    // is applied at draw time (the fill/space under a skipped partition
+    // cell is left untouched); the frame nodes on the outer border are
+    // outside the inner area and are never skipped.
+    function drawGrid(block, style, grid, gw, gh, clip, allBlocks) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
         var w = Math.min(block.width, gw - x);
@@ -542,10 +547,36 @@
         var rowY = [];
         for (var j = 0; j <= effRows; j++) rowY.push(Math.floor((j * innerH) / effRows));
 
+        // Children's rectangles (absolute, half-open, clipped to the inner
+        // area) — partitions are not drawn under them: a child spanning
+        // several cells looks like one intact cell (0062). Same origin as
+        // renderChildrenInContainer (1-cell padding).
+        var childRects = [];
+        for (var ci = 0; ci < allBlocks.length; ci++) {
+            var cb = allBlocks[ci];
+            if (cb.parent_id !== block.id) continue;
+            if ((cb.width || 0) < 1 || (cb.height || 0) < 1) continue;
+            var rx0 = Math.max(block.x + 1 + cb.x, innerX);
+            var ry0 = Math.max(block.y + 1 + cb.y, innerY);
+            var rx1 = Math.min(block.x + 1 + cb.x + cb.width, innerX + innerW);
+            var ry1 = Math.min(block.y + 1 + cb.y + cb.height, innerY + innerH);
+            if (rx1 > rx0 && ry1 > ry0) childRects.push([rx0, ry0, rx1, ry1]);
+        }
+
+        // r = [rx0, ry0, rx1, ry1]
+        function coveredByChild(px, py) {
+            for (var k = 0; k < childRects.length; k++) {
+                var r = childRects[k];
+                if (px >= r[0] && px < r[2] && py >= r[1] && py < r[3]) return true;
+            }
+            return false;
+        }
+
         // Vertical partitions (with the top/bottom frame nodes)
         for (var vi = 1; vi < effCols; vi++) {
             var cx = innerX + colX[vi];
             for (var vj = 0; vj < innerH; vj++) {
+                if (coveredByChild(cx, innerY + vj)) continue;
                 setCell(grid, gw, gh, clip, cx, innerY + vj, part.v);
             }
             if (framed) {
@@ -558,6 +589,7 @@
         for (var hj = 1; hj < effRows; hj++) {
             var ry = innerY + rowY[hj];
             for (var hi = 0; hi < innerW; hi++) {
+                if (coveredByChild(innerX + hi, ry)) continue;
                 setCell(grid, gw, gh, clip, innerX + hi, ry, part.h);
             }
             if (framed) {
@@ -569,6 +601,7 @@
         // Interior junctions
         for (var ii = 1; ii < effCols; ii++) {
             for (var ij = 1; ij < effRows; ij++) {
+                if (coveredByChild(innerX + colX[ii], innerY + rowY[ij])) continue;
                 setCell(grid, gw, gh, clip, innerX + colX[ii], innerY + rowY[ij], part.b_b);
             }
         }
@@ -728,7 +761,7 @@
         }
 
         if (block.block_type === "grid") {
-            drawGrid(block, style, grid, gw, gh, clip);
+            drawGrid(block, style, grid, gw, gh, clip, allBlocks);
             var hasGridChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
             if (hasGridChildren) {
                 renderChildrenInContainer(block, style, grid, gw, gh, allBlocks, clip);
