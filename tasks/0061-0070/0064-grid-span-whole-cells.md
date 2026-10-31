@@ -87,7 +87,12 @@ frame-узлы и junctions — по реально отрисованным с�
   внутри span подавлена целиком, junction на краю span — `├`,
   frame-узлы деградированы); новые `test_grid_span_tobe_change_cells` /
   `grid span TO BE change-cells` — TO BE из `change-cells-span.md`
-  побайтово (лорем-box 19×5 double).
+  побайтово (лорем-box 19×5 double). Добавлено покрытие размещений
+  (grid 24×12, 3×3, borderless-ребёнок; хелперы `_grid3x3_child` /
+  `grid3x3WithChild`): верхнее/нижнее/среднее-ряд горизонтальные
+  пересечения, левое/правое вертикальные, центр 2×2 (пересечение
+  обеих границ) и контроль «одна ячейка — ничего не подавляется»;
+  каждый кейс — полная картинка 12 строк побайтово (7+7).
 - Документация: AGENTS.md (секция `grid`, пункт span).
 
 ## Замечания
@@ -96,6 +101,6 @@ frame-узлы и junctions — по реально отрисованным с�
 
 ## Проверка
 
-- `pytest tests/ --ignore=tests/e2e` — 285 passed
-- `node --test "tests/js/*.js"` — 351 passed
+- `pytest tests/ --ignore=tests/e2e` — 292 passed
+- `node --test "tests/js/*.js"` — 358 passed
 - `pytest tests/e2e/` — 94 passed (сервер на :8000)
