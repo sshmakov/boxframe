@@ -577,12 +577,20 @@
         for (var j = 0; j <= effRows; j++) rowY.push(Math.floor((j * innerH) / effRows));
 
         // Span regions (absolute, half-open): the union of the whole grid
-        // cells each child's rectangle intersects (0062, refined in 0064) —
-        // a child touching cells 1–2 spans them, and the partitions inside
-        // the spanned block are not drawn. Same origin as
-        // renderChildrenInContainer (1-cell padding), clipped to the inner
-        // area.
-        var spanRects = [];
+        // cells each child's rectangle intersects (0062, refined in 0064,
+        // re-refined in 0065) — a child touching cells 1–2 spans them. A
+        // partition is suppressed only where the child actually crosses it
+        // (0065): a vertical partition is removed across the spanned rows
+        // only if the child straddles it, a horizontal one across the
+        // spanned columns only if the child straddles it; at a crossing of
+        // the two the cell is removed only if the child straddles both —
+        // so a spanned cell keeps the borders of the cells it does not
+        // cross. Same origin as renderChildrenInContainer (1-cell padding),
+        // clipped to the inner area.
+        var vParts = {}, hParts = {};
+        for (var vp = 1; vp < effCols; vp++) vParts[innerX + colX[vp]] = true;
+        for (var hp = 1; hp < effRows; hp++) hParts[innerY + rowY[hp]] = true;
+        var childSpans = [];
         for (var ci = 0; ci < allBlocks.length; ci++) {
             var cb = allBlocks[ci];
             if (cb.parent_id !== block.id) continue;
@@ -608,19 +616,32 @@
                 }
             }
             if (sCol0 < 0 || sRow0 < 0) continue;
-            spanRects.push([
+            var crossedV = {}, crossedH = {};
+            for (var cvp in vParts) {
+                if (rx0 < Number(cvp) && Number(cvp) < rx1) crossedV[cvp] = true;
+            }
+            for (var chp in hParts) {
+                if (ry0 < Number(chp) && Number(chp) < ry1) crossedH[chp] = true;
+            }
+            childSpans.push([
                 innerX + colX[sCol0],
                 innerY + rowY[sRow0],
                 innerX + colX[sCol1 + 1],
-                innerY + rowY[sRow1 + 1]
+                innerY + rowY[sRow1 + 1],
+                crossedV,
+                crossedH
             ]);
         }
 
-        // r = [rx0, ry0, rx1, ry1]
+        // r = [sx0, sy0, sx1, sy1, crossedV, crossedH]
         function coveredBySpan(px, py) {
-            for (var k = 0; k < spanRects.length; k++) {
-                var r = spanRects[k];
-                if (px >= r[0] && px < r[2] && py >= r[1] && py < r[3]) return true;
+            var pxV = !!vParts[px];
+            var pyH = !!hParts[py];
+            for (var k = 0; k < childSpans.length; k++) {
+                var r = childSpans[k];
+                if (!(px >= r[0] && px < r[2] && py >= r[1] && py < r[3])) continue;
+                if (pxV && r[4][px] && (!pyH || r[5][py])) return true;
+                if (pyH && r[5][py] && (!pxV || r[4][px])) return true;
             }
             return false;
         }

@@ -2558,6 +2558,48 @@ def test_grid_span_tobe_change_cells():
     assert result == expected
 
 
+def test_grid_span_tobe_change_cells_2():
+    """The TO BE picture from tasks/0061-0070/change-cells-span2.md: a
+    child in the bottom-right area (rel (16,5), 18×3) crossing only the
+    vertical partition x=25 — under the crossing rule (0065) the
+    horizontal partition y=5 stays fully drawn (the child does not
+    straddle it), the left partition x=13 stays drawn (not crossed),
+    and only x=25 is removed across the spanned rows; the junction
+    (25,5) and the bottom frame nodes keep only the drawn arms
+    ((25,5) → ┴, (25,10) → ─, (13,10) → ┴)."""
+    result = _render([
+        {
+            "block_type": "grid",
+            "x": 0, "y": 0,
+            "width": 38, "height": 11,
+            "content": "",
+            "border_style": "solid",
+            "meta": {"cols": 3, "rows": 2},
+            "children": [{
+                "block_type": "box",
+                "x": 16, "y": 5,
+                "width": 18, "height": 3,
+                "content": "lorem ipsum",
+                "border_style": "double",
+            }],
+        }
+    ], width=40, height=12)
+    expected = "\n".join([
+        "┌────────────┬───────────┬───────────┐",
+        "│            │           │           │",
+        "│            │           │           │",
+        "│            │           │           │",
+        "│            │           │           │",
+        "├────────────┼───────────┴───────────┤",
+        "│            │   ╔════════════════╗  │",
+        "│            │   ║lorem ipsum     ║  │",
+        "│            │   ╚════════════════╝  │",
+        "│            │                       │",
+        "└────────────┴───────────────────────┘",
+    ])
+    assert result == expected
+
+
 def _grid3x3_child(ax: int, ay: int, aw: int, ah: int) -> list[dict]:
     """A 24×12 grid (3 cols × 3 rows, solid) with one borderless, empty
     child at absolute rect (ax, ay, aw, ah) — the child renders nothing,
@@ -2600,21 +2642,21 @@ def test_grid_span_top_horizontal():
 
 def test_grid_span_right_vertical():
     """Child in the right column crossing the R1|R2 boundary (y=4): the
-    span is C3 × R1-R2 (abs x[15,23) y[1,7)) — the horizontal partition
-    y=4 and the vertical partition x=15 are not drawn across the whole
-    spanned block; the top frame node over x=15 degrades to ─, the right
-    frame node at (23,4) degrades to │, and the junction at the span's
-    bottom edge (15,7) keeps only the drawn arms (┬)."""
+    span is C3 × R1-R2 (abs x[15,23) y[1,7)) — the child straddles only
+    the horizontal partition y=4, so it is suppressed across the spanned
+    columns (x=16-22) while the vertical partition x=15 is kept (the child
+    does not cross it, 0065); the right frame node at (23,4) degrades to
+    │, and the junctions (15,4)/(15,7) keep only the drawn arms (┤/┼)."""
     result = _render(_grid3x3_child(18, 2, 4, 4))
     assert result == "\n".join([
-        "┌───────┬──────────────┐",
-        "│       │              │",
-        "│       │              │",
-        "│       │              │",
-        "├───────┼──────        │",
-        "│       │              │",
-        "│       │              │",
-        "├───────┼──────┬───────┤",
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┤       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
         "│       │      │       │",
         "│       │      │       │",
         "│       │      │       │",
@@ -2624,11 +2666,11 @@ def test_grid_span_right_vertical():
 
 def test_grid_span_bottom_horizontal():
     """Child in the bottom row crossing the C2|C3 boundary (x=15): the
-    span is C2-C3 × R3 (abs x[8,23) y[7,11)) — the vertical partition
-    x=15 and the horizontal partition y=7 are not drawn across the
-    spanned block; both bottom frame nodes over the span degrade to ─,
-    the right frame node at (23,7) degrades to │, and the junction at
-    the span's left edge (8,7) keeps only the drawn arms (┐)."""
+    span is C2-C3 × R3 (abs x[8,23) y[7,11)) — the child straddles only
+    the vertical partition x=15, so it is suppressed across the spanned
+    rows (y=8-10) while the horizontal partition y=7 is kept (the child
+    does not cross it, 0065); the bottom frame node over x=15 degrades to
+    ─, and the junctions (8,7)/(15,7) keep only the drawn arms (┼/┴)."""
     result = _render(_grid3x3_child(10, 8, 12, 2))
     assert result == "\n".join([
         "┌───────┬──────┬───────┐",
@@ -2638,28 +2680,28 @@ def test_grid_span_bottom_horizontal():
         "├───────┼──────┼───────┤",
         "│       │      │       │",
         "│       │      │       │",
-        "├───────               │",
-        "│                      │",
-        "│                      │",
-        "│                      │",
-        "└──────────────────────┘",
+        "├───────┼──────┴───────┤",
+        "│       │              │",
+        "│       │              │",
+        "│       │              │",
+        "└───────┴──────────────┘",
     ])
 
 
 def test_grid_span_middle_row_horizontal():
     """Child in the middle row crossing the C1|C2 boundary (x=8): the
-    span is C1-C2 × R2 (abs x[1,15) y[4,7)) — the vertical partition
-    x=8 and both horizontal partitions (y=4, y=7) are not drawn across
-    the spanned block; the left frame nodes at (1,4) and (1,7) degrade
-    to │, the junctions at the span's right edge (15,4)/(15,7) keep only
-    the drawn arms (├/─)."""
+    span is C1-C2 × R2 (abs x[1,15) y[4,7)) — the child straddles only
+    the vertical partition x=8, so it is suppressed across the spanned
+    rows (y=5-6) while both horizontal partitions (y=4, y=7) are kept
+    (the child does not cross them, 0065); the junctions (8,4)/(8,7)
+    keep only the drawn arms (┴/┬)."""
     result = _render(_grid3x3_child(2, 5, 12, 1))
     assert result == "\n".join([
         "┌───────┬──────┬───────┐",
         "│       │      │       │",
         "│       │      │       │",
         "│       │      │       │",
-        "│              ├───────┤",
+        "├───────┴──────┼───────┤",
         "│              │       │",
         "│              │       │",
         "├───────┬──────┼───────┤",
@@ -2672,18 +2714,19 @@ def test_grid_span_middle_row_horizontal():
 
 def test_grid_span_left_vertical():
     """Child in the left column crossing the R2|R3 boundary (y=7): the
-    span is C1 × R2-R3 (abs x[1,8) y[4,11)) — the horizontal partitions
-    y=4, y=7 and the vertical partition x=8 are not drawn across the
-    spanned block; the left frame nodes at (1,4)/(1,7) degrade to │, and
-    the junctions at the span's right edge (8,4)/(8,7) keep only the
-    drawn arms (├)."""
+    span is C1 × R2-R3 (abs x[1,8) y[4,11)) — the child straddles only
+    the horizontal partition y=7, so it is suppressed across the spanned
+    columns (x=1-7) while the vertical partition x=8 and the horizontal
+    partition y=4 are kept (the child does not cross them, 0065); the
+    left frame node at (1,7) degrades to │, and the junctions (8,4)/(8,7)
+    keep only the drawn arms (┼/├)."""
     result = _render(_grid3x3_child(2, 5, 4, 4))
     assert result == "\n".join([
         "┌───────┬──────┬───────┐",
         "│       │      │       │",
         "│       │      │       │",
         "│       │      │       │",
-        "│       ├──────┼───────┤",
+        "├───────┼──────┼───────┤",
         "│       │      │       │",
         "│       │      │       │",
         "│       ├──────┼───────┤",

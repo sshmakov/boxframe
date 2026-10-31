@@ -808,15 +808,20 @@ class PseudoGraphicRenderer:
         border_style none — no outer border, solid partitions.
 
         Partitions are not drawn inside the children's span regions
-        (0062, refined in 0064): a child's span region is the union of
-        the whole grid cells its rectangle intersects — a child touching
-        cells 1–2 spans them, and the span looks like one intact cell.
-        The skip is applied at draw time (the fill/space under a skipped
-        partition cell is left untouched). The frame nodes on the outer
-        border and the interior junctions reflect the segments actually
-        drawn around them (0063): a suppressed segment degrades the node
-        (┬ → ─, ├ → │, ┼ → ├/┬/│/─), so no line ends stick out of a
-        spanned cell.
+        (0062, refined in 0064, re-refined in 0065): a child's span
+        region is the union of the whole grid cells its rectangle
+        intersects — a child touching cells 1–2 spans them. A partition
+        is suppressed only where the child actually crosses it (0065): a
+        vertical partition is removed across the spanned rows only if the
+        child straddles it, a horizontal one across the spanned columns
+        only if the child straddles it, and a cell at their crossing only
+        if the child straddles both — so a spanned cell keeps the borders
+        of the cells it does not cross. The skip is applied at draw time
+        (the fill/space under a skipped partition cell is left untouched).
+        The frame nodes on the outer border and the interior junctions
+        reflect the segments actually drawn around them (0063): a
+        suppressed segment degrades the node (┬ → ─, ├ → │, ┼ → ├/┬/│/─),
+        so no line ends stick out of a spanned cell.
         """
         x = max(0, min(block.x, self.grid_width - 2))
         y = max(0, min(block.y, self.grid_height - 2))
@@ -859,12 +864,19 @@ class PseudoGraphicRenderer:
         row_y = [(j * inner_h) // eff_rows for j in range(eff_rows + 1)]
 
         # Span regions (absolute, half-open): the union of the whole grid
-        # cells each child's rectangle intersects (0062, refined in 0064) —
-        # a child touching cells 1–2 spans them, and the partitions inside
-        # the spanned block are not drawn. Same origin as
-        # _render_children_in_container (1-cell padding), clipped to the
-        # inner area.
-        span_rects = []
+        # cells each child's rectangle intersects (0062, refined in 0064,
+        # re-refined in 0065) — a child touching cells 1–2 spans them. A
+        # partition is suppressed only where the child actually crosses it
+        # (0065): a vertical partition is removed across the spanned rows
+        # only if the child straddles it, a horizontal one across the
+        # spanned columns only if the child straddles it; at a crossing of
+        # the two the cell is removed only if the child straddles both —
+        # so a spanned cell keeps the borders of the cells it does not
+        # cross. Same origin as _render_children_in_container (1-cell
+        # padding), clipped to the inner area.
+        v_parts = {inner_x + col_x[i] for i in range(1, eff_cols)}
+        h_parts = {inner_y + row_y[j] for j in range(1, eff_rows)}
+        child_spans = []
         for c in block.children:
             if c.width < 1 or c.height < 1:
                 continue
@@ -882,16 +894,26 @@ class PseudoGraphicRenderer:
                     if row_y[j] < iy1 and row_y[j + 1] > iy0]
             if not cols or not rows:
                 continue
-            span_rects.append((
+            crossed_v = {p for p in v_parts if rx0 < p < rx1}
+            crossed_h = {q for q in h_parts if ry0 < q < ry1}
+            child_spans.append((
                 inner_x + col_x[cols[0]],
                 inner_y + row_y[rows[0]],
                 inner_x + col_x[cols[-1] + 1],
                 inner_y + row_y[rows[-1] + 1],
+                crossed_v,
+                crossed_h,
             ))
 
         def covered(px: int, py: int) -> bool:
-            for rx0, ry0, rx1, ry1 in span_rects:
-                if rx0 <= px < rx1 and ry0 <= py < ry1:
+            px_v = px in v_parts
+            py_h = py in h_parts
+            for sx0, sy0, sx1, sy1, cv, ch in child_spans:
+                if not (sx0 <= px < sx1 and sy0 <= py < sy1):
+                    continue
+                if px_v and px in cv and (not py_h or py in ch):
+                    return True
+                if py_h and py in ch and (not px_v or px in cv):
                     return True
             return False
 
