@@ -2613,3 +2613,135 @@ test("gridJunction char table", () => {
     assert.equal(j(part, false, false, false, true), "─");
     assert.equal(j(part, false, false, false, false), null);
 });
+
+// ── Grid custom column/row widths (0067) ─────────────────────
+
+test("gridSplit: custom widths", () => {
+    const s = PG.gridSplit;
+    // No widths — the even split (backward compatible)
+    assert.deepEqual(s({}, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 7, 14, 22], rowY: [0, 3, 6] });
+    // Custom widths, exact sum
+    assert.deepEqual(s({ cols: 3, col_widths: [4, 10, 8] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 4, 14, 22], rowY: [0, 3, 6] });
+    // Sum < total — the last column absorbs the remainder
+    assert.deepEqual(s({ cols: 3, col_widths: [8, 8, 4] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 8, 16, 22], rowY: [0, 3, 6] });
+    // Sum > total — the last column shrinks (>= 1 cell)
+    assert.deepEqual(s({ cols: 3, col_widths: [10, 10, 10] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 10, 20, 22], rowY: [0, 3, 6] });
+    // Invalid (wrong length, a zero) — the even split
+    assert.deepEqual(s({ cols: 3, col_widths: [4, 10] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 7, 14, 22], rowY: [0, 3, 6] });
+    assert.deepEqual(s({ cols: 3, col_widths: [0, 10, 12] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 7, 14, 22], rowY: [0, 3, 6] });
+    // Row heights
+    assert.deepEqual(s({ rows: 2, row_heights: [2, 4] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 7, 14, 22], rowY: [0, 2, 6] });
+});
+
+test("grid custom col_widths", () => {
+    // 24×8 (inner 22) with [4, 10, 8] → partitions at inner 4 and 14
+    // (absolute 5 and 15)
+    const ls = lines(render(gridBlock(24, 8, { cols: 3, col_widths: [4, 10, 8] })));
+    assert.equal(ls[0][5], "┬");
+    assert.equal(ls[0][15], "┬");
+    assert.equal(ls[7][5], "┴");
+    assert.equal(ls[7][15], "┴");
+    // The even-split positions are gone
+    assert.equal(ls[0][8], "─");
+    assert.equal(ls[0][14], "─");
+    // The rows stay even (no row_heights): the partition at absolute row 4
+    assert.equal(ls[4][5], "┼");
+    assert.equal(ls[4][15], "┼");
+});
+
+test("grid custom widths last absorbs", () => {
+    // [8, 8, 4] (sum 20) in an inner 22 → [0, 8, 16, 22]
+    const ls = lines(render(gridBlock(24, 8, { cols: 3, col_widths: [8, 8, 4] })));
+    // Partitions at inner 8 and 16 (absolute 9 and 17); the even-split
+    // positions (absolute 8 and 15) are plain line
+    assert.equal(ls[0][9], "┬");
+    assert.equal(ls[0][17], "┬");
+    assert.equal(ls[0][8], "─");
+    assert.equal(ls[0][15], "─");
+});
+
+test("grid custom widths overflow clamped", () => {
+    // [10, 10, 10] (sum 30) in an inner 22 → [0, 10, 20, 22]
+    const ls = lines(render(gridBlock(24, 8, { cols: 3, col_widths: [10, 10, 10] })));
+    // Partitions at inner 10 and 20 (absolute 11 and 21)
+    assert.equal(ls[0][11], "┬");
+    assert.equal(ls[0][21], "┬");
+    // The last column is a single cell between the partition and the frame
+    assert.equal(ls[1][21], "│");
+    assert.equal(ls[1][22], " ");
+    assert.equal(ls[1][23], "│");
+});
+
+test("grid custom widths invalid fallback", () => {
+    // Invalid col_widths (not an array, wrong length, a zero) — the even
+    // split (backward compatible)
+    const even = render(gridBlock(24, 8, { cols: 3 }));
+    for (const bad of ["x", [4, 10], [0, 10, 12], [4.5, 10, 7], true]) {
+        assert.equal(render(gridBlock(24, 8, { cols: 3, col_widths: bad })), even);
+    }
+});
+
+test("grid custom row_heights", () => {
+    // Inner 6 with [2, 4] → the partition at inner 2 (absolute row 3),
+    // not the even 3 (absolute 4)
+    const ls = lines(render(gridBlock(24, 8, { rows: 2, row_heights: [2, 4] })));
+    assert.equal(ls[3][0], "├");
+    assert.equal(ls[3][23], "┤");
+    assert.equal(ls[4][0], "│"); // the even position is a plain border
+});
+
+test("grid span with uneven split", () => {
+    // Span suppression (0062–0066) on an uneven split: a child touching
+    // cells 0–1 of a [4, 10, 8] grid suppresses the partition between
+    // them (absolute x=5) across the spanned rows; the other partition
+    // (absolute x=15) is untouched.
+    const blocks = [
+        { id: "g", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid",
+          meta: { cols: 3, col_widths: [4, 10, 8], rows: 2 } },
+        { id: "c", block_type: "box", x: 0, y: 0, width: 13, height: 3,
+          content: "", border_style: "solid", parent_id: "g" },
+    ];
+    const ls = lines(render(blocks));
+    // The partition x=5 is suppressed across the span (rows 1–6)
+    for (let row = 1; row <= 6; row++) {
+        assert.notEqual(ls[row][5], "│");
+    }
+    // The partition x=15 is drawn where the child doesn't cover it
+    assert.equal(ls[1][15], "│");
+    assert.equal(ls[5][15], "│");
+    // The frame node over the suppressed partition degrades (0063)
+    assert.equal(ls[0][5], "─");
+    assert.equal(ls[7][5], "─");
+    // The junction at the crossing degrades to the drawn arms (0063)
+    assert.equal(ls[4][5], "─");
+    assert.equal(ls[4][15], "┼");
+});
+
+test("gridReshapeWidths: split/merge the last", () => {
+    const r = PG.gridReshapeWidths;
+    // No custom widths (or a stale array) → null (the even split)
+    assert.equal(r(null, 3, 4), null);
+    assert.equal(r([4, 10], 3, 4), null);
+    assert.equal(r([0, 10, 12], 3, 4), null);
+    // Same count — a copy
+    assert.deepEqual(r([4, 10, 8], 3, 3), [4, 10, 8]);
+    // Growth — the last column is split in half (floor/ceil)
+    assert.deepEqual(r([4, 10, 8], 3, 4), [4, 10, 4, 4]);
+    assert.deepEqual(r([4, 10, 9], 3, 4), [4, 10, 4, 5]);
+    // A 1-cell last one borrows from the nearest wider left neighbor
+    assert.deepEqual(r([5, 1], 2, 3), [4, 1, 1]);
+    assert.deepEqual(r([3, 1, 1], 3, 4), [2, 1, 1, 1]);
+    // All 1-cell — can't split → null
+    assert.equal(r([1, 1], 2, 3), null);
+    // Shrink — the last two are merged
+    assert.deepEqual(r([4, 10, 4, 4], 4, 3), [4, 10, 8]);
+    assert.deepEqual(r([4, 10, 8], 3, 2), [4, 18]);
+});

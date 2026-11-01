@@ -269,6 +269,101 @@
         return v;
     }
 
+    // Port of grid_meta_widths in services/renderer.py: a grid's
+    // col_widths/row_heights from meta (0067) — a non-empty array of
+    // integers >= 1 (cells), or null when absent/invalid — the caller
+    // falls back to the even split.
+    function gridMetaWidths(meta, key) {
+        var v = meta ? meta[key] : undefined;
+        if (!Array.isArray(v) || !v.length) return null;
+        for (var i = 0; i < v.length; i++) {
+            if (typeof v[i] !== "number" || !isFinite(v[i]) ||
+                Math.floor(v[i]) !== v[i] || v[i] < 1) {
+                return null;
+            }
+        }
+        return v;
+    }
+
+    // Port of _split_axis in services/renderer.py: boundary positions
+    // x[0..n] (x[0] = 0, x[n] = total) for n columns/rows across
+    // `total` cells (0067). Even split (integer division, the remainder
+    // goes to the last one) when widths is null or its length != n.
+    // Otherwise the prefix sums of the widths, clamped so every
+    // column/row keeps at least 1 cell — the last one absorbs the delta
+    // when the widths don't sum to total (an outer resize of the grid
+    // block, or a stale array).
+    function splitAxis(widths, n, total) {
+        if (widths === null || widths.length !== n) {
+            var even = [];
+            for (var i = 0; i <= n; i++) even.push(Math.floor((i * total) / n));
+            return even;
+        }
+        var x = [0];
+        for (var j = 1; j < n; j++) {
+            x.push(Math.min(x[x.length - 1] + widths[j - 1], total - (n - j)));
+        }
+        x.push(total);
+        return x;
+    }
+
+    // Port of grid_split in services/renderer.py: a grid's effective
+    // structure (todo-0005 + 0067) — the effective column/row counts
+    // (clamped to the inner area, every column/row is at least 1 cell)
+    // and the partition boundary positions colX/rowY.
+    function gridSplit(meta, innerW, innerH) {
+        var effCols = Math.min(gridMetaInt(meta, "cols", 3), innerW);
+        var effRows = Math.min(gridMetaInt(meta, "rows", 2), innerH);
+        return {
+            effCols: effCols,
+            effRows: effRows,
+            colX: splitAxis(gridMetaWidths(meta, "col_widths"), effCols, innerW),
+            rowY: splitAxis(gridMetaWidths(meta, "row_heights"), effRows, innerH),
+        };
+    }
+
+    // A grid's custom widths reshaped for a cols/rows change (0067,
+    // editor-side — not part of the render parity): null input (no
+    // custom widths, or a stale array) → null (the even split); growth
+    // — the last column/row is split in half (floor/ceil), a 1-cell
+    // last one borrows a cell from the nearest wider one to its left
+    // (none wider → null); shrink — the last two are merged.
+    function gridReshapeWidths(widths, oldCount, newCount) {
+        if (!Array.isArray(widths) || widths.length !== oldCount) return null;
+        for (var i = 0; i < widths.length; i++) {
+            if (typeof widths[i] !== "number" || !isFinite(widths[i]) ||
+                Math.floor(widths[i]) !== widths[i] || widths[i] < 1) {
+                return null;
+            }
+        }
+        if (newCount === oldCount) return widths.slice();
+        var w = widths.slice();
+        if (newCount > oldCount) {
+            for (var a = oldCount; a < newCount; a++) {
+                var last = w[w.length - 1];
+                if (last >= 2) {
+                    var left = Math.floor(last / 2);
+                    w[w.length - 1] = left;
+                    w.push(last - left);
+                } else {
+                    var bi = -1;
+                    for (var k = w.length - 2; k >= 0; k--) {
+                        if (w[k] >= 2) { bi = k; break; }
+                    }
+                    if (bi === -1) return null;
+                    w[bi] = w[bi] - 1;
+                    w.push(1);
+                }
+            }
+        } else {
+            for (var b = newCount; b < oldCount; b++) {
+                w[w.length - 2] = w[w.length - 2] + w[w.length - 1];
+                w.pop();
+            }
+        }
+        return w;
+    }
+
     // Port of _grid_junction in services/renderer.py: the box-drawing
     // character of a grid junction (an interior cross or a frame node)
     // from the four partition segments actually drawn around it (0063).
@@ -515,8 +610,12 @@
     // requested number of columns/rows; the effective count is clamped to
     // the inner area (every column/row is at least 1 cell). The inner area
     // is split evenly with integer division (the remainder goes to the
-    // last column/row). The content is not rendered (a grid is a
-    // structural element, like a line) and the [type] hint is suppressed;
+    // last column/row) unless meta.col_widths / meta.row_heights (0067)
+    // give custom per-column/row widths in cells — then the partitions
+    // sit at the prefix sums of the widths, and the last column/row
+    // absorbs the delta when the widths don't sum to the inner size (an
+    // outer resize). The content is not rendered (a grid is a structural
+    // element, like a line) and the [type] hint is suppressed;
     // fill (meta.fill) is painted under the partitions; children are
     // rendered over the partitions (by the caller). border_style none —
     // no outer border, solid partitions.
@@ -564,17 +663,14 @@
             }
         }
 
-        var meta = block.meta || {};
-        var effCols = Math.min(gridMetaInt(meta, "cols", 3), innerW);
-        var effRows = Math.min(gridMetaInt(meta, "rows", 2), innerH);
-
         // Partitions: the frame's style (none → solid)
         var part = framed ? style : BORDERS.solid;
 
-        var colX = [];
-        for (var i = 0; i <= effCols; i++) colX.push(Math.floor((i * innerW) / effCols));
-        var rowY = [];
-        for (var j = 0; j <= effRows; j++) rowY.push(Math.floor((j * innerH) / effRows));
+        var split = gridSplit(block.meta, innerW, innerH);
+        var effCols = split.effCols;
+        var effRows = split.effRows;
+        var colX = split.colX;
+        var rowY = split.rowY;
 
         // Span regions (absolute, half-open): the union of the whole grid
         // cells each child's rectangle touches (0062, refined in 0064,
@@ -1240,6 +1336,10 @@
         buttonBlockSize: buttonBlockSize,
         dividerFitSize: dividerFitSize,
         gridMetaInt: gridMetaInt,
+        gridMetaWidths: gridMetaWidths,
+        splitAxis: splitAxis,
+        gridSplit: gridSplit,
+        gridReshapeWidths: gridReshapeWidths,
         gridJunction: gridJunction,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,

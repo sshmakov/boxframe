@@ -2773,3 +2773,148 @@ def test_web_editor_grid_span_suppresses_partitions(page: Page):
         )
 
     _poll_until(span_state, page)
+
+
+def _ascii_lines(page: Page) -> list[str]:
+    t = page.evaluate(
+        "() => document.querySelector('.canvas-container .ascii-art')"
+        ".textContent"
+    )
+    return t.split("\n")
+
+
+def _select_grid(page: Page, grid_id: str, w: int, h: int) -> dict:
+    """Select a grid by clicking its center; return the canvas metrics."""
+    metrics = _canvas_metrics(page, grid_id, w, h)
+    x, y = _grid_point(metrics, w / 2, h / 2)
+    page.mouse.click(x, y)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    return metrics
+
+
+def _drag_handle(page: Page, handle, dx_cells: float, dy_cells: float,
+                 metrics: dict, fx: float = 0.5, fy: float = 0.5) -> None:
+    """Drag a grid handle by (dx_cells, dy_cells) char cells.
+
+    The grab point is (fx, fy) across the handle's box (default: center).
+    fx/fy let the caller avoid the orthogonal handle that overlaps at a
+    partition crossing (the horizontal handles render after the vertical
+    ones, so they win the mousedown at an intersection).
+    """
+    box = handle.bounding_box()
+    sx = box["x"] + fx * box["width"]
+    sy = box["y"] + fy * box["height"]
+    tx = sx + dx_cells * metrics["cw"]
+    ty = sy + dy_cells * metrics["ch"]
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move(tx, ty, steps=12)
+    page.mouse.up()
+
+
+def test_web_editor_grid_handles_appear_on_selection(page: Page):
+    """Selecting a single grid shows handles on its inner partitions (0067):
+    cols-1 vertical + rows-1 horizontal; deselecting hides them."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+
+    # No selection → no handles
+    expect(page.locator(".grid-handle")).to_have_count(0)
+
+    _select_grid(page, grid_id, 24, 8)
+    # Default 3×2 grid → 2 vertical + 1 horizontal handles
+    expect(page.locator(".grid-handle--v")).to_have_count(2)
+    expect(page.locator(".grid-handle--h")).to_have_count(1)
+
+    # Deselect → the handles disappear
+    page.keyboard.press("Escape")
+    expect(page.locator(".grid-handle")).to_have_count(0)
+
+
+def test_web_editor_grid_drag_vertical_handle(page: Page):
+    """Dragging a vertical handle resizes the adjacent columns: the
+    partition slides and the ASCII re-renders on commit (0067); the new
+    col_widths are persisted to the block's meta."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    metrics = _select_grid(page, grid_id, 24, 8)
+
+    # Even 3-col split: partitions at abs x=10 and x=17 (top border row 2)
+    def even_state(p):
+        ls = _ascii_lines(p)
+        return ls[2][10] == "┬" and ls[2][17] == "┬"
+    _poll_until(even_state, page)
+
+    # Drag the first vertical handle 3 cells to the right: the first column
+    # grows 7 → 10, the second shrinks 7 → 4 (col_widths [10, 4, 8]).
+    # fy=0.25 grabs above the horizontal handle (which wins at the crossing).
+    _drag_handle(page, page.locator(".grid-handle--v").first, 3, 0, metrics, fy=0.25)
+
+    # The first partition moves to abs x=13; the second stays at x=17; the
+    # old position is a plain line
+    def moved_state(p):
+        ls = _ascii_lines(p)
+        return ls[2][13] == "┬" and ls[2][17] == "┬" and ls[2][10] == "─"
+    _poll_until(moved_state, page)
+
+    # The commit persisted col_widths on the block
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    assert blocks[grid_id]["meta"]["col_widths"] == [10, 4, 8]
+
+
+def test_web_editor_grid_drag_horizontal_handle(page: Page):
+    """Dragging a horizontal handle resizes the adjacent rows: the
+    partition slides and the ASCII re-renders on commit (0067); the new
+    row_heights are persisted to the block's meta."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    metrics = _select_grid(page, grid_id, 24, 8)
+
+    # Even 2-row split: the partition sits at abs y=6 (left border col 2)
+    def even_state(p):
+        ls = _ascii_lines(p)
+        return ls[6][2] == "├"
+    _poll_until(even_state, page)
+
+    # Drag the only horizontal handle 1 cell down: the first row grows
+    # 3 → 4, the second shrinks 3 → 2 (row_heights [4, 2])
+    _drag_handle(page, page.locator(".grid-handle--h").first, 0, 1, metrics)
+
+    # The partition moves to abs y=7; the old position is a plain border
+    def moved_state(p):
+        ls = _ascii_lines(p)
+        return ls[7][2] == "├" and ls[6][2] == "│"
+    _poll_until(moved_state, page)
+
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    assert blocks[grid_id]["meta"]["row_heights"] == [4, 2]
+
+
+def test_web_editor_grid_handle_clamps_to_one_cell(page: Page):
+    """A handle can't be dragged past the minimum: a column/row keeps at
+    least 1 cell (0067). Dragging the first vertical handle far left
+    clamps the first column to a single cell."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    metrics = _select_grid(page, grid_id, 24, 8)
+
+    # Drag the first vertical handle 10 cells left — far past the minimum
+    # (fy=0.25 grabs above the horizontal handle, which wins at the crossing)
+    _drag_handle(page, page.locator(".grid-handle--v").first, -10, 0, metrics, fy=0.25)
+
+    # The first column clamps to 1 cell: the partition sits at abs x=4
+    # (the grid's first inner column is x=3); it can't go further left
+    def clamped_state(p):
+        ls = _ascii_lines(p)
+        return ls[2][4] == "┬" and ls[2][3] == "─"
+    _poll_until(clamped_state, page)
+
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    assert blocks[grid_id]["meta"]["col_widths"][0] == 1

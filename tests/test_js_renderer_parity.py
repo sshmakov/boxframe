@@ -700,6 +700,45 @@ def test_parity_grid_span():
         ), (grid.get("meta"), [c.get("width") for c in children])
 
 
+def test_parity_grid_custom_widths():
+    """Custom column/row widths (0067) render identically in both
+    renderers: uneven split, the last column absorbing a sum mismatch,
+    an overflow clamped to >= 1 cell, invalid widths falling back to the
+    even split, row heights, and span suppression on an uneven split."""
+    cases = [
+        # (meta, border_style, width, height, children)
+        ({"cols": 3, "col_widths": [4, 10, 8]}, "solid", 24, 8, []),   # exact sum
+        ({"cols": 3, "col_widths": [8, 8, 4]}, "solid", 24, 8, []),    # sum < inner
+        ({"cols": 3, "col_widths": [10, 10, 10]}, "solid", 24, 8, []), # sum > inner
+        ({"cols": 3, "col_widths": [1, 1, 20]}, "solid", 24, 8, []),   # clamp to >= 1
+        ({"cols": 3, "col_widths": [4, 10]}, "solid", 24, 8, []),      # wrong length
+        ({"cols": 3, "col_widths": [0, 10, 12]}, "solid", 24, 8, []),  # a zero
+        ({"cols": 3, "col_widths": "4,10,8"}, "solid", 24, 8, []),     # not a list
+        ({"rows": 2, "row_heights": [2, 4]}, "solid", 24, 8, []),      # row heights
+        ({"cols": 3, "rows": 3, "col_widths": [2, 9, 11],
+          "row_heights": [1, 2, 3]}, "dashed", 24, 8, []),             # both axes
+        ({"cols": 3, "col_widths": [4, 10, 8]}, "none", 24, 8, []),    # borderless
+        ({"cols": 3, "col_widths": [4, 10, 8], "fill": "░"}, "solid", 24, 8, []),
+        # span suppression on an uneven split
+        ({"cols": 3, "col_widths": [4, 10, 8], "rows": 2}, "solid", 24, 8,
+         [{"block_type": "box", "x": 0, "y": 0, "width": 13, "height": 3,
+           "content": "", "border_style": "solid", "order": 0}]),
+        ({"cols": 3, "col_widths": [4, 10, 8], "rows": 2}, "solid", 24, 8,
+         [{"block_type": "text", "x": 0, "y": 0, "width": 14, "height": 6,
+           "content": "", "border_style": "none", "order": 0}]),
+    ]
+    for meta, base, w, h, children in cases:
+        block = {"id": "g", "block_type": "grid", "x": 0, "y": 0,
+                 "width": w, "height": h, "content": "",
+                 "border_style": base, "meta": meta, "order": 0}
+        js_blocks = [block]
+        for i, c in enumerate(children):
+            js_blocks.append(dict(c, id=f"c{i}", parent_id="g"))
+        assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+            to_nested(js_blocks), 40, 12
+        ), (meta, base, w, h, len(children))
+
+
 def test_parity_no_dimensions():
     """Unset layout dimensions: the canvas is the 80×24 default floor."""
     blocks = [

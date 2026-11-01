@@ -424,6 +424,61 @@ body.file-drop-active::after {
 
 .sel-resize:hover { background-color: #ff6b81; }
 
+/* Grid partition handles (0067) — one per inner partition of a selected
+   grid. A thin hit zone along the whole partition line (transparent) +
+   a visible pill in the middle; the handle is the live preview while
+   dragging (it slides along the line). */
+.grid-handles {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.grid-handle {
+    position: absolute;
+    pointer-events: auto;
+}
+
+.grid-handle--v {
+    width: 6px;
+    margin-left: -3px;
+    cursor: col-resize;
+}
+
+.grid-handle--h {
+    height: 6px;
+    margin-top: -3px;
+    cursor: row-resize;
+}
+
+.grid-handle::after {
+    content: "";
+    position: absolute;
+    background-color: rgba(233, 69, 96, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 2px;
+    transition: background-color 0.15s;
+}
+
+.grid-handle--v::after {
+    left: 1px;
+    top: 50%;
+    width: 4px;
+    height: 14px;
+    margin-top: -7px;
+}
+
+.grid-handle--h::after {
+    top: 1px;
+    left: 50%;
+    width: 14px;
+    height: 4px;
+    margin-left: -7px;
+}
+
+.grid-handle:hover::after,
+.grid-handle:active::after { background-color: #ff6b81; }
+
 /* ── Marquee (rubber-band) selection rectangle ─────────── */
 .marquee {
     position: absolute;

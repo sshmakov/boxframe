@@ -2897,3 +2897,123 @@ def test_grid_junction_char_table():
     assert _grid_junction(p, False, False, True, False) == "─"
     assert _grid_junction(p, False, False, False, True) == "─"
     assert _grid_junction(p, False, False, False, False) is None
+
+
+# ── Grid tests (custom column/row widths, 0067) ───────────────
+
+
+def test_grid_split_custom_widths():
+    """grid_split (0067): even split without widths; custom widths —
+    prefix sums; the last column/row absorbs the delta when the widths
+    don't sum to the inner size; invalid widths → the even split."""
+    from boxframe.services.renderer import grid_split
+    # No widths — the even split (backward compatible)
+    assert grid_split({}, 22, 6) == (3, 2, [0, 7, 14, 22], [0, 3, 6])
+    # Custom widths, exact sum
+    assert grid_split({"cols": 3, "col_widths": [4, 10, 8]}, 22, 6) == \
+        (3, 2, [0, 4, 14, 22], [0, 3, 6])
+    # Sum < total — the last column absorbs the remainder
+    assert grid_split({"cols": 3, "col_widths": [8, 8, 4]}, 22, 6) == \
+        (3, 2, [0, 8, 16, 22], [0, 3, 6])
+    # Sum > total — the last column shrinks (>= 1 cell)
+    assert grid_split({"cols": 3, "col_widths": [10, 10, 10]}, 22, 6) == \
+        (3, 2, [0, 10, 20, 22], [0, 3, 6])
+    # Invalid (wrong length, a zero) — the even split
+    assert grid_split({"cols": 3, "col_widths": [4, 10]}, 22, 6) == \
+        (3, 2, [0, 7, 14, 22], [0, 3, 6])
+    assert grid_split({"cols": 3, "col_widths": [0, 10, 12]}, 22, 6) == \
+        (3, 2, [0, 7, 14, 22], [0, 3, 6])
+    # Row heights
+    assert grid_split({"rows": 2, "row_heights": [2, 4]}, 22, 6) == \
+        (3, 2, [0, 7, 14, 22], [0, 2, 6])
+
+
+def test_grid_custom_col_widths():
+    """meta.col_widths — the partitions sit at the prefix sums of the
+    widths (0067): 24×8 (inner 22) with [4, 10, 8] → partitions at
+    inner 4 and 14 (absolute 5 and 15)."""
+    result = _render(_grid_block(meta={"cols": 3, "col_widths": [4, 10, 8]}))
+    lines = result.split("\n")
+    assert lines[0][5] == "┬"
+    assert lines[0][15] == "┬"
+    assert lines[7][5] == "┴"
+    assert lines[7][15] == "┴"
+    # The even-split positions are gone
+    assert lines[0][8] == "─"
+    assert lines[0][14] == "─"
+    # The rows stay even (no row_heights): the partition at absolute row 4
+    assert lines[4][5] == "┼"
+    assert lines[4][15] == "┼"
+
+
+def test_grid_custom_widths_last_absorbs():
+    """The widths don't sum to the inner width — the last column absorbs
+    the delta (0067): [8, 8, 4] (sum 20) in an inner 22 → [0, 8, 16, 22]."""
+    result = _render(_grid_block(meta={"cols": 3, "col_widths": [8, 8, 4]}))
+    lines = result.split("\n")
+    # Partitions at inner 8 and 16 (absolute 9 and 17); the even-split
+    # positions (absolute 8 and 15) are plain line
+    assert lines[0][9] == "┬"
+    assert lines[0][17] == "┬"
+    assert lines[0][8] == "─"
+    assert lines[0][15] == "─"
+
+
+def test_grid_custom_widths_overflow_clamped():
+    """The widths sum to more than the inner width — the last column
+    shrinks to at least 1 cell (0067): [10, 10, 10] (sum 30) in an inner
+    22 → [0, 10, 20, 22]."""
+    result = _render(_grid_block(meta={"cols": 3, "col_widths": [10, 10, 10]}))
+    lines = result.split("\n")
+    # Partitions at inner 10 and 20 (absolute 11 and 21)
+    assert lines[0][11] == "┬"
+    assert lines[0][21] == "┬"
+    # The last column is a single cell between the partition and the frame
+    assert lines[1][21] == "│"
+    assert lines[1][22] == " "
+    assert lines[1][23] == "│"
+
+
+def test_grid_custom_widths_invalid_fallback():
+    """Invalid col_widths (not a list, wrong length, a zero) — the even
+    split (0067, backward compatible)."""
+    even = _render(_grid_block(meta={"cols": 3}))
+    for bad in ("x", [4, 10], [0, 10, 12], [4.5, 10, 7], True):
+        assert _render(_grid_block(meta={"cols": 3, "col_widths": bad})) == even
+
+
+def test_grid_custom_row_heights():
+    """meta.row_heights — the horizontal partitions sit at the prefix
+    sums of the heights (0067): inner 6 with [2, 4] → the partition at
+    inner 2 (absolute row 3), not the even 3 (absolute 4)."""
+    result = _render(_grid_block(meta={"rows": 2, "row_heights": [2, 4]}))
+    lines = result.split("\n")
+    assert lines[3][0] == "├"
+    assert lines[3][23] == "┤"
+    assert lines[4][0] == "│"  # the even position is a plain border
+
+
+def test_grid_span_with_uneven_split():
+    """Span suppression (0062–0066) works on an uneven split (0067): a
+    child touching cells 0–1 of a [4, 10, 8] grid suppresses the
+    partition between them (absolute x=5) across the spanned rows, the
+    other partition (absolute x=15) is untouched."""
+    result = _render(_grid_block(
+        meta={"cols": 3, "col_widths": [4, 10, 8], "rows": 2},
+        children=[{"block_type": "box", "x": 0, "y": 0,
+                   "width": 13, "height": 3, "content": "",
+                   "border_style": "solid"}],
+    ))
+    lines = result.split("\n")
+    # The partition x=5 is suppressed across the span (rows 1–6)
+    for row in range(1, 7):
+        assert lines[row][5] != "│"
+    # The partition x=15 is drawn where the child doesn't cover it
+    assert lines[1][15] == "│"
+    assert lines[5][15] == "│"
+    # The frame node over the suppressed partition degrades (0063)
+    assert lines[0][5] == "─"
+    assert lines[7][5] == "─"
+    # The junction at the crossing degrades to the drawn arms (0063)
+    assert lines[4][5] == "─"
+    assert lines[4][15] == "┼"

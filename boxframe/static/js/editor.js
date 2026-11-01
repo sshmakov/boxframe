@@ -232,6 +232,10 @@ function editorApp() {
         resizePreviewY: 0,
         resizeCorner: 'se',      // dragged corner: 'nw' | 'ne' | 'sw' | 'se'
 
+        // ── Grid partition drag state (0067) ───────────────────
+        gridDrag: null,         // {axis, index, blockId, widths, ...} while a
+                                // grid partition handle is dragged
+
         previewEl: null,
         dropTargetIds: [],    // box ids highlighted as the drop parent during a drag
         charWidth: 0,
@@ -966,6 +970,118 @@ function editorApp() {
             this._startResizeDrag(this.selectedBlock, e, corner);
         },
 
+        // ── Grid partition handles (0067) ──────────────────────
+        // A handle on an inner partition of a selected grid: dragging it
+        // redistributes the two adjacent columns/rows (their sum stays
+        // constant, min 1 cell each). The handle itself is the live
+        // preview (it slides along the partition line); the ASCII art is
+        // re-rendered on commit (mouseup → updateBlock → refreshRender).
+        onGridHandleMouseDown(e) {
+            if (e.button !== 0) return;
+
+            const b = this.selectedBlock;
+            if (!b || b.block_type !== 'grid') return;
+
+            const handle = e.target.closest('.grid-handle');
+            if (!handle) return;
+            const axis = handle.dataset.axis; // 'v' — vertical partition (columns)
+            const index = parseInt(handle.dataset.index, 10); // 1-based
+            if (!axis || !(index >= 1)) return;
+
+            const framed = b.border_style !== 'none' && b.width >= 2 && b.height >= 2;
+            const innerW = framed ? b.width - 2 : b.width;
+            const innerH = framed ? b.height - 2 : b.height;
+            const split = PGRenderer.gridSplit(b.meta || {}, innerW, innerH);
+            const widths = axis === 'v'
+                ? this._axisWidths(split.colX)
+                : this._axisWidths(split.rowY);
+            if (widths.length !== (axis === 'v' ? split.effCols : split.effRows)) return;
+
+            const r = this._absoluteRect(b);
+            this.gridDrag = {
+                axis, index,
+                blockId: b.id,
+                widths,
+                startWidths: widths.slice(),
+                innerW, innerH,
+                offX: framed ? 1 : 0,
+                offY: framed ? 1 : 0,
+                absX: r.x, absY: r.y,
+                el: handle,
+                // Bound wrappers — the window listeners don't carry the
+                // Alpine component's `this`
+                onMove: (ev) => this._onGridHandleMouseMove(ev),
+                onUp: () => this._onGridHandleMouseUp(),
+            };
+            window.addEventListener('mousemove', this.gridDrag.onMove);
+            window.addEventListener('mouseup', this.gridDrag.onUp);
+            e.preventDefault();
+            e.stopPropagation();
+        },
+
+        // Column/row widths from boundary positions (the differences).
+        _axisWidths(x) {
+            const w = [];
+            for (let i = 1; i < x.length; i++) w.push(x[i] - x[i - 1]);
+            return w;
+        },
+
+        _onGridHandleMouseMove: function (e) {
+            const d = this.gridDrag;
+            if (!d) return;
+            // e.clientX/Y are viewport coords — convert to content coords
+            // (the container offset + scroll) before the grid mapping.
+            const c = this._clientToContent(e.clientX, e.clientY);
+            const g = this._contentToGrid(c.x, c.y);
+            const cursor = d.axis === 'v' ? g.x : g.y;
+            const abs = d.axis === 'v' ? d.absX : d.absY;
+            const off = d.axis === 'v' ? d.offX : d.offY;
+            const i = d.index;
+            // The partition's new position relative to the start of the
+            // left/top column/row of the pair (before = the sum of the
+            // columns/rows before the pair)
+            const before = d.widths.slice(0, i - 1).reduce((a, b) => a + b, 0);
+            const span = d.widths[i - 1] + d.widths[i];
+            let p = Math.round(cursor - abs - off) - before;
+            p = Math.max(1, Math.min(span - 1, p));
+            d.widths = d.widths.slice();
+            d.widths[i - 1] = p;
+            d.widths[i] = span - p;
+            // Slide the handle (the ghost line) to the new position
+            const cell = d.axis === 'v' ? this.charWidth : this.charHeight;
+            const pos = (off + before + p) * cell;
+            if (d.axis === 'v') d.el.style.left = pos + 'px';
+            else d.el.style.top = pos + 'px';
+        },
+
+        _onGridHandleMouseUp: function () {
+            const d = this.gridDrag;
+            if (d) {
+                window.removeEventListener('mousemove', d.onMove);
+                window.removeEventListener('mouseup', d.onUp);
+            }
+            if (!d) return;
+            this.gridDrag = null;
+
+            const changed = d.widths.some((w, i) => w !== d.startWidths[i]);
+            if (!changed) return;
+
+            const b = this.blocks.find(bl => bl.id === d.blockId);
+            if (!b) return;
+            const key = d.axis === 'v' ? 'col_widths' : 'row_heights';
+            const oldMeta = Object.assign({}, b.meta || {});
+            const meta = Object.assign({}, b.meta || {});
+            meta[key] = d.widths;
+
+            this.store.updateBlock(b.id, { meta }).then((updated) => {
+                Object.assign(b, updated);
+                this.refreshRender();
+            }).catch((err) => {
+                b.meta = oldMeta;
+                console.error('Failed to resize grid partitions:', err);
+            });
+        },
+
         _startResizeDrag(block, e, corner) {
             // A block that is part of a multi-selection resizes the whole
             // group (the selection frame's handle); otherwise just itself.
@@ -1441,6 +1557,7 @@ function editorApp() {
         onCanvasDblClick(e) {
             if (e.target.closest('.resize-handle')) return;
             if (e.target.closest('.sel-resize')) return;
+            if (e.target.closest('.grid-handle')) return;
             if (e.target.closest('.block-edit-overlay')) return;
             if (e.target.closest('.block-props')) return;
 
@@ -1946,7 +2063,8 @@ function editorApp() {
         // True while a move or resize drag is in progress — the
         // properties panel is hidden for the duration of the drag.
         get isDragging() {
-            return this.dragMode === 'move' || this.dragMode === 'resize';
+            return this.dragMode === 'move' || this.dragMode === 'resize'
+                || !!this.gridDrag;
         },
 
         // Panel header: the block type for a single selection,
@@ -1985,6 +2103,43 @@ function editorApp() {
                 `--sel-ox:${ox}px;` +
                 `--sel-oy:${oy}px;`
             );
+        },
+
+        // Grid partition handles (0067): for a SINGLE grid selection —
+        // one handle per inner partition (eff_cols − 1 vertical,
+        // eff_rows − 1 horizontal), positioned in px relative to the
+        // selection frame (the block's own rect for a single selection).
+        // Null otherwise — the handles are hidden.
+        get gridHandles() {
+            if (this.selectedIds.length !== 1) return null;
+            const b = this.selectedBlock;
+            if (!b || b.block_type !== 'grid') return null;
+            const framed = b.border_style !== 'none' && b.width >= 2 && b.height >= 2;
+            const innerW = framed ? b.width - 2 : b.width;
+            const innerH = framed ? b.height - 2 : b.height;
+            if (innerW <= 0 || innerH <= 0) return null;
+            const split = PGRenderer.gridSplit(b.meta || {}, innerW, innerH);
+            const offX = framed ? 1 : 0;
+            const offY = framed ? 1 : 0;
+            const v = [];
+            for (let i = 1; i < split.effCols; i++) {
+                v.push({
+                    i,
+                    left: (offX + split.colX[i]) * this.charWidth,
+                    top: offY * this.charHeight,
+                    height: innerH * this.charHeight,
+                });
+            }
+            const h = [];
+            for (let j = 1; j < split.effRows; j++) {
+                h.push({
+                    j,
+                    top: (offY + split.rowY[j]) * this.charHeight,
+                    left: offX * this.charWidth,
+                    width: innerW * this.charWidth,
+                });
+            }
+            return { v, h };
         },
 
         // Position of the floating properties panel: next to the selection
@@ -2265,6 +2420,20 @@ function editorApp() {
                 const meta = Object.assign({}, b.meta || {});
                 if (value == null) delete meta[prop.key];
                 else meta[prop.key] = value;
+                // Grid (0067): a cols/rows change reshapes the custom
+                // widths — split the last column/row in half (a 1-cell
+                // last one borrows from the nearest wider left neighbor)
+                // or merge the last two; no custom widths → nothing.
+                if ((prop.key === 'cols' || prop.key === 'rows')
+                    && b.block_type === 'grid' && value != null) {
+                    const wKey = prop.key === 'cols' ? 'col_widths' : 'row_heights';
+                    const oldCount = PGRenderer.gridMetaInt(
+                        b.meta || {}, prop.key, prop.key === 'cols' ? 3 : 2);
+                    const reshaped = PGRenderer.gridReshapeWidths(
+                        (b.meta || {})[wKey], oldCount, value);
+                    if (reshaped) meta[wKey] = reshaped;
+                    else delete meta[wKey];
+                }
                 return { meta };
             };
 

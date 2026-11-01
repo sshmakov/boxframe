@@ -310,6 +310,56 @@ def grid_meta_int(meta: dict | None, key: str, default: int) -> int:
     return v
 
 
+def grid_meta_widths(meta: dict | None, key: str) -> list[int] | None:
+    """A grid's col_widths/row_heights from meta (0067): a non-empty list
+    of ints >= 1 (cells), or None when absent/invalid — the caller falls
+    back to the even split."""
+    v = (meta or {}).get(key)
+    if not isinstance(v, list) or not v:
+        return None
+    if any(isinstance(w, bool) or not isinstance(w, int) or w < 1 for w in v):
+        return None
+    return v
+
+
+def _split_axis(widths: list[int] | None, n: int, total: int) -> list[int]:
+    """Boundary positions x[0..n] (x[0] = 0, x[n] = total) for n
+    columns/rows across `total` cells (0067).
+
+    Even split (integer division, the remainder goes to the last one)
+    when widths is absent or its length != n. Otherwise the prefix sums
+    of the widths, clamped so every column/row keeps at least 1 cell —
+    the last one absorbs the delta when the widths don't sum to total
+    (an outer resize of the grid block, or a stale array).
+    """
+    if widths is None or len(widths) != n:
+        return [(i * total) // n for i in range(n + 1)]
+    x = [0]
+    for i in range(1, n):
+        x.append(min(x[-1] + widths[i - 1], total - (n - i)))
+    x.append(total)
+    return x
+
+
+def grid_split(
+    meta: dict | None, inner_w: int, inner_h: int
+) -> tuple[int, int, list[int], list[int]]:
+    """A grid's effective structure (todo-0005 + 0067): the effective
+    column/row counts (clamped to the inner area, every column/row is at
+    least 1 cell) and the partition boundary positions col_x/row_y.
+
+    meta.cols / meta.rows (defaults 3/2, invalid → default) give the
+    requested counts; meta.col_widths / meta.row_heights (0067) give the
+    custom per-column/row widths in cells — absent/invalid → the even
+    split (backward compatible)."""
+    meta = meta or {}
+    eff_cols = min(grid_meta_int(meta, "cols", 3), inner_w)
+    eff_rows = min(grid_meta_int(meta, "rows", 2), inner_h)
+    col_x = _split_axis(grid_meta_widths(meta, "col_widths"), eff_cols, inner_w)
+    row_y = _split_axis(grid_meta_widths(meta, "row_heights"), eff_rows, inner_h)
+    return eff_cols, eff_rows, col_x, row_y
+
+
 def _grid_junction(
     part: dict[str, str], up: bool, down: bool, left: bool, right: bool
 ) -> str | None:
@@ -801,9 +851,14 @@ class PseudoGraphicRenderer:
         requested number of columns/rows; the effective count is clamped
         to the inner area (every column/row is at least 1 cell). The
         inner area is split evenly with integer division (the remainder
-        goes to the last column/row). The content is not rendered (a grid
-        is a structural element, like a line) and the [type] hint is
-        suppressed; fill (meta.fill) is painted under the partitions;
+        goes to the last column/row) unless meta.col_widths /
+        meta.row_heights (0067) give custom per-column/row widths in
+        cells — then the partitions sit at the prefix sums of the
+        widths, and the last column/row absorbs the delta when the
+        widths don't sum to the inner size (an outer resize). The
+        content is not rendered (a grid is a structural element, like a
+        line) and the [type] hint is suppressed; fill (meta.fill) is
+        painted under the partitions;
         children are rendered over the partitions (by the caller).
         border_style none — no outer border, solid partitions.
 
@@ -857,15 +912,10 @@ class PseudoGraphicRenderer:
                 for i in range(inner_w):
                     self._set(inner_x + i, row, fill)
 
-        meta = block.meta or {}
-        eff_cols = min(grid_meta_int(meta, "cols", 3), inner_w)
-        eff_rows = min(grid_meta_int(meta, "rows", 2), inner_h)
-
         # Partitions: the frame's style (none → solid)
         part = style if framed else BORDERS["solid"]
 
-        col_x = [(i * inner_w) // eff_cols for i in range(eff_cols + 1)]
-        row_y = [(j * inner_h) // eff_rows for j in range(eff_rows + 1)]
+        eff_cols, eff_rows, col_x, row_y = grid_split(block.meta, inner_w, inner_h)
 
         # Span regions (absolute, half-open): the union of the whole grid
         # cells each child's rectangle touches (0062, refined in 0064,
