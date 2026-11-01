@@ -674,19 +674,23 @@
 
         // Span regions (absolute, half-open): the union of the whole grid
         // cells each child's rectangle touches (0062, refined in 0064,
-        // re-refined in 0065, re-refined in 0066) — a child touching a
-        // cell boundary spans the cell on the other side of it too
-        // (closed-interval intersection). A partition is suppressed only
-        // where the child actually crosses it (0065): a vertical
-        // partition is removed across the spanned rows only if the child
-        // straddles it, a horizontal one across the spanned columns only
-        // if the child straddles it; at a crossing of the two the cell is
-        // removed only if the child straddles both — so a spanned cell
-        // keeps the borders of the cells it does not cross. A partition
-        // under the child's own left/top border counts as crossed (0066):
-        // the child's border is drawn over it, so it is hidden. Same
-        // origin as renderChildrenInContainer (1-cell padding), clipped
-        // to the inner area.
+        // re-refined in 0065, re-refined in 0066, re-refined in 0068) —
+        // the child's half-open rect intersects the cell's closed range:
+        // a left/top edge flush with a cell boundary spans the cell on
+        // the other side of it (the child's border is drawn over the
+        // boundary, 0066), but a right/bottom edge flush does not (the
+        // child's border sits one cell short of the boundary, which stays
+        // drawn, 0068). A partition is suppressed only where the child
+        // actually crosses it (0065): a vertical partition is removed
+        // across the spanned rows only if the child straddles it, a
+        // horizontal one across the spanned columns only if the child
+        // straddles it; at a crossing of the two the cell is removed only
+        // if the child straddles both — so a spanned cell keeps the
+        // borders of the cells it does not cross. A partition under the
+        // child's own left/top border counts as crossed (0066): the
+        // child's border is drawn over it, so it is hidden. Same origin
+        // as renderChildrenInContainer (1-cell padding), clipped to the
+        // inner area.
         var vParts = {}, hParts = {};
         for (var vp = 1; vp < effCols; vp++) vParts[innerX + colX[vp]] = true;
         for (var hp = 1; hp < effRows; hp++) hParts[innerY + rowY[hp]] = true;
@@ -702,15 +706,20 @@
             if (!(rx1 > rx0 && ry1 > ry0)) continue;
             var ix0 = rx0 - innerX, iy0 = ry0 - innerY;
             var ix1 = rx1 - innerX, iy1 = ry1 - innerY;
+            // The child's half-open rect [ix0, ix1) intersects the cell's
+            // closed range [colX[si], colX[si+1]]: the left/top edge flush
+            // with a boundary counts (the child's border is drawn over it,
+            // 0066), the right/bottom edge flush does not (its border sits
+            // one cell short of the boundary, which stays drawn, 0068).
             var sCol0 = -1, sCol1 = -1, sRow0 = -1, sRow1 = -1;
             for (var si = 0; si < effCols; si++) {
-                if (colX[si] <= ix1 && colX[si + 1] >= ix0) {
+                if (colX[si] < ix1 && colX[si + 1] >= ix0) {
                     if (sCol0 < 0) sCol0 = si;
                     sCol1 = si;
                 }
             }
             for (var sj = 0; sj < effRows; sj++) {
-                if (rowY[sj] <= iy1 && rowY[sj + 1] >= iy0) {
+                if (rowY[sj] < iy1 && rowY[sj + 1] >= iy0) {
                     if (sRow0 < 0) sRow0 = sj;
                     sRow1 = sj;
                 }

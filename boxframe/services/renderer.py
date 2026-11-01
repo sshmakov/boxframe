@@ -863,16 +863,18 @@ class PseudoGraphicRenderer:
         border_style none — no outer border, solid partitions.
 
         Partitions are not drawn inside the children's span regions
-        (0062, refined in 0064, re-refined in 0065, re-refined in 0066):
-        a child's span region is the union of the whole grid cells its
-        rectangle touches (closed intervals — a child flush with a cell
-        boundary spans the cell on the other side of it too). A
-        partition is suppressed only where the child actually crosses it
-        (0065): a vertical partition is removed across the spanned rows
-        only if the child straddles it, a horizontal one across the
-        spanned columns only if the child straddles it, and a cell at
-        their crossing only if the child straddles both — so a spanned
-        cell keeps the borders of the cells it does not cross. A
+        (0062, refined in 0064, re-refined in 0065, re-refined in 0066,
+        re-refined in 0068): a child's span region is the union of the
+        whole grid cells its half-open rectangle touches — a left/top
+        edge flush with a cell boundary spans the cell on the other side
+        of it (the child's border is drawn over the boundary, 0066), but
+        a right/bottom edge flush does not (the boundary stays drawn,
+        0068). A partition is suppressed only where the child actually
+        crosses it (0065): a vertical partition is removed across the
+        spanned rows only if the child straddles it, a horizontal one
+        across the spanned columns only if the child straddles it, and a
+        cell at their crossing only if the child straddles both — so a
+        spanned cell keeps the borders of the cells it does not cross. A
         partition under the child's own left/top border counts as
         crossed (0066) — the child's border is drawn over it. The skip is
         applied at draw time (the fill/space under a skipped partition
@@ -919,19 +921,23 @@ class PseudoGraphicRenderer:
 
         # Span regions (absolute, half-open): the union of the whole grid
         # cells each child's rectangle touches (0062, refined in 0064,
-        # re-refined in 0065, re-refined in 0066) — a child touching a
-        # cell boundary spans the cell on the other side of it too
-        # (closed-interval intersection). A partition is suppressed only
-        # where the child actually crosses it (0065): a vertical
-        # partition is removed across the spanned rows only if the child
-        # straddles it, a horizontal one across the spanned columns only
-        # if the child straddles it; at a crossing of the two the cell is
-        # removed only if the child straddles both — so a spanned cell
-        # keeps the borders of the cells it does not cross. A partition
-        # under the child's own left/top border counts as crossed (0066):
-        # the child's border is drawn over it, so it is hidden. Same
-        # origin as _render_children_in_container (1-cell padding),
-        # clipped to the inner area.
+        # re-refined in 0065, re-refined in 0066, re-refined in 0068) —
+        # the child's half-open rect intersects the cell's closed range:
+        # a left/top edge flush with a cell boundary spans the cell on
+        # the other side of it (the child's border is drawn over the
+        # boundary, 0066), but a right/bottom edge flush does not (the
+        # child's border sits one cell short of the boundary, which stays
+        # drawn, 0068). A partition is suppressed only where the child
+        # actually crosses it (0065): a vertical partition is removed
+        # across the spanned rows only if the child straddles it, a
+        # horizontal one across the spanned columns only if the child
+        # straddles it; at a crossing of the two the cell is removed only
+        # if the child straddles both — so a spanned cell keeps the
+        # borders of the cells it does not cross. A partition under the
+        # child's own left/top border counts as crossed (0066): the
+        # child's border is drawn over it, so it is hidden. Same origin
+        # as _render_children_in_container (1-cell padding), clipped to
+        # the inner area.
         v_parts = {inner_x + col_x[i] for i in range(1, eff_cols)}
         h_parts = {inner_y + row_y[j] for j in range(1, eff_rows)}
         child_spans = []
@@ -946,10 +952,15 @@ class PseudoGraphicRenderer:
                 continue
             ix0, iy0 = rx0 - inner_x, ry0 - inner_y
             ix1, iy1 = rx1 - inner_x, ry1 - inner_y
+            # The child's half-open rect [ix0, ix1) intersects the cell's
+            # closed range [col_x[i], col_x[i+1]]: the left/top edge flush
+            # with a boundary counts (the child's border is drawn over it),
+            # the right/bottom edge flush does not (its border sits one
+            # cell short of the boundary, which stays drawn).
             cols = [i for i in range(eff_cols)
-                    if col_x[i] <= ix1 and col_x[i + 1] >= ix0]
+                    if col_x[i] < ix1 and col_x[i + 1] >= ix0]
             rows = [j for j in range(eff_rows)
-                    if row_y[j] <= iy1 and row_y[j + 1] >= iy0]
+                    if row_y[j] < iy1 and row_y[j + 1] >= iy0]
             if not cols or not rows:
                 continue
             crossed_v = {p for p in v_parts if rx0 <= p < rx1}

@@ -2309,12 +2309,14 @@ def test_grid_double_border():
 
 
 def test_grid_span_suppresses_partitions_under_child():
-    """A borderless child at the top-left (14×3) touches the right edge
-    of the third column and the bottom edge of the first row, so its
-    span is the whole grid (0066): the partition x=8 the child straddles
-    is suppressed across the full height, the horizontal partition y=4
-    stays fully drawn (the child does not straddle it), and the frame
-    nodes over x=8 degrade to plain lines (0063)."""
+    """A borderless child at the top-left (14×3) spans cols 1–2 × the top
+    row (0064): its right edge sits inside the second column and its
+    bottom edge is flush with the row boundary, which does not extend the
+    span (0068). The partition x=8 the child straddles is suppressed
+    across the spanned rows, the horizontal partition y=4 stays fully
+    drawn (the child does not straddle it), the junction (8,4) keeps only
+    the drawn arms (┬) and the frame node over x=8 degrades to a plain
+    line (0063)."""
     result = _render(_grid_block(children=[{
         "block_type": "text",
         "x": 0, "y": 0,
@@ -2327,20 +2329,20 @@ def test_grid_span_suppresses_partitions_under_child():
         "│SPAN          │       │",
         "│              │       │",
         "│              │       │",
-        "├──────────────┼───────┤",
-        "│              │       │",
-        "│              │       │",
-        "└──────────────┴───────┘",
+        "├───────┬──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
     ])
 
 
 def test_grid_span_vertical():
-    """A child at the left (7×6) touching the right edge of the second
-    column and the bottom edge of the second row spans cols 1–2 × both
-    rows (0066): the horizontal partition y=4 the child straddles is
-    suppressed across the spanned columns (x=1..14), the vertical
-    partitions stay, the left frame node degrades to a plain line (0063)
-    and the junction (15,4) keeps only the drawn arms (├)."""
+    """A child at the left (7×6) spans the first column × both rows
+    (0064): its right edge is flush with the column boundary, which does
+    not extend the span (0068). The horizontal partition y=4 the child
+    straddles is suppressed across the spanned column (x=1..7), the
+    vertical partitions stay, and the junction (8,4) keeps only the drawn
+    arms (├) (0063)."""
     result = _render(_grid_block(children=[{
         "block_type": "text",
         "x": 0, "y": 0,
@@ -2353,7 +2355,7 @@ def test_grid_span_vertical():
         "│       │      │       │",
         "│       │      │       │",
         "│       │      │       │",
-        "│       │      ├───────┤",
+        "│       ├──────┼───────┤",
         "│       │      │       │",
         "│       │      │       │",
         "└───────┴──────┴───────┘",
@@ -2361,13 +2363,13 @@ def test_grid_span_vertical():
 
 
 def test_grid_span_2x2():
-    """A child at the top-left (14×6) touching the right edge of the
-    third column and the bottom edge of the second row spans the whole
-    grid (0066): the partition x=8 the child straddles is suppressed
-    across the full height, the horizontal partition y=4 is suppressed
-    across the spanned columns (except the junction at x=15, which the
-    child does not straddle), and the frame nodes over the suppressed
-    segments degrade to plain lines (0063)."""
+    """A child at the top-left (14×6) spans cols 1–2 × both rows (0064):
+    its right edge is flush with the column boundary, which does not
+    extend the span (0068). The partition x=8 the child straddles is
+    suppressed across the full height, the horizontal partition y=4 is
+    suppressed across the spanned columns (the junction at x=15, which
+    the child does not straddle, degrades to ├), and the frame nodes over
+    the suppressed segments degrade to plain lines (0063)."""
     result = _render(_grid_block(children=[{
         "block_type": "text",
         "x": 0, "y": 0,
@@ -2380,7 +2382,7 @@ def test_grid_span_2x2():
         "│              │       │",
         "│              │       │",
         "│              │       │",
-        "│              │       │",
+        "│              ├───────┤",
         "│              │       │",
         "│              │       │",
         "└──────────────┴───────┘",
@@ -2418,12 +2420,12 @@ def test_grid_span_misaligned_child():
 
 def test_grid_span_fill_kept_under_child():
     """meta.fill is kept under the child: a suppressed partition cell
-    shows the fill, not a space. The child (10×2 at the top) touches the
-    right edge of the second column and the bottom edge of the first
-    row, so its span is the whole grid (0066): the partition x=6 the
-    child straddles is suppressed across the full height (showing the
-    fill), and the horizontal partition y=3 stays fully drawn (the child
-    does not straddle it)."""
+    shows the fill, not a space. The child (10×2 at the top) spans both
+    columns × the top row (0064): its bottom edge is flush with the row
+    boundary, which does not extend the span (0068). The partition x=6
+    the child straddles is suppressed across the spanned row (showing
+    the fill), and the horizontal partition y=3 stays fully drawn (the
+    child does not straddle it)."""
     result = _render(_grid_block(
         width=12, height=6, meta={"cols": 2, "rows": 2, "fill": "░"},
         children=[{
@@ -2437,9 +2439,9 @@ def test_grid_span_fill_kept_under_child():
     assert lines[0] == "┌" + "─" * 10 + "┐"  # top frame node degraded (0063)
     assert lines[1] == "│░░░░░░░░░░│"
     assert lines[2] == "│░░░░░░░░░░│"
-    assert lines[3] == "├" + "─" * 10 + "┤"  # y=3 stays drawn (not straddled)
-    assert lines[4] == "│░░░░░░░░░░│"  # x=6 suppressed, fill shows
-    assert lines[5] == "└" + "─" * 10 + "┘"  # bottom frame node degraded
+    assert lines[3] == "├─────┬────┤"  # y=3 stays drawn (not straddled)
+    assert lines[4] == "│░░░░░│░░░░│"  # x=6 drawn in the bottom row
+    assert lines[5] == "└─────┴────┘"  # bottom frame node over x=6
 
 
 def test_grid_span_child_covers_whole_inner_area():
@@ -2488,13 +2490,13 @@ def test_grid_span_none_border():
 
 
 def test_grid_span_frame_nodes_full_picture():
-    """A child at the top-left (24×9) touching the right edge of the
-    third column and the bottom edge of the second row spans the whole
-    grid (0066): the partition x=13 the child straddles is suppressed
-    across the full height, the horizontal partition y=5 is suppressed
-    across the spanned columns (except the junction at x=25, which the
-    child does not straddle), and the frame nodes over the suppressed
-    segments degrade to plain lines (0063)."""
+    """A child at the top-left (24×9) spans cols 1–2 × both rows (0064):
+    its right edge is flush with the column boundary, which does not
+    extend the span (0068). The partition x=13 the child straddles is
+    suppressed across the full height, the horizontal partition y=5 is
+    suppressed across the spanned columns (the junction at x=25, which
+    the child does not straddle, degrades to ├), and the frame nodes over
+    the suppressed segments degrade to plain lines (0063)."""
     result = _render([
         {
             "block_type": "grid",
@@ -2518,7 +2520,7 @@ def test_grid_span_frame_nodes_full_picture():
         "│                        │           │",
         "│                        │           │",
         "│                        │           │",
-        "│                        │           │",
+        "│                        ├───────────┤",
         "│                        │           │",
         "│                        │           │",
         "│                        │           │",
@@ -2688,6 +2690,52 @@ def test_grid_span_tobe_change_cells_3_2():
         "│                                    │",
         "│                                    │",
         "└────────────────────────────────────┘",
+    ])
+    assert result == expected
+
+
+def test_grid_span_tobe_change_cells_4():
+    """The TO BE picture from tasks/0061-0070/change-cells-span4.md: a
+    4×4 double grid with custom col_widths/row_heights (partitions at
+    abs x=8,21,32 and y=2,5,8) and a content child 23×5 at abs x[9,32)
+    y[3,8) whose right edge is flush with the C2|C3 partition (x=32) and
+    its bottom edge with the R1|R2 partition (y=8). Under 0068 a
+    right/bottom edge flush with a boundary does not extend the span, so
+    the span is cols 2–3 × rows 2–3 (abs x[8,32) y[2,8)): the partition
+    x=21 the child straddles is suppressed across the spanned rows, the
+    partition y=5 across the spanned columns, and the boundaries x=32 /
+    y=8 (and the cells beyond them) stay fully drawn."""
+    result = _render([
+        {
+            "block_type": "grid",
+            "x": 0, "y": 0,
+            "width": 38, "height": 11,
+            "content": "",
+            "border_style": "double",
+            "meta": {"cols": 4, "rows": 4,
+                     "col_widths": [7, 13, 11, 5],
+                     "row_heights": [1, 3, 3, 2]},
+            "children": [{
+                "block_type": "content",
+                "x": 8, "y": 2,
+                "width": 23, "height": 5,
+                "content": "",
+                "border_style": "solid",
+            }],
+        }
+    ], width=38, height=11)
+    expected = "\n".join([
+        "╔═══════╦════════════╦══════════╦════╗",
+        "║       ║            ║          ║    ║",
+        "╠═══════╬════════════╩══════════╬════╣",
+        "║       ║┌─────────────────────┐║    ║",
+        "║       ║│lorem ipsum dolor sit│║    ║",
+        "╠═══════╣│amet, consectetur    │╠════╣",
+        "║       ║│adipiscing eli       │║    ║",
+        "║       ║└─────────────────────┘║    ║",
+        "╠═══════╬════════════╦══════════╬════╣",
+        "║       ║            ║          ║    ║",
+        "╚═══════╩════════════╩══════════╩════╝",
     ])
     assert result == expected
 
@@ -2994,10 +3042,12 @@ def test_grid_custom_row_heights():
 
 
 def test_grid_span_with_uneven_split():
-    """Span suppression (0062–0066) works on an uneven split (0067): a
-    child touching cells 0–1 of a [4, 10, 8] grid suppresses the
-    partition between them (absolute x=5) across the spanned rows, the
-    other partition (absolute x=15) is untouched."""
+    """Span suppression (0062–0068) works on an uneven split (0067): a
+    child spanning cells 0–1 of a [4, 10, 8] grid × the top row
+    suppresses the partition between them (absolute x=5) across the
+    spanned rows, the other partition (absolute x=15) is untouched, and
+    the horizontal partition y=4 stays drawn (the child's bottom edge is
+    flush with it, which does not extend the span, 0068)."""
     result = _render(_grid_block(
         meta={"cols": 3, "col_widths": [4, 10, 8], "rows": 2},
         children=[{"block_type": "box", "x": 0, "y": 0,
@@ -3005,15 +3055,19 @@ def test_grid_span_with_uneven_split():
                    "border_style": "solid"}],
     ))
     lines = result.split("\n")
-    # The partition x=5 is suppressed across the span (rows 1–6)
-    for row in range(1, 7):
+    # The partition x=5 is suppressed across the span (rows 1–3)
+    for row in range(1, 4):
         assert lines[row][5] != "│"
+    # ...and drawn again in the bottom row (the span does not reach it)
+    assert lines[5][5] == "│"
+    assert lines[6][5] == "│"
     # The partition x=15 is drawn where the child doesn't cover it
     assert lines[1][15] == "│"
     assert lines[5][15] == "│"
-    # The frame node over the suppressed partition degrades (0063)
+    # The top frame node over x=5 degrades (suppressed in the top row)
     assert lines[0][5] == "─"
-    assert lines[7][5] == "─"
-    # The junction at the crossing degrades to the drawn arms (0063)
-    assert lines[4][5] == "─"
+    # ...the bottom one keeps its up arm (x=5 drawn in the bottom row)
+    assert lines[7][5] == "┴"
+    # The junction at (5,4) keeps only the drawn arms (0063)
+    assert lines[4][5] == "┬"
     assert lines[4][15] == "┼"

@@ -692,6 +692,16 @@ def test_parity_grid_span():
           "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
          [{"block_type": "box", "x": 0, "y": 0, "width": 14, "height": 3,
            "content": "0123456789", "border_style": "solid", "order": 0}]),
+        # left edge flush with a partition (0066/0068: counts as touching)
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 38, "height": 11,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "box", "x": 12, "y": 0, "width": 14, "height": 3,
+           "content": "lorem ipsum", "border_style": "double", "order": 0}]),
+        # top edge flush with a partition (0066/0068: counts as touching)
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 38, "height": 11,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "box", "x": 12, "y": 4, "width": 14, "height": 3,
+           "content": "lorem ipsum", "border_style": "double", "order": 0}]),
     ]
     for grid, children in cases:
         js_blocks = grid_case(grid, children)
@@ -726,6 +736,12 @@ def test_parity_grid_custom_widths():
         ({"cols": 3, "col_widths": [4, 10, 8], "rows": 2}, "solid", 24, 8,
          [{"block_type": "text", "x": 0, "y": 0, "width": 14, "height": 6,
            "content": "", "border_style": "none", "order": 0}]),
+        # span with right/bottom edges flush with partitions (0068: a
+        # right/bottom flush edge does not extend the span)
+        ({"cols": 4, "rows": 4, "col_widths": [7, 13, 11, 5],
+          "row_heights": [1, 3, 3, 2]}, "double", 38, 11,
+         [{"block_type": "content", "x": 8, "y": 2, "width": 23, "height": 5,
+           "content": "", "border_style": "solid", "order": 0}]),
     ]
     for meta, base, w, h, children in cases:
         block = {"id": "g", "block_type": "grid", "x": 0, "y": 0,
