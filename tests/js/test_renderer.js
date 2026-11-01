@@ -2019,7 +2019,10 @@ test("grid fill under partitions", () => {
 test("grid children render over partitions", () => {
     // Children are drawn after the partitions: the partition under the
     // child is not drawn at all (0062), the child's border and content
-    // are drawn there; the partition stays visible outside the child.
+    // are drawn there; the partition stays visible outside the child's
+    // span. Under 0066 the child's bottom edge sits on the row boundary,
+    // so the span extends into the row below and the crossed partition
+    // x=8 is suppressed there; the uncrossed partition x=15 stays visible.
     const result = render([
         { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
           content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
@@ -2031,7 +2034,7 @@ test("grid children render over partitions", () => {
     assert.equal(ls[1][8], "─"); // child top border overwrote the partition
     assert.equal(ls[2][8], "6"); // child content overwrote the partition
     assert.equal(ls[3][8], "─"); // child bottom border overwrote the partition
-    assert.equal(ls[5][8], "│"); // partition still visible below the child
+    assert.equal(ls[5][15], "│"); // uncrossed partition x=15 stays visible
 });
 
 test("grid degenerate 2x2 is plain border", () => {
@@ -2096,63 +2099,67 @@ function gridWithChild(child) {
 }
 
 test("grid span suppresses partitions under child", () => {
-    // A borderless child spanning two cells (aligned to the cell
-    // boundaries) — the partition between the spanned cells is not
-    // drawn; partitions outside the child stay. The frame node over the
-    // spanned partition degrades to a plain line (0063) and the junction
-    // below the child loses its upper arm.
+    // A borderless child at the top-left (14×3) touches the right edge
+    // of the third column and the bottom edge of the first row, so its
+    // span is the whole grid (0066): the partition x=8 the child
+    // straddles is suppressed across the full height, the horizontal
+    // partition y=4 stays fully drawn (the child does not straddle it),
+    // and the frame nodes over x=8 degrade to plain lines (0063).
     const result = render(gridWithChild({ block_type: "text",
         x: 0, y: 0, width: 14, height: 3, content: "SPAN" }));
-    const ls = lines(result);
-    // child at abs (1,1) 14×3 covers the partition at abs col 8, rows 1..3
-    assert.equal(ls[1][1], "S"); // child content is drawn
-    assert.equal(ls[1][8], " "); // partition suppressed under the child
-    assert.equal(ls[2][8], " ");
-    assert.equal(ls[3][8], " ");
-    assert.equal(ls[0][8], "─"); // top frame node degraded (no line below)
-    assert.equal(ls[0][15], "┬"); // the other frame node stays
-    assert.equal(ls[4][8], "┬"); // junction below the child: upper arm gone
-    assert.equal(ls[5][8], "│"); // partition below the child stays
-    assert.equal(ls[7][8], "┴"); // bottom frame node stays
-    assert.equal(ls[1][15], "│"); // the other partition is untouched
+    assert.equal(result, [
+        "┌──────────────┬───────┐",
+        "│SPAN          │       │",
+        "│              │       │",
+        "│              │       │",
+        "├──────────────┼───────┤",
+        "│              │       │",
+        "│              │       │",
+        "└──────────────┴───────┘",
+    ].join("\n"));
 });
 
 test("grid span vertical", () => {
-    // A child spanning two rows — the horizontal partition under it is
-    // not drawn; the vertical partition stays. The left frame node over
-    // the spanned partition degrades to a plain line (0063) and the
-    // junction loses its left arm.
+    // A child at the left (7×6) touching the right edge of the second
+    // column and the bottom edge of the second row spans cols 1–2 × both
+    // rows (0066): the horizontal partition y=4 the child straddles is
+    // suppressed across the spanned columns (x=1..14), the vertical
+    // partitions stay, the left frame node degrades to a plain line
+    // (0063) and the junction (15,4) keeps only the drawn arms (├).
     const result = render(gridWithChild({ block_type: "text",
         x: 0, y: 0, width: 7, height: 6 }));
-    const ls = lines(result);
-    // child at abs (1,1) 7×6 covers the row partition (abs row 4), cols 1..7
-    assert.equal(ls[4][1], " ");
-    assert.equal(ls[4][7], " ");
-    assert.equal(ls[4][0], "│"); // left frame node degraded (no line to the right)
-    assert.equal(ls[4][8], "├"); // junction: left arm gone
-    assert.equal(ls[4][9], "─"); // the partition continues
-    assert.equal(ls[4][23], "┤"); // the right frame node stays
-    assert.equal(ls[1][8], "│"); // the vertical partition stays
+    assert.equal(result, [
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      ├───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n"));
 });
 
 test("grid span 2x2", () => {
-    // A child spanning two columns and two rows — both inner partitions
-    // under it are not drawn (including the interior junction); the frame
-    // nodes over the spanned partitions degrade to plain lines (0063).
+    // A child at the top-left (14×6) touching the right edge of the
+    // third column and the bottom edge of the second row spans the whole
+    // grid (0066): the partition x=8 the child straddles is suppressed
+    // across the full height, the horizontal partition y=4 is suppressed
+    // across the spanned columns (except the junction at x=15, which the
+    // child does not straddle), and the frame nodes over the suppressed
+    // segments degrade to plain lines (0063).
     const result = render(gridWithChild({ block_type: "text",
         x: 0, y: 0, width: 14, height: 6 }));
-    const ls = lines(result);
-    // child at abs (1,1) 14×6 covers col 8 (rows 1..6) and row 4 (cols 1..14)
-    for (let row = 1; row <= 6; row++) assert.equal(ls[row][8], " ");
-    for (let col = 1; col <= 14; col++) assert.equal(ls[4][col], " ");
-    assert.equal(ls[0][8], "─"); // top frame node degraded
-    assert.equal(ls[7][8], "─"); // bottom frame node degraded
-    assert.equal(ls[4][0], "│"); // left frame node degraded
-    assert.equal(ls[0][15], "┬"); // the other frame nodes stay
-    assert.equal(ls[7][15], "┴");
-    assert.equal(ls[4][23], "┤");
-    assert.equal(ls[4][15], "├"); // junction at the child's edge: left arm gone
-    assert.equal(ls[1][15], "│"); // the other vertical partition stays
+    assert.equal(result, [
+        "┌──────────────┬───────┐",
+        "│              │       │",
+        "│              │       │",
+        "│              │       │",
+        "│              │       │",
+        "│              │       │",
+        "│              │       │",
+        "└──────────────┴───────┘",
+    ].join("\n"));
 });
 
 test("grid span misaligned child", () => {
@@ -2181,8 +2188,12 @@ test("grid span misaligned child", () => {
 
 test("grid span fill kept under child", () => {
     // meta.fill is kept under the child: a suppressed partition cell
-    // shows the fill, not a space. The child spans both columns of the
-    // top row (the partition between them is under the child).
+    // shows the fill, not a space. The child (10×2 at the top) touches
+    // the right edge of the second column and the bottom edge of the
+    // first row, so its span is the whole grid (0066): the partition x=6
+    // the child straddles is suppressed across the full height (showing
+    // the fill), and the horizontal partition y=3 stays fully drawn (the
+    // child does not straddle it).
     const result = render([
         { id: "g1", block_type: "grid", x: 0, y: 0, width: 12, height: 6,
           content: "", border_style: "solid",
@@ -2191,13 +2202,12 @@ test("grid span fill kept under child", () => {
           width: 10, height: 2, content: "", border_style: "none" },
     ]);
     const ls = lines(result);
-    // child at abs (1,1) 10×2 covers the col partition (abs 6) rows 1..2
     assert.equal(ls[0], "┌" + "─".repeat(10) + "┐"); // top frame node degraded (0063)
     assert.equal(ls[1], "│░░░░░░░░░░│");
     assert.equal(ls[2], "│░░░░░░░░░░│");
-    assert.equal(ls[3], "├─────┬────┤"); // junction below the child: upper arm gone
-    assert.equal(ls[4], "│░░░░░│░░░░│");
-    assert.equal(ls[5], "└─────┴────┘"); // bottom frame node stays
+    assert.equal(ls[3], "├" + "─".repeat(10) + "┤"); // y=3 stays drawn (not straddled)
+    assert.equal(ls[4], "│░░░░░░░░░░│"); // x=6 suppressed, fill shows
+    assert.equal(ls[5], "└" + "─".repeat(10) + "┘"); // bottom frame node degraded
 });
 
 test("grid span child covers whole inner area", () => {
@@ -2238,11 +2248,13 @@ test("grid span none border", () => {
 });
 
 test("grid span frame nodes full picture", () => {
-    // The TO BE picture from tasks/0061-0070/change-cells-span.md: a
-    // child spanning two columns and two rows — the spanned cell is
-    // intact: the frame nodes over the spanned partition degrade to
-    // plain lines, the interior junction under the child disappears,
-    // and the junction at the child's edge keeps only the drawn arms.
+    // A child at the top-left (24×9) touching the right edge of the
+    // third column and the bottom edge of the second row spans the whole
+    // grid (0066): the partition x=13 the child straddles is suppressed
+    // across the full height, the horizontal partition y=5 is suppressed
+    // across the spanned columns (except the junction at x=25, which the
+    // child does not straddle), and the frame nodes over the suppressed
+    // segments degrade to plain lines (0063).
     const result = render([
         { id: "g1", block_type: "grid", x: 0, y: 0, width: 38, height: 11,
           content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
@@ -2255,7 +2267,7 @@ test("grid span frame nodes full picture", () => {
         "│                        │           │",
         "│                        │           │",
         "│                        │           │",
-        "│                        ├───────────┤",
+        "│                        │           │",
         "│                        │           │",
         "│                        │           │",
         "│                        │           │",
@@ -2324,6 +2336,73 @@ test("grid span TO BE change-cells 2", () => {
         "│            │   ╚════════════════╝  │",
         "│            │                       │",
         "└────────────┴───────────────────────┘",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+test("grid span TO BE change-cells 3 (1)", () => {
+    // The TO BE (1) picture from tasks/0061-0070/change-cells-span3.md:
+    // a child whose LEFT edge sits exactly on the vertical partition
+    // x=13 (rel (12,0), 14×3, abs x[13,27) y[1,4)). Under the
+    // boundary-inclusive crossing rule (0066) the partition x=13 is
+    // counted as crossed (rx0 <= p) and suppressed; x=25 is also
+    // crossed (the child's right edge x=26 is past it). The span is all
+    // 3 columns × row 1 (the child is entirely in row 1), so both
+    // vertical partitions are removed across row 1; the horizontal
+    // partition y=5 is not crossed (ry1=4 < 5) and stays drawn, and the
+    // junctions (13,5)/(25,5) lose their upper arm (┼ → ┬).
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 38, height: 11,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 12, y: 0,
+          width: 14, height: 3, content: "lorem ipsum",
+          border_style: "double" },
+    ], 40, 12);
+    const expected = [
+        "┌────────────────────────────────────┐",
+        "│            ╔════════════╗          │",
+        "│            ║lorem ipsum ║          │",
+        "│            ╚════════════╝          │",
+        "│                                    │",
+        "├────────────┬───────────┬───────────┤",
+        "│            │           │           │",
+        "│            │           │           │",
+        "│            │           │           │",
+        "│            │           │           │",
+        "└────────────┴───────────┴───────────┘",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+test("grid span TO BE change-cells 3 (2)", () => {
+    // The TO BE (2) picture from tasks/0061-0070/change-cells-span3.md:
+    // a child whose TOP edge sits exactly on the horizontal partition
+    // y=5 (rel (12,4), 14×3, abs x[13,27) y[5,8)). Under the
+    // closed-interval cell intersection (0066) the span extends into the
+    // row above (the child touches row 1's bottom boundary at y=5), so
+    // the span is all 3 columns × both rows; under the
+    // boundary-inclusive crossing rule the partition y=5 is counted as
+    // crossed (ry0 <= q) and suppressed, and x=13/x=25 are crossed too —
+    // every partition is removed, leaving only the outer frame.
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 38, height: 11,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 12, y: 4,
+          width: 14, height: 3, content: "lorem ipsum",
+          border_style: "double" },
+    ], 40, 12);
+    const expected = [
+        "┌────────────────────────────────────┐",
+        "│                                    │",
+        "│                                    │",
+        "│                                    │",
+        "│                                    │",
+        "│            ╔════════════╗          │",
+        "│            ║lorem ipsum ║          │",
+        "│            ╚════════════╝          │",
+        "│                                    │",
+        "│                                    │",
+        "└────────────────────────────────────┘",
     ].join("\n");
     assert.equal(result, expected);
 });

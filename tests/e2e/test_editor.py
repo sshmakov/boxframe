@@ -2738,11 +2738,16 @@ def test_web_editor_grid_span_suppresses_partitions(page: Page):
     """A child spanning two cells — the partition between them is not
     drawn in the ASCII art, the span looks like one intact cell (0062);
     the frame node over the spanned partition degrades to a plain line
-    and the junction below the child loses its upper arm (0063)."""
+    (0063). Under 0066 the child's bottom edge sits on the row boundary,
+    so the span extends into the row below and the crossed partition is
+    suppressed across both rows (the interior junction degrades to a
+    plain line too)."""
     layout_id, (grid_id, child_id) = _create_project_with_blocks(page, [
         {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
-        # box (no autosize, unlike text) spanning cells 1–2 of the top
-        # row: abs (3,3) 13×3 covers the vertical partition at abs col 10
+        # box (no autosize, unlike text) spanning cells 1–2: abs (3,3)
+        # 13×3 covers the vertical partition at abs col 10; its bottom
+        # edge (abs y=6) sits on the row boundary, so the span covers
+        # both rows (0066)
         {"block_type": "box", "x": 0, "y": 0, "width": 13, "height": 3,
          "content": "", "border_style": "solid", "parent_index": 0},
     ])
@@ -2754,14 +2759,16 @@ def test_web_editor_grid_span_suppresses_partitions(page: Page):
         )
         lines = t.split("\n")
         # grid at (2,2) 24×8: vertical partitions at abs cols 10, 17; the
-        # box child (abs (3,3) 13×3) covers col 10 rows 3..5
+        # box child (abs (3,3) 13×3) covers col 10; under 0066 the span
+        # extends into the row below, so the crossed partition x=10 is
+        # suppressed across both rows
         return (
             lines[2][10] == "─"  # top frame node degraded (0063)
             and lines[3][10] == "─"  # box top border, partition suppressed
             and lines[4][10] == " "  # box interior, partition suppressed
             and lines[5][10] == "─"  # box bottom border, partition suppressed
-            and lines[6][10] == "┬"  # junction below the child: upper arm gone
-            and lines[7][10] == "│"  # partition below the child stays
+            and lines[6][10] == "─"  # junction degrades to a plain line
+            and lines[7][10] == " "  # partition suppressed in the span (0066)
             and lines[3][17] == "│"  # the other partition is untouched
         )
 
