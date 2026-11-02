@@ -244,6 +244,17 @@
     // The default may be type-specific (typeDefaults — e.g. a divider's
     // label is centered by default).
     function readPropValue(block, prop) {
+        // A legacy grid (no valid cols/rows in meta, 0069) renders no
+        // partitions — its effective structure is 1×1 (zero partitions),
+        // so the panel shows 1/1, not the schema defaults (3/2). The
+        // first cols/rows change materializes the structure (see
+        // applyPropValue in editor.js), after which the stored values
+        // are read as usual.
+        if (block.block_type === "grid" &&
+            (prop.key === "cols" || prop.key === "rows") &&
+            !global.PGRenderer.gridHasStructure(block.meta)) {
+            return 1;
+        }
         var v = prop.meta
             ? (block.meta ? block.meta[prop.key] : undefined)
             : block[prop.key];

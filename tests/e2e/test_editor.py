@@ -2805,6 +2805,79 @@ def test_web_editor_legacy_grid_renders_as_box(page: Page):
     assert "┬" not in art and "┼" not in art and "┴" not in art
 
 
+def _make_grid_legacy(page: Page, layout_id: str, grid_id: str) -> None:
+    """Clear the grid's meta (create injected cols/rows; updates do not
+    re-inject) — simulates a legacy layout saved before structure
+    existed (0069)."""
+    r = requests.put(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks/{grid_id}",
+        json={"meta": {}}, timeout=5,
+    )
+    assert r.status_code == 200
+    assert r.json()["meta"] == {}
+    page.reload()
+    _wait_editor_ready(page, 1)
+
+
+def _select_grid_by_id(page: Page, grid_id: str, w: int = 24, h: int = 8) -> None:
+    """Select a grid at (2,2) by clicking its center."""
+    metrics = _canvas_metrics(page, grid_id, w, h)
+    x, y = _grid_point(metrics, 2 + w / 2, 2 + h / 2)
+    page.mouse.click(x, y)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+
+def test_web_editor_legacy_grid_panel_shows_1x1(page: Page):
+    """A legacy grid (no cols/rows in meta) shows 1/1 in the properties
+    panel — its effective structure (zero partitions), not the schema
+    defaults 3/2 (0069)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    _make_grid_legacy(page, layout_id, grid_id)
+
+    _select_grid_by_id(page, grid_id)
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    inputs = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]')
+    expect(inputs.nth(0)).to_have_value("1")
+    expect(inputs.nth(1)).to_have_value("1")
+
+
+def test_web_editor_legacy_grid_first_change_materializes_1x1(page: Page):
+    """The first cols/rows change of a legacy grid materializes the
+    structure with the untouched axis seeded to 1: Cols 1→3 renders 3×1
+    (2 vertical partitions, no horizontal one), the stored meta is
+    {cols: 3, rows: 1}, the panel shows 3/1 (0069)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    _make_grid_legacy(page, layout_id, grid_id)
+
+    _select_grid_by_id(page, grid_id)
+    panel = page.locator(".block-props")
+    cols_input = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]').first
+    cols_input.fill("3")
+    cols_input.dispatch_event("change")
+
+    # 3 cols × 1 row: 2 vertical partitions, no horizontal one
+    _poll_until(lambda p: _top_row_junctions(p) == 2, page)
+
+    # The structure is stored with the seeded rows=1
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    assert blocks[grid_id]["meta"] == {"cols": 3, "rows": 1}
+
+    # The panel shows the stored values
+    inputs = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]')
+    expect(inputs.nth(0)).to_have_value("3")
+    expect(inputs.nth(1)).to_have_value("1")
+
+
 def _ascii_lines(page: Page) -> list[str]:
     t = page.evaluate(
         "() => document.querySelector('.canvas-container .ascii-art')"

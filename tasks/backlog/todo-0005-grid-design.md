@@ -325,9 +325,16 @@ Grid-перегородки (0061–0068) существуют только в `
   API batch create, static store `createBlock`/`batchBlocks`; в
   update/`replaceState` **не** инжектится — legacy grid остаётся
   legacy, undo/redo восстанавливает meta как есть.
+- панель свойств legacy grid показывает **1/1** (эффективная
+  структура — ноль перегородок), а не дефолт 3/2 (`readPropValue` в
+  `core/properties.js`); первое изменение cols/rows материализует
+  структуру — нетронутое измерение сидится в 1 (`applyPropValue` в
+  `editor.js`), т.е. панель всегда показывает отрисованный размер
+  (Cols 1→3 → рендер 3×1, не 3×2).
 - Оба рендерера (parity побайтово) + тесты (renderer py/js: 9 кейсов;
   parity — legacy-кейсы; API — инжект при create, legacy при update;
-  store js — 4 кейса; e2e — legacy grid → plain box).
+  store js — 4 кейса; e2e — legacy grid → plain box, панель 1/1,
+  первое изменение → 3×1).
 
 ## Вариант 2 — snap к ячейке (+ span) (follow-up)
 

@@ -131,7 +131,12 @@ boxframe/
   (`grid_create_meta()`/`gridCreateMeta()`, дефолт 3/2): API create,
   API batch create, static store `createBlock`/`batchBlocks`; в
   update/`replaceState` **не** инжектится — legacy grid остаётся legacy,
-  undo/redo восстанавливает meta как есть
+  undo/redo восстанавливает meta как есть. Панель свойств legacy grid
+  показывает **1/1** (эффективная структура — ноль перегородок), а не
+  дефолт 3/2 (`readPropValue` в `core/properties.js`); первое
+  изменение cols/rows материализует структуру — нетронутое измерение
+  сидится в 1 (`applyPropValue` в `editor.js`), т.е. панель всегда
+  показывает отрисованный размер (Cols 1→3 рендерит 3×1, не 3×2)
 - кастомные ширины/высоты (0067): `meta.col_widths`/`meta.row_heights` —
   массивы целых ширин колонок/высот строк (по одному на колонку/строку).
   Отсутствует/некорректный массив (не список, длина ≠ eff, элемент < 1) →

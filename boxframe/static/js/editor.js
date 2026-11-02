@@ -2437,6 +2437,19 @@ function editorApp() {
                     if (reshaped) meta[wKey] = reshaped;
                     else delete meta[wKey];
                 }
+                // Grid (0069): the first cols/rows change of a legacy grid
+                // (no valid cols/rows) materializes the structure — the
+                // untouched axis is seeded to 1 (the legacy effective
+                // size, what the panel shows), so the rendered grid
+                // matches the panel (Cols 1→3 renders 3×1, not 3×2).
+                if ((prop.key === 'cols' || prop.key === 'rows')
+                    && b.block_type === 'grid' && value != null
+                    && !PGRenderer.gridHasStructure(b.meta || {})) {
+                    const other = prop.key === 'cols' ? 'rows' : 'cols';
+                    if (PGRenderer.gridMetaInt(meta, other, 0) < 1) {
+                        meta[other] = 1;
+                    }
+                }
                 return { meta };
             };
 
