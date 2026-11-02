@@ -2775,6 +2775,36 @@ def test_web_editor_grid_span_suppresses_partitions(page: Page):
     _poll_until(span_state, page)
 
 
+def test_web_editor_legacy_grid_renders_as_box(page: Page):
+    """A grid without cols/rows in meta (a legacy layout) renders as a
+    plain box — the border and the [grid] hint, no partitions (0069).
+
+    The API injects cols/rows on create, so the grid is made legacy by
+    clearing its meta (updates do not re-inject)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+
+    # Create injected the 3×2 structure — clear it to simulate a legacy
+    # layout (a grid saved before structure existed).
+    r = requests.put(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks/{grid_id}",
+        json={"meta": {}}, timeout=5,
+    )
+    assert r.status_code == 200
+    assert r.json()["meta"] == {}
+
+    page.reload()
+    _wait_editor_ready(page, 1)
+
+    lines = _ascii_lines(page)
+    # The plain-box rendering: the [grid] hint in the first inner row and
+    # no partition junctions anywhere.
+    assert any(l.lstrip("│ ").startswith("[grid]") for l in lines)
+    art = "\n".join(lines)
+    assert "┬" not in art and "┼" not in art and "┴" not in art
+
+
 def _ascii_lines(page: Page) -> list[str]:
     t = page.evaluate(
         "() => document.querySelector('.canvas-container .ascii-art')"

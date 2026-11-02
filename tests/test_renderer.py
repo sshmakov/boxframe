@@ -2110,6 +2110,9 @@ def test_content_placeholder_small_block():
 
 def _grid_block(width=24, height=8, meta=None, border_style="solid",
                 x=0, y=0, content="", children=None):
+    """A grid block. meta=None means a NEW grid — explicit structure
+    {cols: 3, rows: 2} (what the editor/API create, 0069); pass meta={}
+    for a LEGACY grid (no cols/rows — renders as a plain box)."""
     data = {
         "block_type": "grid",
         "x": x, "y": y,
@@ -2117,8 +2120,7 @@ def _grid_block(width=24, height=8, meta=None, border_style="solid",
         "content": content,
         "border_style": border_style,
     }
-    if meta is not None:
-        data["meta"] = meta
+    data["meta"] = {"cols": 3, "rows": 2} if meta is None else meta
     if children is not None:
         data["children"] = children
     return [data]
@@ -2140,10 +2142,139 @@ def test_grid_meta_int():
     assert grid_meta_int({"rows": 4}, "rows", 2) == 4
 
 
+def test_grid_has_structure():
+    """A grid has structure when meta carries a valid cols or rows
+    (positive int); absent/invalid values and other keys do not count
+    (0069)."""
+    from boxframe.services.renderer import grid_has_structure
+    assert grid_has_structure(None) is False
+    assert grid_has_structure({}) is False
+    assert grid_has_structure({"fill": "░"}) is False
+    assert grid_has_structure({"cols": 3}) is True
+    assert grid_has_structure({"rows": 2}) is True
+    assert grid_has_structure({"cols": 1}) is True
+    assert grid_has_structure({"cols": 0}) is False
+    assert grid_has_structure({"cols": -1}) is False
+    assert grid_has_structure({"cols": "3"}) is False
+    assert grid_has_structure({"cols": True}) is False
+    assert grid_has_structure({"cols": 2.5}) is False
+    assert grid_has_structure({"cols": 0, "rows": 4}) is True
+
+
+def test_grid_create_meta():
+    """A new grid's meta gets cols/rows defaulted (3/2) when absent or
+    invalid; valid values and other keys are kept (0069)."""
+    from boxframe.services.renderer import grid_create_meta
+    assert grid_create_meta(None) == {"cols": 3, "rows": 2}
+    assert grid_create_meta({}) == {"cols": 3, "rows": 2}
+    assert grid_create_meta({"cols": 4}) == {"cols": 4, "rows": 2}
+    assert grid_create_meta({"rows": 3}) == {"cols": 3, "rows": 3}
+    assert grid_create_meta({"cols": 4, "rows": 3}) == {"cols": 4, "rows": 3}
+    assert grid_create_meta({"cols": 0}) == {"cols": 3, "rows": 2}
+    assert grid_create_meta({"cols": "4", "rows": -1}) == {"cols": 3, "rows": 2}
+    assert grid_create_meta({"fill": "░"}) == {"fill": "░", "cols": 3, "rows": 2}
+    # the input dict is not mutated
+    src = {"fill": "░"}
+    grid_create_meta(src)
+    assert src == {"fill": "░"}
+
+
+def test_grid_legacy_no_meta_renders_as_box():
+    """A legacy grid (no cols/rows in meta) renders as a plain box — the
+    border and the [grid] hint, no partitions (0069, backward compat)."""
+    result = _render(_grid_block(meta={}))
+    expected = "\n".join([
+        "┌" + "─" * 22 + "┐",
+        "│[grid]" + " " * 16 + "│",
+        "│" + " " * 22 + "│",
+        "│" + " " * 22 + "│",
+        "│" + " " * 22 + "│",
+        "│" + " " * 22 + "│",
+        "│" + " " * 22 + "│",
+        "└" + "─" * 22 + "┘",
+    ])
+    assert result == expected
+    assert "┬" not in result and "┼" not in result and "┴" not in result
+
+
+def test_grid_legacy_none_border_renders_empty():
+    """A legacy grid without a border renders nothing — no border, no
+    hint (the hint needs a border), no partitions (0069)."""
+    result = _render(_grid_block(meta={}, border_style="none"))
+    assert result.strip() == ""
+
+
+def test_grid_legacy_double_border():
+    """A legacy grid with a double border: the double frame and the
+    [grid] hint, no partitions (0069)."""
+    result = _render(_grid_block(meta={}, border_style="double"))
+    lines = result.split("\n")
+    assert lines[0][0] == "╔"
+    assert lines[0][23] == "╗"
+    assert lines[7][0] == "╚"
+    assert lines[7][23] == "╝"
+    assert lines[1][1:7] == "[grid]"
+    assert "╦" not in result and "╬" not in result
+
+
+def test_grid_legacy_fill_inset_by_border():
+    """A legacy grid with fill: the fill is inset by the border (the box
+    path), no partitions, the hint is suppressed by the fill (0069)."""
+    result = _render(_grid_block(meta={"fill": "░"}))
+    lines = result.split("\n")
+    assert lines[0] == "┌" + "─" * 22 + "┐"
+    assert lines[1] == "│" + "░" * 22 + "│"
+    assert lines[7] == "└" + "─" * 22 + "┘"
+    assert "[grid]" not in result
+    assert "┬" not in result and "┼" not in result
+
+
+def test_grid_legacy_children_render_without_partitions():
+    """A legacy grid with a child: the child renders in the inner area,
+    no partitions are drawn (0069)."""
+    result = _render(_grid_block(meta={}, children=[{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 10, "height": 3,
+        "content": "0123456789",
+        "border_style": "solid",
+    }]))
+    lines = result.split("\n")
+    # child box at abs (1,1) 10×3
+    assert lines[1][1:11] == "┌────────┐"
+    assert lines[2][1:11] == "│01234567│"
+    # no partitions anywhere
+    assert "┬" not in result and "┼" not in result and "┴" not in result
+
+
+def test_grid_cols_only_activates_structure():
+    """A grid with only meta.cols (no rows) has structure — it renders
+    the partitions with the default rows=2 (0069)."""
+    result = _render(_grid_block(meta={"cols": 4}))
+    lines = result.split("\n")
+    # inner 22, 4 cols → partitions at inner 5, 11, 16 → abs 6, 12, 17
+    assert lines[0][6] == "┬"
+    assert lines[0][12] == "┬"
+    assert lines[0][17] == "┬"
+    # rows default 2 → the horizontal partition at inner 3 → abs row 4
+    assert lines[4][0] == "├"
+    assert "[grid]" not in result
+
+
+def test_grid_invalid_meta_is_legacy():
+    """A grid whose meta carries only invalid cols/rows has no structure
+    — it renders as a plain box (0069)."""
+    result = _render(_grid_block(meta={"cols": "3", "rows": 2.5}))
+    lines = result.split("\n")
+    assert lines[0] == "┌" + "─" * 22 + "┐"
+    assert lines[1][1:7] == "[grid]"
+    assert "┬" not in result and "┼" not in result
+
+
 def test_grid_default_3x2():
-    """Default grid (no meta → 3 cols × 2 rows), solid border: the outer
-    frame plus inner partitions with junction nodes; the content area is
-    empty (no hint, no content)."""
+    """A new grid (meta cols=3/rows=2 — the create default, 0069), solid
+    border: the outer frame plus inner partitions with junction nodes;
+    the content area is empty (no hint, no content)."""
     result = _render(_grid_block())
     expected = "\n".join([
         "┌───────┬──────┬───────┐",

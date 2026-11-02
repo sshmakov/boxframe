@@ -1925,6 +1925,84 @@ def test_create_grid_keeps_size_and_meta(client: TestClient):
     assert exported["metadata"] == {"cols": 5, "rows": 4}
 
 
+def test_create_grid_injects_structure_meta(client: TestClient):
+    """A new grid gets explicit structure in meta (cols/rows defaulted
+    3/2) so it renders with partitions (0069): absent meta, partial
+    meta, and invalid values are all completed; batch create too."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # No meta → the defaults are injected
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {"cols": 3, "rows": 2}
+
+    # Partial meta → the missing key is completed
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "meta": {"cols": 4},
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {"cols": 4, "rows": 2}
+
+    # Invalid values → the defaults
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "meta": {"cols": 0, "fill": "░"},
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {"cols": 3, "rows": 2, "fill": "░"}
+
+    # Batch create → the same injection
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "create": [{"block_type": "grid", "x": 0, "y": 0,
+                    "width": 24, "height": 8}],
+    })
+    assert r.status_code == 200
+    assert r.json()["created"][0]["meta"] == {"cols": 3, "rows": 2}
+
+    # The injected structure renders the partitions
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert r.status_code == 200
+    assert "┬" in r.json()["ascii"]
+
+
+def test_legacy_grid_renders_as_box(client: TestClient):
+    """A grid without cols/rows in meta (legacy) renders as a plain box
+    — no partitions, the [grid] hint (0069). Updates do not inject the
+    structure: a meta reset keeps the grid legacy."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create (the structure is injected), then reset the meta to {}
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+    })
+    assert r.status_code == 200
+    block_id = r.json()["id"]
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "meta": {},
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {}
+
+    # The render is the plain box: no partitions, the [grid] hint
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert r.status_code == 200
+    ascii_art = r.json()["ascii"]
+    assert "┬" not in ascii_art and "┼" not in ascii_art
+    assert "[grid]" in ascii_art
+
+    # A batch update resetting the meta keeps the grid legacy too
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [{"id": block_id, "meta": {}}],
+    })
+    assert r.status_code == 200
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert "┬" not in r.json()["ascii"]
+    assert "[grid]" in r.json()["ascii"]
+
+
 def test_grid_is_a_container(client: TestClient):
     """A grid accepts children (parent_id) like a box."""
     _, layout_id = _create_project_with_layout(client)

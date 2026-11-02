@@ -1906,13 +1906,16 @@ test("content placeholder small block", () => {
 
 // ── Grid tests (variant 1 — partitions, todo-0005) ─────────────────
 
+// A grid block. meta == undefined means a NEW grid — explicit structure
+// {cols: 3, rows: 2} (what the editor/API create, 0069); pass meta: {}
+// for a LEGACY grid (no cols/rows — renders as a plain box).
 function gridBlock(width = 24, height = 8, meta, border_style = "solid",
                    x = 0, y = 0, content = "") {
     const b = {
         id: "g1", block_type: "grid",
         x, y, width, height, content, border_style,
     };
-    if (meta) b.meta = meta;
+    b.meta = meta === undefined ? { cols: 3, rows: 2 } : meta;
     return [b];
 }
 
@@ -1929,9 +1932,129 @@ test("gridMetaInt: positive int or default", () => {
     assert.equal(PG.gridMetaInt({ rows: 4 }, "rows", 2), 4);
 });
 
+test("gridHasStructure: valid cols or rows", () => {
+    assert.equal(PG.gridHasStructure(null), false);
+    assert.equal(PG.gridHasStructure({}), false);
+    assert.equal(PG.gridHasStructure({ fill: "░" }), false);
+    assert.equal(PG.gridHasStructure({ cols: 3 }), true);
+    assert.equal(PG.gridHasStructure({ rows: 2 }), true);
+    assert.equal(PG.gridHasStructure({ cols: 1 }), true);
+    assert.equal(PG.gridHasStructure({ cols: 0 }), false);
+    assert.equal(PG.gridHasStructure({ cols: -1 }), false);
+    assert.equal(PG.gridHasStructure({ cols: "3" }), false);
+    assert.equal(PG.gridHasStructure({ cols: true }), false);
+    assert.equal(PG.gridHasStructure({ cols: 2.5 }), false);
+    assert.equal(PG.gridHasStructure({ cols: 0, rows: 4 }), true);
+});
+
+test("gridCreateMeta: default cols/rows to 3/2", () => {
+    assert.deepEqual(PG.gridCreateMeta(null), { cols: 3, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({}), { cols: 3, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({ cols: 4 }), { cols: 4, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({ rows: 3 }), { cols: 3, rows: 3 });
+    assert.deepEqual(PG.gridCreateMeta({ cols: 4, rows: 3 }), { cols: 4, rows: 3 });
+    assert.deepEqual(PG.gridCreateMeta({ cols: 0 }), { cols: 3, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({ cols: "4", rows: -1 }), { cols: 3, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({ fill: "░" }), { fill: "░", cols: 3, rows: 2 });
+    // the input object is not mutated
+    const src = { fill: "░" };
+    PG.gridCreateMeta(src);
+    assert.deepEqual(src, { fill: "░" });
+});
+
+test("grid legacy (no meta) renders as a plain box", () => {
+    // A legacy grid (no cols/rows in meta) renders as a plain box — the
+    // border and the [grid] hint, no partitions (0069).
+    const result = render(gridBlock(24, 8, {}));
+    const expected = [
+        "┌" + "─".repeat(22) + "┐",
+        "│[grid]" + " ".repeat(16) + "│",
+        "│" + " ".repeat(22) + "│",
+        "│" + " ".repeat(22) + "│",
+        "│" + " ".repeat(22) + "│",
+        "│" + " ".repeat(22) + "│",
+        "│" + " ".repeat(22) + "│",
+        "└" + "─".repeat(22) + "┘",
+    ].join("\n");
+    assert.equal(result, expected);
+    assert.ok(!result.includes("┬") && !result.includes("┼") && !result.includes("┴"));
+});
+
+test("grid legacy none border renders empty", () => {
+    // A legacy grid without a border renders nothing (0069)
+    const result = render(gridBlock(24, 8, {}, "none"));
+    assert.equal(result.trim(), "");
+});
+
+test("grid legacy double border", () => {
+    // A legacy grid with a double border: the double frame and the
+    // [grid] hint, no partitions (0069)
+    const result = render(gridBlock(24, 8, {}, "double"));
+    const ls = lines(result);
+    assert.equal(ls[0][0], "╔");
+    assert.equal(ls[0][23], "╗");
+    assert.equal(ls[7][0], "╚");
+    assert.equal(ls[7][23], "╝");
+    assert.equal(ls[1].slice(1, 7), "[grid]");
+    assert.ok(!result.includes("╦") && !result.includes("╬"));
+});
+
+test("grid legacy fill inset by border", () => {
+    // A legacy grid with fill: the fill is inset by the border (the box
+    // path), no partitions, the hint is suppressed by the fill (0069)
+    const result = render(gridBlock(24, 8, { fill: "░" }));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌" + "─".repeat(22) + "┐");
+    assert.equal(ls[1], "│" + "░".repeat(22) + "│");
+    assert.equal(ls[7], "└" + "─".repeat(22) + "┘");
+    assert.ok(!result.includes("[grid]"));
+    assert.ok(!result.includes("┬") && !result.includes("┼"));
+});
+
+test("grid legacy children render without partitions", () => {
+    // A legacy grid with a child: the child renders in the inner area,
+    // no partitions are drawn (0069)
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: {} },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 0, y: 0,
+          width: 10, height: 3, content: "0123456789", border_style: "solid" },
+    ]);
+    const ls = lines(result);
+    // child box at abs (1,1) 10×3
+    assert.equal(ls[1].slice(1, 11), "┌────────┐");
+    assert.equal(ls[2].slice(1, 11), "│01234567│");
+    assert.ok(!result.includes("┬") && !result.includes("┼") && !result.includes("┴"));
+});
+
+test("grid cols only activates structure", () => {
+    // A grid with only meta.cols (no rows) has structure — it renders
+    // the partitions with the default rows=2 (0069)
+    const result = render(gridBlock(24, 8, { cols: 4 }));
+    const ls = lines(result);
+    // inner 22, 4 cols → partitions at inner 5, 11, 16 → abs 6, 12, 17
+    assert.equal(ls[0][6], "┬");
+    assert.equal(ls[0][12], "┬");
+    assert.equal(ls[0][17], "┬");
+    // rows default 2 → the horizontal partition at inner 3 → abs row 4
+    assert.equal(ls[4][0], "├");
+    assert.ok(!result.includes("[grid]"));
+});
+
+test("grid invalid meta is legacy", () => {
+    // A grid whose meta carries only invalid cols/rows has no structure
+    // — it renders as a plain box (0069)
+    const result = render(gridBlock(24, 8, { cols: "3", rows: 2.5 }));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌" + "─".repeat(22) + "┐");
+    assert.equal(ls[1].slice(1, 7), "[grid]");
+    assert.ok(!result.includes("┬") && !result.includes("┼"));
+});
+
 test("grid default 3x2", () => {
-    // Default grid (no meta → 3 cols × 2 rows), solid border: the outer
-    // frame plus inner partitions with junction nodes; empty content area.
+    // A new grid (meta cols=3/rows=2 — the create default, 0069), solid
+    // border: the outer frame plus inner partitions with junction nodes;
+    // empty content area.
     const result = render(gridBlock());
     const expected = [
         "┌───────┬──────┬───────┐",
@@ -1990,7 +2113,7 @@ test("grid clamps rows to inner height", () => {
 test("grid none border", () => {
     // border_style none — no outer border, solid partitions over the
     // whole block area
-    const result = render(gridBlock(24, 8, null, "none"));
+    const result = render(gridBlock(24, 8, { cols: 3, rows: 2 }, "none"));
     const ls = lines(result);
     // 24×8, inner = whole block, cols=3 → partitions at inner 8, 16;
     // rows=2 → the horizontal partition at inner 4
@@ -2052,8 +2175,8 @@ test("grid hint suppressed", () => {
 });
 
 test("grid content not rendered", () => {
-    // The grid's content is not rendered (like a line)
-    const result = render(gridBlock(24, 8, null, "solid", 0, 0, "hello"));
+    // A structured grid's content is not rendered (like a line)
+    const result = render(gridBlock(24, 8, { cols: 3, rows: 2 }, "solid", 0, 0, "hello"));
     assert.ok(!result.includes("hello"));
 });
 
@@ -2071,7 +2194,7 @@ test("grid single col single row", () => {
 test("grid double border", () => {
     // border_style double — the frame and the partitions use the double
     // style map
-    const result = render(gridBlock(24, 8, null, "double"));
+    const result = render(gridBlock(24, 8, { cols: 3, rows: 2 }, "double"));
     const ls = lines(result);
     assert.equal(ls[0][0], "╔");
     assert.equal(ls[0][8], "╦");

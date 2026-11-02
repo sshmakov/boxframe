@@ -2114,6 +2114,9 @@ function editorApp() {
             if (this.selectedIds.length !== 1) return null;
             const b = this.selectedBlock;
             if (!b || b.block_type !== 'grid') return null;
+            // A legacy grid (no cols/rows in meta) renders no partitions
+            // (0069) — no handles for it.
+            if (!PGRenderer.gridHasStructure(b.meta || {})) return null;
             const framed = b.border_style !== 'none' && b.width >= 2 && b.height >= 2;
             const innerW = framed ? b.width - 2 : b.width;
             const innerH = framed ? b.height - 2 : b.height;

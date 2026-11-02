@@ -260,6 +260,19 @@
             return !!props && ("content" in props || "block_type" in props);
         }
 
+        // A new grid gets explicit structure (0069): cols/rows are
+        // defaulted (3/2) when absent or invalid, so the block renders
+        // with partitions. A grid without cols/rows in meta is a legacy
+        // block and renders as a plain box (backward compat). Applied on
+        // create only — updates and replaceState restore the stored meta
+        // as-is (mirrors the API's create normalization).
+        function normalizeGrid(block) {
+            if (block.block_type !== "grid") return;
+            var meta = block.meta || (block.meta = {});
+            meta.cols = PGRenderer.gridMetaInt(meta, "cols", 3);
+            meta.rows = PGRenderer.gridMetaInt(meta, "rows", 2);
+        }
+
         // Collect the ids of a block and all of its descendants (BFS over the
         // flat list). Cascade delete: removing a container removes its whole
         // subtree — mirrors the ORM cascade on the server.
@@ -315,6 +328,7 @@
                 normalizeText(block);
                 normalizeButton(block);
                 normalizeDivider(block);
+                normalizeGrid(block);
                 layout.blocks.push(block);
                 mutate();
                 return Promise.resolve(Object.assign({}, block));
@@ -400,6 +414,7 @@
                     normalizeText(block);
                     normalizeButton(block);
                     normalizeDivider(block);
+                    normalizeGrid(block);
                     layout.blocks.push(block);
                     created.push(Object.assign({}, block));
                 });

@@ -269,6 +269,33 @@
         return v;
     }
 
+    // Port of grid_has_structure in services/renderer.py: whether a grid
+    // has explicit structure in its meta (0069, backward compat) — a
+    // valid cols or rows (a positive int). A grid without one (created
+    // before partitions existed) renders as a plain box — border,
+    // [grid] hint, children — exactly as before partitions were
+    // introduced.
+    function gridHasStructure(meta) {
+        return gridMetaInt(meta, "cols", 0) >= 1 || gridMetaInt(meta, "rows", 0) >= 1;
+    }
+
+    // Port of grid_create_meta in services/renderer.py: the meta of a
+    // NEW grid block (0069) — the given meta with cols/rows defaulted
+    // (3/2) when absent or invalid, so the block renders with partitions.
+    // Creation is the only place the defaults are injected (updates and
+    // replace restore the stored meta as-is).
+    function gridCreateMeta(meta) {
+        var m = {};
+        if (meta) {
+            for (var k in meta) {
+                if (Object.prototype.hasOwnProperty.call(meta, k)) m[k] = meta[k];
+            }
+        }
+        m.cols = gridMetaInt(m, "cols", 3);
+        m.rows = gridMetaInt(m, "rows", 2);
+        return m;
+    }
+
     // Port of grid_meta_widths in services/renderer.py: a grid's
     // col_widths/row_heights from meta (0067) — a non-empty array of
     // integers >= 1 (cells), or null when absent/invalid — the caller
@@ -962,7 +989,11 @@
             return;
         }
 
-        if (block.block_type === "grid") {
+        // A grid with explicit structure in meta (a valid cols or rows)
+        // renders the partitions; a legacy grid (no cols/rows — created
+        // before partitions existed) falls through to the plain box path
+        // (border + [grid] hint + children), as before (0069).
+        if (block.block_type === "grid" && gridHasStructure(block.meta)) {
             drawGrid(block, style, grid, gw, gh, clip, allBlocks);
             var hasGridChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
             if (hasGridChildren) {
@@ -1345,6 +1376,8 @@
         buttonBlockSize: buttonBlockSize,
         dividerFitSize: dividerFitSize,
         gridMetaInt: gridMetaInt,
+        gridHasStructure: gridHasStructure,
+        gridCreateMeta: gridCreateMeta,
         gridMetaWidths: gridMetaWidths,
         splitAxis: splitAxis,
         gridSplit: gridSplit,

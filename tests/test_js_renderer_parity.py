@@ -569,25 +569,35 @@ def test_parity_grid_expansion():
 
 def test_parity_grid_ascii():
     """Grids (variant 1 — partitions, todo-0005) render identically in
-    both renderers."""
+    both renderers — structured grids (meta cols/rows, 0069) and legacy
+    grids (no cols/rows — the plain box path)."""
     cases = [
         # (meta, border_style, width, height)
-        (None, "solid", 24, 8),                              # default 3×2
+        ({"cols": 3, "rows": 2}, "solid", 24, 8),            # new grid 3×2
         ({"cols": 4, "rows": 2}, "solid", 21, 7),            # remainder split
         ({"cols": 20, "rows": 2}, "solid", 10, 10),          # clamp cols
         ({"cols": 2, "rows": 20}, "solid", 10, 10),          # clamp rows
-        (None, "none", 24, 8),                               # no outer border
+        ({"cols": 3, "rows": 2}, "none", 24, 8),             # no outer border
         ({"cols": 2, "rows": 2, "fill": "░"}, "solid", 12, 6),  # fill under partitions
         ({"cols": 1, "rows": 1}, "solid", 24, 8),            # no partitions
-        (None, "double", 24, 8),                             # double style
-        (None, "dashed", 24, 8),                             # dashed style
-        (None, "dotted", 24, 8),                             # dotted style
-        ({"cols": 0, "rows": -1}, "solid", 24, 8),           # invalid meta → default
+        ({"cols": 3, "rows": 2}, "double", 24, 8),           # double style
+        ({"cols": 3, "rows": 2}, "dashed", 24, 8),           # dashed style
+        ({"cols": 3, "rows": 2}, "dotted", 24, 8),           # dotted style
+        ({"cols": 4}, "solid", 24, 8),                       # cols only (rows default)
+        ({"cols": 3, "rows": 2}, "solid", 6, 4),             # small: clamped hard
+        ({"cols": 3, "rows": 2}, "solid", 2, 2),             # degenerate: no inner
+        ({"cols": 3, "rows": 2}, "solid", 1, 1),             # degenerate 1×1
+        # Legacy grids (no cols/rows in meta — the plain box path, 0069)
+        (None, "solid", 24, 8),                              # border + [grid] hint
+        (None, "none", 24, 8),                               # borderless: empty
+        (None, "double", 24, 8),                             # double frame + hint
+        (None, "dashed", 24, 8),                             # dashed frame + hint
+        (None, "dotted", 24, 8),                             # dotted frame + hint
+        ({"fill": "░"}, "solid", 24, 8),                     # fill inset by border
+        ({"cols": 0, "rows": -1}, "solid", 24, 8),           # invalid meta → legacy
         ({"cols": "3", "rows": 2.5}, "solid", 24, 8),        # invalid meta (non-int)
-        ({"cols": 5, "rows": 4}, "solid", 6, 4),             # small: clamped hard
         (None, "solid", 2, 2),                               # degenerate: no inner
         (None, "solid", 1, 1),                               # degenerate 1×1
-        ({"cols": 3, "rows": 2}, "none", 24, 8),             # none + explicit meta
     ]
     for meta, base, w, h in cases:
         block = {"id": "b1", "block_type": "grid", "x": 0, "y": 0,
@@ -601,17 +611,31 @@ def test_parity_grid_ascii():
 
 
 def test_parity_grid_content_and_hint():
-    """A grid's content is not rendered and the hint is suppressed —
-    identically in both renderers."""
+    """A structured grid's content is not rendered and the hint is
+    suppressed — identically in both renderers (0069)."""
     block = {"id": "b1", "block_type": "grid", "x": 0, "y": 0,
              "width": 24, "height": 8, "content": "hello world",
-             "border_style": "solid", "order": 0}
+             "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0}
     py_blocks = [{k: v for k, v in block.items() if k != "id"}]
     js = render_js([block], 40, 12)
     py = PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
     assert js == py
     assert "hello" not in js
     assert "[grid]" not in js
+
+
+def test_parity_grid_legacy_content_and_hint():
+    """A legacy grid (no cols/rows in meta) renders its content and the
+    [grid] hint like a plain box — identically in both renderers (0069)."""
+    block = {"id": "b1", "block_type": "grid", "x": 0, "y": 0,
+             "width": 24, "height": 8, "content": "hello world",
+             "border_style": "solid", "meta": {}, "order": 0}
+    py_blocks = [{k: v for k, v in block.items() if k != "id"}]
+    js = render_js([block], 40, 12)
+    py = PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
+    assert js == py
+    assert "hello" in js
+    assert "[grid]" not in js  # the content wins over the hint
 
 
 def test_parity_grid_children():

@@ -19,6 +19,7 @@ from boxframe.services.renderer import (
     PseudoGraphicRenderer,
     button_block_size,
     divider_fit_size,
+    grid_create_meta,
     text_block_size,
 )
 
@@ -154,7 +155,8 @@ class LayoutService:
         # text autosizes to its content (the border is included);
         # button autosizes to its content (the border depends on the
         # height, task 0060); divider autosizes to its content,
-        # grow-only (never shrinks)
+        # grow-only (never shrinks); a new grid gets explicit structure
+        # (cols/rows defaulted 3/2) so it renders with partitions (0069)
         if block_type == "hline":
             height = 1
         elif block_type == "vline":
@@ -165,6 +167,8 @@ class LayoutService:
             width, height = button_block_size(content, border_style)
         elif block_type == "divider":
             width, height = divider_fit_size(content, width, height)
+        elif block_type == "grid":
+            meta = grid_create_meta(meta)
 
         block = Block(
             id=block_id,
@@ -375,11 +379,13 @@ class LayoutService:
                 border_style = data.get("border_style")
                 if border_style is None:
                     border_style = default_border_style(block_type)
+                meta = data.get("meta") or {}
                 # Lines are always 1 cell thick — the thin dimension is
                 # fixed; text autosizes to its content (the border is
                 # included); button autosizes to its content (the border
                 # depends on the height, task 0060); divider autosizes to
-                # its content, grow-only
+                # its content, grow-only; a new grid gets explicit
+                # structure (cols/rows defaulted 3/2, 0069)
                 if block_type == "hline":
                     height = 1
                 elif block_type == "vline":
@@ -390,6 +396,8 @@ class LayoutService:
                     width, height = button_block_size(content, border_style)
                 elif block_type == "divider":
                     width, height = divider_fit_size(content, width, height)
+                elif block_type == "grid":
+                    meta = grid_create_meta(meta)
                 order = data.get("order") or 0
                 if order == 0:
                     order = next_order
@@ -409,7 +417,7 @@ class LayoutService:
                     height=height,
                     content=content,
                     border_style=border_style,
-                    meta=data.get("meta") or {},
+                    meta=meta,
                     order=order,
                 )
                 self.db.add(block)

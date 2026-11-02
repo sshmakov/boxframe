@@ -306,6 +306,29 @@ x=25) 0064 гасил бы ещё и горизонтальную y=5 на вс�
   span с flush-границами + 2 flush-кейса; e2e — span-тест: junction
   ─ → ┬, partition в нижнем ряду │ вместо пробела).
 
+### Follow-up: обратная совместимость legacy grid (0069, реализовано 2026-11-02)
+
+Grid-перегородки (0061–0068) существуют только в `feature/variants`; в
+`develop` (v0.11.0) grid — plain box (рамка + hint `[grid]` + дети).
+`grid` есть в `BLOCK_TYPES` с первого коммита, поэтому старые макеты
+содержат grid-блоки без `meta.cols`/`meta.rows`. Правило обратной
+совместимости: макеты предыдущих версий отображаются так же, как раньше.
+
+Решение (2026-11-02, «вариант 2, защити старые макеты»):
+- перегородки рисуются только у grid **с структурой** — валидный
+  `meta.cols` **или** `meta.rows` (positive int;
+  `grid_has_structure()`/`gridHasStructure()`);
+- grid без структуры рендерится как plain box (рамка + hint `[grid]` +
+  дети), без перегородок и ручек (`gridHandles` → null);
+- структура инжектится при **создании**
+  (`grid_create_meta()`/`gridCreateMeta()`, дефолт 3/2): API create,
+  API batch create, static store `createBlock`/`batchBlocks`; в
+  update/`replaceState` **не** инжектится — legacy grid остаётся
+  legacy, undo/redo восстанавливает meta как есть.
+- Оба рендерера (parity побайтово) + тесты (renderer py/js: 9 кейсов;
+  parity — legacy-кейсы; API — инжект при create, legacy при update;
+  store js — 4 кейса; e2e — legacy grid → plain box).
+
 ## Вариант 2 — snap к ячейке (+ span) (follow-up)
 
 Развитие варианта 1: grid — «магнит» для детей: при drag ребёнок

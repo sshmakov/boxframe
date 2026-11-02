@@ -681,3 +681,68 @@ test("local store: batchBlocks persists in one save", async () => {
     assert.equal(saved.blocks.length, 2);
     assert.equal(saved.blocks.find((b) => b.id === a.id).x, 4);
 });
+
+// ── Grid structure injection (task 0069) ─────────────────
+
+test("memory store: grid create injects cols/rows defaults", async () => {
+    const store = createMemoryStore();
+
+    // No meta → the default 3×2 structure is injected
+    const grid = await store.createBlock({
+        block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+    });
+    assert.equal(grid.meta.cols, 3);
+    assert.equal(grid.meta.rows, 2);
+
+    // Existing meta is kept as-is
+    const custom = await store.createBlock({
+        block_type: "grid", x: 0, y: 5, width: 24, height: 8,
+        meta: { cols: 4, rows: 1 },
+    });
+    assert.deepEqual(custom.meta, { cols: 4, rows: 1 });
+
+    // Invalid meta is repaired to the defaults
+    const invalid = await store.createBlock({
+        block_type: "grid", x: 0, y: 10, width: 24, height: 8,
+        meta: { cols: "x" },
+    });
+    assert.equal(invalid.meta.cols, 3);
+    assert.equal(invalid.meta.rows, 2);
+});
+
+test("memory store: grid update does not inject structure", async () => {
+    const store = createMemoryStore();
+    // A legacy grid (no meta) stays legacy on update
+    const grid = await store.createBlock({
+        block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+    });
+    const legacy = await store.updateBlock(grid.id, { meta: {} });
+    assert.deepEqual(legacy.meta, {});
+
+    // A size/content update of a legacy grid does not gain structure
+    const updated = await store.updateBlock(grid.id, { width: 30 });
+    assert.deepEqual(updated.meta, {});
+});
+
+test("memory store: batchBlocks create injects grid structure", async () => {
+    const store = createMemoryStore();
+    const result = await store.batchBlocks({
+        create: [{ block_type: "grid", x: 0, y: 0, width: 24, height: 8 }],
+    });
+    assert.equal(result.created[0].meta.cols, 3);
+    assert.equal(result.created[0].meta.rows, 2);
+});
+
+test("memory store: replaceState restores grid meta as-is", async () => {
+    // undo/redo: a legacy grid is restored exactly (no injection)
+    const store = createMemoryStore();
+    const grid = await store.createBlock({
+        block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+    });
+    await store.updateBlock(grid.id, { meta: {} });
+
+    const state = await store.load();
+    await store.replaceState(state);
+    const blocks = (await store.load()).blocks;
+    assert.deepEqual(blocks[0].meta, {});
+});

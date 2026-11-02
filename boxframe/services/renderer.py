@@ -310,6 +310,33 @@ def grid_meta_int(meta: dict | None, key: str, default: int) -> int:
     return v
 
 
+def grid_has_structure(meta: dict | None) -> bool:
+    """Whether a grid has explicit structure in its meta (0069, backward
+    compat): a valid cols or rows (a positive int). A grid without one
+    (created before partitions existed) renders as a plain box — border,
+    [grid] hint, children — exactly as before partitions were
+    introduced."""
+    for key in ("cols", "rows"):
+        v = (meta or {}).get(key)
+        if not isinstance(v, bool) and isinstance(v, int) and v >= 1:
+            return True
+    return False
+
+
+def grid_create_meta(meta: dict | None) -> dict:
+    """The meta of a NEW grid block (0069): the given meta with cols/rows
+    defaulted (3/2) when absent or invalid, so the block renders with
+    partitions. A grid without cols/rows in meta is a legacy block and
+    renders as a plain box — creation is the only place the defaults are
+    injected (updates and replace restore the stored meta as-is)."""
+    m = dict(meta or {})
+    for key, default in (("cols", 3), ("rows", 2)):
+        v = m.get(key)
+        if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+            m[key] = default
+    return m
+
+
 def grid_meta_widths(meta: dict | None, key: str) -> list[int] | None:
     """A grid's col_widths/row_heights from meta (0067): a non-empty list
     of ints >= 1 (cells), or None when absent/invalid — the caller falls
@@ -627,7 +654,11 @@ class PseudoGraphicRenderer:
             self._draw_divider(block, style_map)
             return
 
-        if block.block_type == "grid":
+        # A grid with explicit structure in meta (a valid cols or rows)
+        # renders the partitions; a legacy grid (no cols/rows — created
+        # before partitions existed) falls through to the plain box path
+        # (border + [grid] hint + children), as before (0069).
+        if block.block_type == "grid" and grid_has_structure(block.meta):
             self._draw_grid(block, style_map)
             if block.children:
                 self._render_children_in_container(block, style_map)
@@ -845,7 +876,9 @@ class PseudoGraphicRenderer:
     def _draw_grid(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw a grid (todo-0005): the outer border (per border_style)
         plus inner partitions — vertical (eff_cols − 1) and horizontal
-        (eff_rows − 1) — with junction nodes from the style map.
+        (eff_rows − 1) — with junction nodes from the style map. Only
+        called for grids with explicit structure in meta (a valid cols or
+        rows, 0069) — a legacy grid renders as a plain box instead.
 
         meta.cols / meta.rows (defaults 3/2, invalid → default) give the
         requested number of columns/rows; the effective count is clamped
