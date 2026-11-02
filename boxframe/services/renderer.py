@@ -265,6 +265,26 @@ def text_block_size(content: str, border_style: str) -> tuple[int, int]:
     return max(1, text_w), text_h
 
 
+def button_block_size(content: str, border_style: str) -> tuple[int, int]:
+    """Fit size of a button (task 0060): the content's extent plus the
+    button's border, which depends on the height.
+
+    One line (including empty) fits the canonical h=1 form — ``[label]``
+    (an empty label keeps one inner cell: ``[ ]``); N>=2 lines fit a full
+    box, the label flush with the border (like text). A border (any style
+    except "none") adds the frame cells; "none" is the text's extent
+    (min 1x1).
+    """
+    lines = (content or "").split("\n")
+    text_w = max((len(line) for line in lines), default=0)
+    n_lines = max(1, len(lines))
+    if border_style == "none":
+        return max(1, text_w), n_lines
+    if n_lines == 1:
+        return max(3, text_w + 2), 1
+    return text_w + 2, n_lines + 2
+
+
 def divider_fit_size(content: str, width: int, height: int) -> tuple[int, int]:
     """Grow-only fit size of a divider (variant E, tasks/0003).
 
@@ -278,6 +298,130 @@ def divider_fit_size(content: str, width: int, height: int) -> tuple[int, int]:
     longest = max((len(line) for line in lines), default=0)
     n_lines = max(1, len(lines))
     return max(width, longest), max(height, n_lines)
+
+
+def grid_meta_int(meta: dict | None, key: str, default: int) -> int:
+    """A grid's cols/rows from meta (todo-0005): a positive int, or the
+    default. An absent or invalid value (not an int, < 1) falls back —
+    the renderer is tolerant, like fill_char."""
+    v = (meta or {}).get(key)
+    if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+        return default
+    return v
+
+
+def grid_has_structure(meta: dict | None) -> bool:
+    """Whether a grid has explicit structure in its meta (0069, backward
+    compat): a valid cols or rows (a positive int). A grid without one
+    (created before partitions existed) renders as a plain box — border,
+    [grid] hint, children — exactly as before partitions were
+    introduced."""
+    for key in ("cols", "rows"):
+        v = (meta or {}).get(key)
+        if not isinstance(v, bool) and isinstance(v, int) and v >= 1:
+            return True
+    return False
+
+
+def grid_create_meta(meta: dict | None) -> dict:
+    """The meta of a NEW grid block (0069): the given meta with cols/rows
+    defaulted (3/2) when absent or invalid, so the block renders with
+    partitions. A grid without cols/rows in meta is a legacy block and
+    renders as a plain box — creation is the only place the defaults are
+    injected (updates and replace restore the stored meta as-is)."""
+    m = dict(meta or {})
+    for key, default in (("cols", 3), ("rows", 2)):
+        v = m.get(key)
+        if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+            m[key] = default
+    return m
+
+
+def grid_meta_widths(meta: dict | None, key: str) -> list[int] | None:
+    """A grid's col_widths/row_heights from meta (0067): a non-empty list
+    of ints >= 1 (cells), or None when absent/invalid — the caller falls
+    back to the even split."""
+    v = (meta or {}).get(key)
+    if not isinstance(v, list) or not v:
+        return None
+    if any(isinstance(w, bool) or not isinstance(w, int) or w < 1 for w in v):
+        return None
+    return v
+
+
+def _split_axis(widths: list[int] | None, n: int, total: int) -> list[int]:
+    """Boundary positions x[0..n] (x[0] = 0, x[n] = total) for n
+    columns/rows across `total` cells (0067).
+
+    Even split (integer division, the remainder goes to the last one)
+    when widths is absent or its length != n. Otherwise the prefix sums
+    of the widths, clamped so every column/row keeps at least 1 cell —
+    the last one absorbs the delta when the widths don't sum to total
+    (an outer resize of the grid block, or a stale array).
+    """
+    if widths is None or len(widths) != n:
+        return [(i * total) // n for i in range(n + 1)]
+    x = [0]
+    for i in range(1, n):
+        x.append(min(x[-1] + widths[i - 1], total - (n - i)))
+    x.append(total)
+    return x
+
+
+def grid_split(
+    meta: dict | None, inner_w: int, inner_h: int
+) -> tuple[int, int, list[int], list[int]]:
+    """A grid's effective structure (todo-0005 + 0067): the effective
+    column/row counts (clamped to the inner area, every column/row is at
+    least 1 cell) and the partition boundary positions col_x/row_y.
+
+    meta.cols / meta.rows (defaults 3/2, invalid → default) give the
+    requested counts; meta.col_widths / meta.row_heights (0067) give the
+    custom per-column/row widths in cells — absent/invalid → the even
+    split (backward compatible)."""
+    meta = meta or {}
+    eff_cols = min(grid_meta_int(meta, "cols", 3), inner_w)
+    eff_rows = min(grid_meta_int(meta, "rows", 2), inner_h)
+    col_x = _split_axis(grid_meta_widths(meta, "col_widths"), eff_cols, inner_w)
+    row_y = _split_axis(grid_meta_widths(meta, "row_heights"), eff_rows, inner_h)
+    return eff_cols, eff_rows, col_x, row_y
+
+
+def _grid_junction(
+    part: dict[str, str], up: bool, down: bool, left: bool, right: bool
+) -> str | None:
+    """The box-drawing character of a grid junction (an interior cross or
+    a frame node) from the four partition segments actually drawn around
+    it (0063). A suppressed segment (under a child's span, 0062) degrades
+    the node — ┼ → ├/┤/┬/┴/│/─ — so no line ends stick out of a spanned
+    cell. None — no segment is drawn, nothing to place."""
+    if up and down:
+        if left and right:
+            return part["b_b"]
+        if left:
+            return part["t_r"]
+        if right:
+            return part["t_l"]
+        return part["v"]
+    if left and right:
+        if up:
+            return part["b_l"]
+        if down:
+            return part["t_t"]
+        return part["h"]
+    if up and left:
+        return part["bl"]
+    if up and right:
+        return part["tr"]
+    if down and left:
+        return part["br"]
+    if down and right:
+        return part["tl"]
+    if up or down:
+        return part["v"]
+    if left or right:
+        return part["h"]
+    return None
 
 
 def _line_segment_html(
@@ -510,6 +654,16 @@ class PseudoGraphicRenderer:
             self._draw_divider(block, style_map)
             return
 
+        # A grid with explicit structure in meta (a valid cols or rows)
+        # renders the partitions; a legacy grid (no cols/rows — created
+        # before partitions existed) falls through to the plain box path
+        # (border + [grid] hint + children), as before (0069).
+        if block.block_type == "grid" and grid_has_structure(block.meta):
+            self._draw_grid(block, style_map)
+            if block.children:
+                self._render_children_in_container(block, style_map)
+            return
+
         has_border = block.border_style != "none" and block.width >= 2 and block.height >= 2
 
         if has_border:
@@ -592,10 +746,15 @@ class PseudoGraphicRenderer:
         h=1:  [label        ]
         h=2:  │label        │   (no top border)
               └──────────────┘
-        h>=3: full box, label on the middle row (upper middle for even h)
+        h>=3: full box
 
-        The label is a single line: newlines are ignored and the text is
-        truncated to the inner width.
+        The label is word-wrapped to the inner width (explicit newlines
+        are kept); the line block is vertically aligned
+        (meta.vertical_align, default middle — unlike box, whose default
+        is top) and each line is horizontally aligned
+        (meta.text_align, default center — unlike box, whose default is
+        left). Lines past the inner height are not drawn (the border is
+        drawn first and is not overwritten).
         """
         # Clamp to grid (same logic as _draw_border)
         x = max(0, min(block.x, self.grid_width - 2))
@@ -629,17 +788,39 @@ class PseudoGraphicRenderer:
                     for i in range(1, w - 1):
                         self._set(x + i, y, style["h"])
 
-        # Label — single line, vertically centered, truncated to fit,
-        # horizontally aligned (meta.text_align)
+        # Label — word-wrapped to the inner width, the line block
+        # vertically aligned (meta.vertical_align, default middle) and
+        # each line horizontally aligned (meta.text_align, default
+        # center). The inner area: h=1/h=2 — one row (row y), h>=3 —
+        # the rows between the borders, none — the whole block.
         if block.content:
-            row = y + (h - 1) // 2
-            inner_x = x + (1 if framed else 0)
-            inner_w = w - (2 if framed else 0)
-            if inner_w > 0 and row < self.grid_height:
-                label = block.content.split("\n")[0][:inner_w]
-                off = h_align_offset(len(label), inner_w, (block.meta or {}).get("text_align"))
-                for i, ch in enumerate(label):
-                    self._set(inner_x + off + i, row, ch)
+            if framed:
+                inner_x, inner_w = x + 1, w - 2
+                if h >= 3:
+                    inner_y, inner_h = y + 1, h - 2
+                else:
+                    inner_y, inner_h = y, 1
+            else:
+                inner_x, inner_y, inner_w, inner_h = x, y, w, h
+            if inner_w > 0 and inner_h > 0:
+                meta = block.meta or {}
+                align = meta.get("text_align")
+                if align not in ("left", "center", "right"):
+                    align = "center"
+                valign = meta.get("vertical_align")
+                if valign not in ("top", "middle", "bottom"):
+                    valign = "middle"
+                lines = self._wrap_text(block.content, inner_w)
+                v_off = v_align_offset(len(lines), inner_h, valign)
+                for line_idx, line in enumerate(lines):
+                    if line_idx + v_off >= inner_h:
+                        break
+                    row = inner_y + line_idx + v_off
+                    if row >= self.grid_height:
+                        break
+                    off = h_align_offset(len(line), inner_w, align)
+                    for col_idx, ch in enumerate(line):
+                        self._set(inner_x + off + col_idx, row, ch)
 
     def _draw_divider(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw a divider (variant E, tasks/0003): a line on every row of
@@ -691,6 +872,208 @@ class PseudoGraphicRenderer:
             off = h_align_offset(len(line), w, align)
             for col, ch in enumerate(line):
                 self._set(x + off + col, row, ch)
+
+    def _draw_grid(self, block: RenderBlock, style: dict[str, str]) -> None:
+        """Draw a grid (todo-0005): the outer border (per border_style)
+        plus inner partitions — vertical (eff_cols − 1) and horizontal
+        (eff_rows − 1) — with junction nodes from the style map. Only
+        called for grids with explicit structure in meta (a valid cols or
+        rows, 0069) — a legacy grid renders as a plain box instead.
+
+        meta.cols / meta.rows (defaults 3/2, invalid → default) give the
+        requested number of columns/rows; the effective count is clamped
+        to the inner area (every column/row is at least 1 cell). The
+        inner area is split evenly with integer division (the remainder
+        goes to the last column/row) unless meta.col_widths /
+        meta.row_heights (0067) give custom per-column/row widths in
+        cells — then the partitions sit at the prefix sums of the
+        widths, and the last column/row absorbs the delta when the
+        widths don't sum to the inner size (an outer resize). The
+        content is not rendered (a grid is a structural element, like a
+        line) and the [type] hint is suppressed; fill (meta.fill) is
+        painted under the partitions;
+        children are rendered over the partitions (by the caller).
+        border_style none — no outer border, solid partitions.
+
+        Partitions are not drawn inside the children's span regions
+        (0062, refined in 0064, re-refined in 0065, re-refined in 0066,
+        re-refined in 0068): a child's span region is the union of the
+        whole grid cells its half-open rectangle touches — a left/top
+        edge flush with a cell boundary spans the cell on the other side
+        of it (the child's border is drawn over the boundary, 0066), but
+        a right/bottom edge flush does not (the boundary stays drawn,
+        0068). A partition is suppressed only where the child actually
+        crosses it (0065): a vertical partition is removed across the
+        spanned rows only if the child straddles it, a horizontal one
+        across the spanned columns only if the child straddles it, and a
+        cell at their crossing only if the child straddles both — so a
+        spanned cell keeps the borders of the cells it does not cross. A
+        partition under the child's own left/top border counts as
+        crossed (0066) — the child's border is drawn over it. The skip is
+        applied at draw time (the fill/space under a skipped partition
+        cell is left untouched).
+        The frame nodes on the outer border and the interior junctions
+        reflect the segments actually drawn around them (0063): a
+        suppressed segment degrades the node (┬ → ─, ├ → │, ┼ → ├/┬/│/─),
+        so no line ends stick out of a spanned cell.
+        """
+        x = max(0, min(block.x, self.grid_width - 2))
+        y = max(0, min(block.y, self.grid_height - 2))
+        w = min(block.width, self.grid_width - x)
+        h = min(block.height, self.grid_height - y)
+
+        if w < 1 or h < 1:
+            return
+
+        framed = block.border_style != "none" and w >= 2 and h >= 2
+        if framed:
+            self._draw_border(block, style)
+            inner_x, inner_y = x + 1, y + 1
+            inner_w, inner_h = w - 2, h - 2
+        else:
+            inner_x, inner_y = x, y
+            inner_w, inner_h = w, h
+
+        if inner_w <= 0 or inner_h <= 0:
+            return
+
+        # Fill under the partitions (meta.fill)
+        fill = fill_char(block.block_type, block.meta)
+        if fill:
+            for j in range(inner_h):
+                row = inner_y + j
+                if row >= self.grid_height:
+                    break
+                for i in range(inner_w):
+                    self._set(inner_x + i, row, fill)
+
+        # Partitions: the frame's style (none → solid)
+        part = style if framed else BORDERS["solid"]
+
+        eff_cols, eff_rows, col_x, row_y = grid_split(block.meta, inner_w, inner_h)
+
+        # Span regions (absolute, half-open): the union of the whole grid
+        # cells each child's rectangle touches (0062, refined in 0064,
+        # re-refined in 0065, re-refined in 0066, re-refined in 0068) —
+        # the child's half-open rect intersects the cell's closed range:
+        # a left/top edge flush with a cell boundary spans the cell on
+        # the other side of it (the child's border is drawn over the
+        # boundary, 0066), but a right/bottom edge flush does not (the
+        # child's border sits one cell short of the boundary, which stays
+        # drawn, 0068). A partition is suppressed only where the child
+        # actually crosses it (0065): a vertical partition is removed
+        # across the spanned rows only if the child straddles it, a
+        # horizontal one across the spanned columns only if the child
+        # straddles it; at a crossing of the two the cell is removed only
+        # if the child straddles both — so a spanned cell keeps the
+        # borders of the cells it does not cross. A partition under the
+        # child's own left/top border counts as crossed (0066): the
+        # child's border is drawn over it, so it is hidden. Same origin
+        # as _render_children_in_container (1-cell padding), clipped to
+        # the inner area.
+        v_parts = {inner_x + col_x[i] for i in range(1, eff_cols)}
+        h_parts = {inner_y + row_y[j] for j in range(1, eff_rows)}
+        child_spans = []
+        for c in block.children:
+            if c.width < 1 or c.height < 1:
+                continue
+            rx0 = max(block.x + 1 + c.x, inner_x)
+            ry0 = max(block.y + 1 + c.y, inner_y)
+            rx1 = min(block.x + 1 + c.x + c.width, inner_x + inner_w)
+            ry1 = min(block.y + 1 + c.y + c.height, inner_y + inner_h)
+            if not (rx1 > rx0 and ry1 > ry0):
+                continue
+            ix0, iy0 = rx0 - inner_x, ry0 - inner_y
+            ix1, iy1 = rx1 - inner_x, ry1 - inner_y
+            # The child's half-open rect [ix0, ix1) intersects the cell's
+            # closed range [col_x[i], col_x[i+1]]: the left/top edge flush
+            # with a boundary counts (the child's border is drawn over it),
+            # the right/bottom edge flush does not (its border sits one
+            # cell short of the boundary, which stays drawn).
+            cols = [i for i in range(eff_cols)
+                    if col_x[i] < ix1 and col_x[i + 1] >= ix0]
+            rows = [j for j in range(eff_rows)
+                    if row_y[j] < iy1 and row_y[j + 1] >= iy0]
+            if not cols or not rows:
+                continue
+            crossed_v = {p for p in v_parts if rx0 <= p < rx1}
+            crossed_h = {q for q in h_parts if ry0 <= q < ry1}
+            child_spans.append((
+                inner_x + col_x[cols[0]],
+                inner_y + row_y[rows[0]],
+                inner_x + col_x[cols[-1] + 1],
+                inner_y + row_y[rows[-1] + 1],
+                crossed_v,
+                crossed_h,
+            ))
+
+        def covered(px: int, py: int) -> bool:
+            px_v = px in v_parts
+            py_h = py in h_parts
+            for sx0, sy0, sx1, sy1, cv, ch in child_spans:
+                if not (sx0 <= px < sx1 and sy0 <= py < sy1):
+                    continue
+                if px_v and px in cv and (not py_h or py in ch):
+                    return True
+                if py_h and py in ch and (not px_v or px in cv):
+                    return True
+            return False
+
+        # Vertical partitions
+        for i in range(1, eff_cols):
+            cx = inner_x + col_x[i]
+            for j in range(inner_h):
+                if covered(cx, inner_y + j):
+                    continue
+                self._set(cx, inner_y + j, part["v"])
+
+        # Horizontal partitions
+        for j in range(1, eff_rows):
+            ry = inner_y + row_y[j]
+            for i in range(inner_w):
+                if covered(inner_x + i, ry):
+                    continue
+                self._set(inner_x + i, ry, part["h"])
+
+        # Frame nodes and interior junctions reflect the partition
+        # segments actually drawn around them (0063): a segment
+        # suppressed by a child's span (0062/0064) degrades the node, so
+        # no line ends stick out of a spanned cell.
+        if framed:
+            for i in range(1, eff_cols):
+                cx = inner_x + col_x[i]
+                self._set(
+                    cx, y,
+                    part["t_t"] if not covered(cx, inner_y) else part["h"])
+                self._set(
+                    cx, y + h - 1,
+                    part["b_l"] if not covered(cx, inner_y + inner_h - 1)
+                    else part["h"])
+            for j in range(1, eff_rows):
+                ry = inner_y + row_y[j]
+                self._set(
+                    x, ry,
+                    part["t_l"] if not covered(inner_x, ry) else part["v"])
+                self._set(
+                    x + w - 1, ry,
+                    part["t_r"] if not covered(inner_x + inner_w - 1, ry)
+                    else part["v"])
+
+        for i in range(1, eff_cols):
+            for j in range(1, eff_rows):
+                px = inner_x + col_x[i]
+                py = inner_y + row_y[j]
+                if covered(px, py):
+                    continue
+                ch = _grid_junction(
+                    part,
+                    not covered(px, py - 1),
+                    not covered(px, py + 1),
+                    not covered(px - 1, py),
+                    not covered(px + 1, py),
+                )
+                if ch is not None:
+                    self._set(px, py, ch)
 
     def _draw_content(self, block: RenderBlock) -> None:
         """Place block content inside its border area."""

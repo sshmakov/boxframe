@@ -1021,6 +1021,205 @@ def test_update_block_type_to_divider_grows(client: TestClient):
     assert data["height"] == 3
 
 
+# ── Button autosize tests (task 0060) ──────────────────────
+
+
+def test_create_button_autosizes_to_content(client: TestClient):
+    """A new button is sized to fit its content; requested w/h are ignored.
+    One line → the canonical h=1 form [label]."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button",
+        "x": 0, "y": 0, "width": 50, "height": 5,
+        "content": "Button",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    # "Button" + [label] → 8×1
+    assert data["width"] == 8
+    assert data["height"] == 1
+
+
+def test_create_button_multiline_autosizes(client: TestClient):
+    """N>=2 lines → a full box, the label flush with the border (h=N+2)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "content": "hi\nthere",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 7
+    assert data["height"] == 4
+
+
+def test_create_button_empty_content(client: TestClient):
+    """Empty content: the canonical h=1 form with one inner cell [ ]."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button",
+        "x": 0, "y": 0,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 3
+    assert data["height"] == 1
+
+
+def test_create_button_none_border(client: TestClient):
+    """border_style none: the fit size is the text's extent."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "content": "hi",
+        "border_style": "none",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 2
+    assert data["height"] == 1
+
+
+def test_update_button_content_autosizes(client: TestClient):
+    """Editing the content re-fits the block (multi-line included)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "content": "hi",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "content": "hi\nthere",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 7
+    assert data["height"] == 4
+
+
+def test_update_button_border_autosizes(client: TestClient):
+    """Toggling the border re-fits the block (the border depends on the
+    height)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "content": "hi",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "border_style": "none",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 2
+    assert data["height"] == 1
+
+    # Back to solid — the frame cells are added
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "border_style": "solid",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 4
+    assert data["height"] == 1
+
+
+def test_update_button_manual_resize_kept(client: TestClient):
+    """A plain size update is a manual resize — it is kept until the next
+    content/border change re-fits the block."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "content": "Button",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "width": 20, "height": 5,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 20
+    assert data["height"] == 5
+
+    # Position-only updates do not re-fit either
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "x": 5,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["x"] == 5
+    assert data["width"] == 20
+    assert data["height"] == 5
+
+    # The next content change snaps back to the fit size
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "content": "Go",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["width"] == 4
+    assert data["height"] == 1
+
+
+def test_update_block_type_to_button_autosizes(client: TestClient):
+    """Changing a block's type to button re-fits it to its content."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box",
+        "x": 0, "y": 0, "width": 20, "height": 5,
+        "content": "hi",
+    })
+    block_id = r.json()["id"]
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "block_type": "button",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    # "hi" + [label] → 4×1
+    assert data["width"] == 4
+    assert data["height"] == 1
+
+
+def test_replace_layout_blocks_button_no_recalc(client: TestClient):
+    """Button sizes in a replace payload are restored as-is (no recalc):
+    undo/redo must restore a manually resized block exactly."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.put(f"/api/layouts/{layout_id}/blocks", json={
+        "blocks": [
+            # Manually resized above the fit — kept as-is
+            {"block_type": "button", "x": 0, "y": 0, "width": 20, "height": 5,
+             "content": "Go"},
+            # The manual h=2 form (no top border) — kept as-is
+            {"block_type": "button", "x": 0, "y": 6, "width": 16, "height": 2,
+             "content": "Button"},
+        ],
+    })
+    assert r.status_code == 200
+    blocks = r.json()["blocks"]
+    assert blocks[0]["width"] == 20
+    assert blocks[0]["height"] == 5
+    assert blocks[1]["width"] == 16
+    assert blocks[1]["height"] == 2
+
+
 # ── Batch replace tests (undo/redo support) ─────────────────
 
 
@@ -1408,6 +1607,46 @@ def test_batch_blocks_normalizes_divider(client: TestClient):
     assert updated["height"] == 1
 
 
+def test_batch_blocks_normalizes_button(client: TestClient):
+    """Button blocks autosize in batch create; a content update re-fits,
+    a plain size update is kept (manual resize)."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button", "x": 0, "y": 0, "content": "Go",
+    })
+    button_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "create": [
+            {"block_type": "button", "x": 0, "y": 5, "width": 40, "height": 4,
+             "content": "hi\nthere"},
+        ],
+        "update": [
+            {"id": button_id, "content": "Go\nnow"},
+        ],
+    })
+    assert r.status_code == 200
+    created = r.json()["created"][0]
+    # "hi\nthere" + solid → 7×4 (the requested 40×4 is ignored)
+    assert created["width"] == 7
+    assert created["height"] == 4
+    # The content update re-fitted: "Go\nnow" → 5×4
+    updated = r.json()["updated"][0]
+    assert updated["width"] == 5
+    assert updated["height"] == 4
+
+    # A plain size update is a manual resize — kept
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [
+            {"id": button_id, "width": 12, "height": 2},
+        ],
+    })
+    assert r.status_code == 200
+    updated = r.json()["updated"][0]
+    assert updated["width"] == 12
+    assert updated["height"] == 2
+
+
 def test_batch_blocks_ignores_unknown_ids(client: TestClient):
     """Unknown ids in update/delete are skipped, not an error."""
     _, layout_id = _create_project_with_layout(client)
@@ -1636,3 +1875,153 @@ def test_create_block_missing_parent_rejected(client: TestClient):
         "parent_id": "00000000-0000-0000-0000-000000000000",
     })
     assert r.status_code == 400
+
+
+# ── Grid tests (variant 1 — partitions, todo-0005) ─────────
+
+def test_create_grid_keeps_size_and_meta(client: TestClient):
+    """A grid is not autosized: the given size is kept and meta.cols/rows
+    pass through create/update/batch and the JSON export (metadata)."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create with meta.cols/rows — the size is kept as given (no autosize)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "meta": {"cols": 4, "rows": 3},
+    })
+    assert r.status_code == 200
+    block_id = r.json()["id"]
+    assert r.json()["width"] == 24
+    assert r.json()["height"] == 8
+    assert r.json()["meta"] == {"cols": 4, "rows": 3}
+
+    # Update: the meta object is replaced (the client sends the merged meta)
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "meta": {"cols": 2, "rows": 2},
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {"cols": 2, "rows": 2}
+
+    # Manual resize is kept (no autosize), the meta is untouched
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "width": 30, "height": 10,
+    })
+    assert r.status_code == 200
+    assert r.json()["width"] == 30
+    assert r.json()["height"] == 10
+    assert r.json()["meta"] == {"cols": 2, "rows": 2}
+
+    # Batch update: meta passes through
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [{"id": block_id, "meta": {"cols": 5, "rows": 4}}],
+    })
+    assert r.status_code == 200
+    assert r.json()["updated"][0]["meta"] == {"cols": 5, "rows": 4}
+
+    # Export JSON: metadata carries cols/rows
+    r = client.get(f"/api/layouts/{layout_id}/export")
+    assert r.status_code == 200
+    exported = r.json()["layout_json"]["blocks"][0]
+    assert exported["metadata"] == {"cols": 5, "rows": 4}
+
+
+def test_create_grid_injects_structure_meta(client: TestClient):
+    """A new grid gets explicit structure in meta (cols/rows defaulted
+    3/2) so it renders with partitions (0069): absent meta, partial
+    meta, and invalid values are all completed; batch create too."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # No meta → the defaults are injected
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {"cols": 3, "rows": 2}
+
+    # Partial meta → the missing key is completed
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "meta": {"cols": 4},
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {"cols": 4, "rows": 2}
+
+    # Invalid values → the defaults
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "meta": {"cols": 0, "fill": "░"},
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {"cols": 3, "rows": 2, "fill": "░"}
+
+    # Batch create → the same injection
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "create": [{"block_type": "grid", "x": 0, "y": 0,
+                    "width": 24, "height": 8}],
+    })
+    assert r.status_code == 200
+    assert r.json()["created"][0]["meta"] == {"cols": 3, "rows": 2}
+
+    # The injected structure renders the partitions
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert r.status_code == 200
+    assert "┬" in r.json()["ascii"]
+
+
+def test_legacy_grid_renders_as_box(client: TestClient):
+    """A grid without cols/rows in meta (legacy) renders as a plain box
+    — no partitions, the [grid] hint (0069). Updates do not inject the
+    structure: a meta reset keeps the grid legacy."""
+    _, layout_id = _create_project_with_layout(client)
+
+    # Create (the structure is injected), then reset the meta to {}
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+    })
+    assert r.status_code == 200
+    block_id = r.json()["id"]
+    r = client.put(f"/api/layouts/{layout_id}/blocks/{block_id}", json={
+        "meta": {},
+    })
+    assert r.status_code == 200
+    assert r.json()["meta"] == {}
+
+    # The render is the plain box: no partitions, the [grid] hint
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert r.status_code == 200
+    ascii_art = r.json()["ascii"]
+    assert "┬" not in ascii_art and "┼" not in ascii_art
+    assert "[grid]" in ascii_art
+
+    # A batch update resetting the meta keeps the grid legacy too
+    r = client.post(f"/api/layouts/{layout_id}/blocks/batch", json={
+        "update": [{"id": block_id, "meta": {}}],
+    })
+    assert r.status_code == 200
+    r = client.get(f"/api/layouts/{layout_id}/render")
+    assert "┬" not in r.json()["ascii"]
+    assert "[grid]" in r.json()["ascii"]
+
+
+def test_grid_is_a_container(client: TestClient):
+    """A grid accepts children (parent_id) like a box."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+    })
+    assert r.status_code == 200
+    grid_id = r.json()["id"]
+
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 1, "y": 1, "width": 8, "height": 3,
+        "parent_id": grid_id,
+    })
+    assert r.status_code == 200
+    child_id = r.json()["id"]
+    assert r.json()["parent_id"] == grid_id
+
+    # Deleting the grid cascades to its children
+    r = client.delete(f"/api/layouts/{layout_id}/blocks/{grid_id}")
+    assert r.status_code == 200
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert r.json()["blocks"] == []

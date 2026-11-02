@@ -7,6 +7,7 @@ Run with: pytest tests/e2e/ -v --asyncio-mode=auto
 
 import json
 import re
+import time
 
 import requests
 from playwright.sync_api import Page, expect
@@ -2303,16 +2304,17 @@ def test_drag_block_into_box_reparents(page: Page):
     block becomes the box's child with coordinates relative to the box."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
-        {"block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 40, "y": 20, "width": 4, "height": 1,
          "content": "Go"},  # free block, outside the container
     ]
     layout_id, (box_id, free_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
-    # Grab the free block at its center (40,20) 10×2 → (45, 21) and drop it
-    # so its top-left lands at grid (5, 3): center (10, 4) is inside the box.
-    start = _grid_point(metrics, 45, 21)
-    end = _grid_point(metrics, 10, 4)
+    # Grab the free block at its center (40,20) 4×1 → (42, 20.5) and drop it
+    # so its top-left lands at grid (8, 4): center (10, 4.5) is inside the box.
+    start = _grid_point(metrics, 42, 20.5)
+    end = _grid_point(metrics, 10, 4.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2323,8 +2325,8 @@ def test_drag_block_into_box_reparents(page: Page):
         lambda b: b["parent_id"] == box_id,
     )
     assert block["parent_id"] == box_id
-    # Relative to the box at (0,0): abs (5, 3) → rel (5 - 1, 3 - 1)
-    assert (block["x"], block["y"]) == (4, 2)
+    # Relative to the box at (0,0): abs (8, 4) → rel (8 - 1, 4 - 1)
+    assert (block["x"], block["y"]) == (7, 3)
 
 
 def test_drag_child_out_of_box_unparents(page: Page):
@@ -2332,17 +2334,18 @@ def test_drag_child_out_of_box_unparents(page: Page):
     block returns to the root with absolute coordinates."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
-        {"block_type": "button", "x": 2, "y": 2, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 2, "y": 2, "width": 4, "height": 1,
          "content": "Go", "parent_index": 0},  # child inside the box
     ]
     layout_id, (box_id, child_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
-    # The child is at relative (2, 2) → absolute (3, 3), 10×2 → center (8, 4).
-    # Drag it so its top-left lands at grid (40, 20): center (45, 21) is
+    # The child is at relative (2, 2) → absolute (3, 3), 4×1 → center (5, 3.5).
+    # Drag it so its top-left lands at grid (43, 20): center (45, 20.5) is
     # outside the box → un-parent.
-    start = _grid_point(metrics, 8, 4)
-    end = _grid_point(metrics, 45, 21)
+    start = _grid_point(metrics, 5, 3.5)
+    end = _grid_point(metrics, 45, 20.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2353,7 +2356,7 @@ def test_drag_child_out_of_box_unparents(page: Page):
         lambda b: b["parent_id"] is None and b["x"] > 30,
     )
     assert block["parent_id"] is None
-    assert (block["x"], block["y"]) == (40, 20)
+    assert (block["x"], block["y"]) == (43, 20)
 
 
 def test_drag_preselected_child_out_of_box_stays_visible(page: Page):
@@ -2364,19 +2367,20 @@ def test_drag_preselected_child_out_of_box_stays_visible(page: Page):
     frame follows the block. The re-parenting still happens on commit."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
-        {"block_type": "button", "x": 2, "y": 2, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 2, "y": 2, "width": 4, "height": 1,
          "content": "Go", "parent_index": 0},  # child inside the box
     ]
     layout_id, (box_id, child_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
-    # The child is at relative (2, 2) → absolute (3, 3), 10×2 → center (8, 4).
+    # The child is at relative (2, 2) → absolute (3, 3), 4×1 → center (5, 3.5).
     # Pre-select it with a click, then drag it outside the box.
-    start = _grid_point(metrics, 8, 4)
+    start = _grid_point(metrics, 5, 3.5)
     page.mouse.click(*start)
     expect(page.locator(".block-selection")).to_be_visible()
 
-    end = _grid_point(metrics, 45, 20)
+    end = _grid_point(metrics, 45, 20.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2410,7 +2414,7 @@ def test_drag_preselected_child_out_of_box_stays_visible(page: Page):
         lambda b: b["parent_id"] is None and b["x"] > 30,
     )
     assert block["parent_id"] is None
-    assert (block["x"], block["y"]) == (40, 19)
+    assert (block["x"], block["y"]) == (43, 20)
 
 
 # ── Drop-target highlight (the box that will become the parent) ──
@@ -2421,16 +2425,17 @@ def test_drag_block_highlights_drop_target(page: Page):
     box is highlighted; the highlight is removed on mouseup."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
-        {"block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 40, "y": 20, "width": 4, "height": 1,
          "content": "Go"},
     ]
     layout_id, (box_id, free_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
-    # Grab the free block at its center (45, 21) and drag it so its top-left
-    # lands at grid (5, 3): center (10, 4) is inside the box.
-    start = _grid_point(metrics, 45, 21)
-    end = _grid_point(metrics, 10, 4)
+    # Grab the free block at its center (42, 20.5) and drag it so its
+    # top-left lands at grid (8, 4): center (10, 4.5) is inside the box.
+    start = _grid_point(metrics, 42, 20.5)
+    end = _grid_point(metrics, 10, 4.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2457,15 +2462,16 @@ def test_drag_block_no_highlight_outside_box(page: Page):
     shows no drop-target highlight."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},
-        {"block_type": "button", "x": 40, "y": 20, "width": 10, "height": 2,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 40, "y": 20, "width": 4, "height": 1,
          "content": "Go"},
     ]
     layout_id, (box_id, free_id) = _create_project_with_blocks(page, specs)
     metrics = _canvas_metrics(page, box_id, 30, 10)
 
     # Drag the free block further away from the box
-    start = _grid_point(metrics, 45, 21)
-    end = _grid_point(metrics, 55, 21)
+    start = _grid_point(metrics, 42, 20.5)
+    end = _grid_point(metrics, 55, 20.5)
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=12)
@@ -2578,7 +2584,8 @@ def test_panel_copy_selection_to_clipboard(page: Page):
     specs = [
         {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 4,
          "content": "Old"},
-        {"block_type": "button", "x": 2, "y": 1, "width": 10, "height": 1,
+        # The API autosizes the button (task 0060): "Go" → 4×1
+        {"block_type": "button", "x": 2, "y": 1, "width": 4, "height": 1,
          "content": "Go", "border_style": "dashed", "parent_index": 0},
     ]
     layout_id, (box_id, child_id) = _create_project_with_blocks(page, specs)
@@ -2586,7 +2593,7 @@ def test_panel_copy_selection_to_clipboard(page: Page):
     page.context.grant_permissions(["clipboard-read", "clipboard-write"])
 
     # Select the box: click its top border row (grid (3, 2.5)) — inside the
-    # box but outside the child button (absolute (5, 4)), so the hit-test
+    # box but outside the child button (absolute (4, 3)), so the hit-test
     # picks the box, not the child.
     metrics = _canvas_metrics(page, box_id, 20, 4)
     x, y = _grid_point(metrics, 3, 2.5)
@@ -2606,6 +2613,460 @@ def test_panel_copy_selection_to_clipboard(page: Page):
     assert text == (
         "┌──────────────────┐\n"
         "│Old               │\n"
-        "│  [Go      ]      │\n"
+        "│  [Go]            │\n"
         "└──────────────────┘"
     )
+
+
+# ── Grid (variant 1 — partitions, todo-0005) ───────────────
+
+
+def _top_row_junctions(page: Page) -> int:
+    """The number of ┬ (top frame nodes) on the first non-empty canvas row
+    — for a lone grid that is the number of vertical partitions (cols − 1)."""
+    return page.evaluate(
+        """() => {
+            const t = document.querySelector('.canvas-container .ascii-art').textContent;
+            for (const r of t.split('\\n')) {
+                if (r.trim() === '') continue;
+                return (r.match(/┬/g) || []).length;
+            }
+            return -1;
+        }"""
+    )
+
+
+def _poll_until(predicate, page: Page, timeout: float = 5.0) -> None:
+    """Poll ``predicate(page)`` until truthy (this Playwright has no expect.poll)."""
+    deadline = time.monotonic() + timeout
+    while not predicate(page):
+        if time.monotonic() >= deadline:
+            raise AssertionError("polling timed out")
+        page.wait_for_timeout(100)
+
+
+def test_static_editor_grid_renders_partitions(page: Page):
+    """Clicking the grid palette button adds a grid whose ASCII art shows
+    the outer frame and the inner partitions (variant 1, todo-0005)."""
+    page.goto(f"{BASE_URL}/static/editor/index.html")
+    page.locator(".palette-btn", has_text="grid").click()
+    expect(page.locator(".block-preview")).to_have_count(1)
+    expect(page.locator(".block-item__info strong")).to_have_text("grid")
+
+    # The default grid (24×8, 3 cols × 2 rows) renders the frame and the
+    # inner partitions — the junction nodes appear in the ASCII art
+    art = page.locator(".canvas-container .ascii-art")
+    for ch in ["┌", "┬", "├", "┼", "┴", "┘"]:
+        expect(art).to_contain_text(ch)
+    # No [grid] hint and no content (a structural element)
+    expect(art).not_to_contain_text("[grid]")
+
+
+def test_web_editor_grid_cols_live_rerender(page: Page):
+    """Changing the grid's cols in the properties panel re-renders the
+    ASCII art with the new number of columns (live, todo-0005)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+
+    # Select the grid (click its center — it has no children)
+    metrics = _canvas_metrics(page, grid_id, 24, 8)
+    x, y = _grid_point(metrics, 2 + 12, 2 + 4)
+    page.mouse.click(x, y)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    # Default 3 cols → 2 vertical partitions → 2 ┬ on the top border
+    _poll_until(lambda p: _top_row_junctions(p) == 2, page)
+
+    # Change cols to 5 in the Grid section of the panel
+    cols_input = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]').first
+    cols_input.fill("5")
+    cols_input.dispatch_event("change")
+
+    # 5 cols → 4 vertical partitions → 4 ┬ on the top border
+    _poll_until(lambda p: _top_row_junctions(p) == 4, page)
+
+
+def test_web_editor_grid_is_a_container(page: Page):
+    """Dropping a palette block onto a grid makes it the grid's child —
+    the grid is a container like a box (todo-0005)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+
+    metrics = _canvas_metrics(page, grid_id, 24, 8)
+    # Drop a button (8×1) at grid (5, 4) — its center (9, 4.5) is inside
+    # the grid (2..26 × 2..10)
+    x, y = _grid_point(metrics, 5.5, 4.5)
+
+    page.evaluate(
+        """(args) => {
+            const [x, y] = args;
+            const dt = new DataTransfer();
+            const btn = document.querySelector('.palette-btn[data-block-type="button"]');
+            btn.dispatchEvent(new DragEvent('dragstart', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+            }));
+            const canvas = document.querySelector('.canvas-container');
+            canvas.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: x, clientY: y,
+            }));
+            canvas.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: x, clientY: y,
+            }));
+            btn.dispatchEvent(new DragEvent('dragend', {bubbles: true}));
+        }""",
+        [x, y],
+    )
+    page.wait_for_timeout(400)
+
+    # The new button is a child of the grid
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    children = [b for b in blocks.values() if b["parent_id"] == grid_id]
+    assert len(children) == 1
+    assert children[0]["block_type"] == "button"
+
+
+def test_web_editor_grid_span_suppresses_partitions(page: Page):
+    """A child spanning two cells — the partition between them is not
+    drawn in the ASCII art, the span looks like one intact cell (0062);
+    the frame node over the spanned partition degrades to a plain line
+    (0063). Under 0068 the child's bottom edge sits on the row boundary,
+    which does not extend the span — the crossed partition is suppressed
+    only across the top row, the junction keeps the drawn arms (┬), and
+    the partition is drawn again in the bottom row."""
+    layout_id, (grid_id, child_id) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+        # box (no autosize, unlike text) spanning cells 1–2: abs (3,3)
+        # 13×3 covers the vertical partition at abs col 10; its bottom
+        # edge (abs y=6) sits on the row boundary, which does not extend
+        # the span (0068)
+        {"block_type": "box", "x": 0, "y": 0, "width": 13, "height": 3,
+         "content": "", "border_style": "solid", "parent_index": 0},
+    ])
+
+    def span_state(p):
+        t = p.evaluate(
+            "() => document.querySelector('.canvas-container .ascii-art')"
+            ".textContent"
+        )
+        lines = t.split("\n")
+        # grid at (2,2) 24×8: vertical partitions at abs cols 10, 17; the
+        # box child (abs (3,3) 13×3) covers col 10; under 0068 the span
+        # is the top row only, so the crossed partition x=10 is
+        # suppressed there and drawn again in the bottom row
+        return (
+            lines[2][10] == "─"  # top frame node degraded (0063)
+            and lines[3][10] == "─"  # box top border, partition suppressed
+            and lines[4][10] == " "  # box interior, partition suppressed
+            and lines[5][10] == "─"  # box bottom border, partition suppressed
+            and lines[6][10] == "┬"  # junction keeps the drawn arms (0063)
+            and lines[7][10] == "│"  # partition drawn again (0068)
+            and lines[3][17] == "│"  # the other partition is untouched
+        )
+
+    _poll_until(span_state, page)
+
+
+def test_web_editor_legacy_grid_renders_as_box(page: Page):
+    """A grid without cols/rows in meta (a legacy layout) renders as a
+    plain box — the border and the [grid] hint, no partitions (0069).
+
+    The API injects cols/rows on create, so the grid is made legacy by
+    clearing its meta (updates do not re-inject)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+
+    # Create injected the 3×2 structure — clear it to simulate a legacy
+    # layout (a grid saved before structure existed).
+    r = requests.put(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks/{grid_id}",
+        json={"meta": {}}, timeout=5,
+    )
+    assert r.status_code == 200
+    assert r.json()["meta"] == {}
+
+    page.reload()
+    _wait_editor_ready(page, 1)
+
+    lines = _ascii_lines(page)
+    # The plain-box rendering: the [grid] hint in the first inner row and
+    # no partition junctions anywhere.
+    assert any(l.lstrip("│ ").startswith("[grid]") for l in lines)
+    art = "\n".join(lines)
+    assert "┬" not in art and "┼" not in art and "┴" not in art
+
+
+def _make_grid_legacy(page: Page, layout_id: str, grid_id: str) -> None:
+    """Clear the grid's meta (create injected cols/rows; updates do not
+    re-inject) — simulates a legacy layout saved before structure
+    existed (0069)."""
+    r = requests.put(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks/{grid_id}",
+        json={"meta": {}}, timeout=5,
+    )
+    assert r.status_code == 200
+    assert r.json()["meta"] == {}
+    page.reload()
+    _wait_editor_ready(page, 1)
+
+
+def _select_grid_by_id(page: Page, grid_id: str, w: int = 24, h: int = 8) -> None:
+    """Select a grid at (2,2) by clicking its center."""
+    metrics = _canvas_metrics(page, grid_id, w, h)
+    x, y = _grid_point(metrics, 2 + w / 2, 2 + h / 2)
+    page.mouse.click(x, y)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+
+
+def test_web_editor_legacy_grid_panel_shows_1x1(page: Page):
+    """A legacy grid (no cols/rows in meta) shows 1/1 in the properties
+    panel — its effective structure (zero partitions), not the schema
+    defaults 3/2 (0069)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    _make_grid_legacy(page, layout_id, grid_id)
+
+    _select_grid_by_id(page, grid_id)
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    inputs = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]')
+    expect(inputs.nth(0)).to_have_value("1")
+    expect(inputs.nth(1)).to_have_value("1")
+
+
+def test_web_editor_legacy_grid_first_change_materializes_1x1(page: Page):
+    """The first cols/rows change of a legacy grid materializes the
+    structure with the untouched axis seeded to 1: Cols 1→3 renders 3×1
+    (2 vertical partitions, no horizontal one), the stored meta is
+    {cols: 3, rows: 1}, the panel shows 3/1 (0069)."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    _make_grid_legacy(page, layout_id, grid_id)
+
+    _select_grid_by_id(page, grid_id)
+    panel = page.locator(".block-props")
+    cols_input = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]').first
+    cols_input.fill("3")
+    cols_input.dispatch_event("change")
+
+    # 3 cols × 1 row: 2 vertical partitions, no horizontal one
+    _poll_until(lambda p: _top_row_junctions(p) == 2, page)
+
+    # The structure is stored with the seeded rows=1
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    assert blocks[grid_id]["meta"] == {"cols": 3, "rows": 1}
+
+    # The panel shows the stored values
+    inputs = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]')
+    expect(inputs.nth(0)).to_have_value("3")
+    expect(inputs.nth(1)).to_have_value("1")
+
+
+def test_web_editor_import_legacy_json_grid_panel_shows_1x1(page: Page):
+    """Importing a legacy layout JSON (a grid with metadata {}) through
+    the Import button keeps the grid legacy: the server stores meta {}
+    (no structure injection on the replace path) and, after a page
+    reload, the panel shows 1/1 — the effective structure, not the
+    schema defaults 3/2 (0069)."""
+    import os
+
+    layout_id, _ = _create_project_with_blocks(page, [])
+    _wait_editor_ready(page, 0)
+
+    # Import the legacy file through the hidden file input
+    file_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))),
+        "tasks", "0061-0070", "legacy.json")
+    page.set_input_files(".import-file-input", file_path)
+
+    # The import replaces the (empty) layout content — 8 blocks appear
+    _wait_editor_ready(page, 8)
+
+    # The server stored the grid's meta as-is (no injection on replace)
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    grids = [b for b in blocks.values() if b["block_type"] == "grid"]
+    assert len(grids) == 1
+    assert grids[0]["meta"] == {}
+
+    # Reload — the editor loads the layout fresh from the server
+    page.reload()
+    _wait_editor_ready(page, 8)
+
+    # Select the grid (1,10) 60×8. The center is covered by the
+    # textarea (24,11) 34×5, so click (5,17) — inside the grid, outside
+    # the textarea (the grid is topmost there, over the sidebar).
+    grid_id = grids[0]["id"]
+    metrics = _canvas_metrics(page, grid_id, 60, 8)
+    x, y = _grid_point(metrics, 5, 17)
+    page.mouse.click(x, y)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    inputs = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]')
+    expect(inputs.nth(0)).to_have_value("1")
+    expect(inputs.nth(1)).to_have_value("1")
+
+
+def _ascii_lines(page: Page) -> list[str]:
+    t = page.evaluate(
+        "() => document.querySelector('.canvas-container .ascii-art')"
+        ".textContent"
+    )
+    return t.split("\n")
+
+
+def _select_grid(page: Page, grid_id: str, w: int, h: int) -> dict:
+    """Select a grid by clicking its center; return the canvas metrics."""
+    metrics = _canvas_metrics(page, grid_id, w, h)
+    x, y = _grid_point(metrics, w / 2, h / 2)
+    page.mouse.click(x, y)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    return metrics
+
+
+def _drag_handle(page: Page, handle, dx_cells: float, dy_cells: float,
+                 metrics: dict, fx: float = 0.5, fy: float = 0.5) -> None:
+    """Drag a grid handle by (dx_cells, dy_cells) char cells.
+
+    The grab point is (fx, fy) across the handle's box (default: center).
+    fx/fy let the caller avoid the orthogonal handle that overlaps at a
+    partition crossing (the horizontal handles render after the vertical
+    ones, so they win the mousedown at an intersection).
+    """
+    box = handle.bounding_box()
+    sx = box["x"] + fx * box["width"]
+    sy = box["y"] + fy * box["height"]
+    tx = sx + dx_cells * metrics["cw"]
+    ty = sy + dy_cells * metrics["ch"]
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move(tx, ty, steps=12)
+    page.mouse.up()
+
+
+def test_web_editor_grid_handles_appear_on_selection(page: Page):
+    """Selecting a single grid shows handles on its inner partitions (0067):
+    cols-1 vertical + rows-1 horizontal; deselecting hides them."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+
+    # No selection → no handles
+    expect(page.locator(".grid-handle")).to_have_count(0)
+
+    _select_grid(page, grid_id, 24, 8)
+    # Default 3×2 grid → 2 vertical + 1 horizontal handles
+    expect(page.locator(".grid-handle--v")).to_have_count(2)
+    expect(page.locator(".grid-handle--h")).to_have_count(1)
+
+    # Deselect → the handles disappear
+    page.keyboard.press("Escape")
+    expect(page.locator(".grid-handle")).to_have_count(0)
+
+
+def test_web_editor_grid_drag_vertical_handle(page: Page):
+    """Dragging a vertical handle resizes the adjacent columns: the
+    partition slides and the ASCII re-renders on commit (0067); the new
+    col_widths are persisted to the block's meta."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    metrics = _select_grid(page, grid_id, 24, 8)
+
+    # Even 3-col split: partitions at abs x=10 and x=17 (top border row 2)
+    def even_state(p):
+        ls = _ascii_lines(p)
+        return ls[2][10] == "┬" and ls[2][17] == "┬"
+    _poll_until(even_state, page)
+
+    # Drag the first vertical handle 3 cells to the right: the first column
+    # grows 7 → 10, the second shrinks 7 → 4 (col_widths [10, 4, 8]).
+    # fy=0.25 grabs above the horizontal handle (which wins at the crossing).
+    _drag_handle(page, page.locator(".grid-handle--v").first, 3, 0, metrics, fy=0.25)
+
+    # The first partition moves to abs x=13; the second stays at x=17; the
+    # old position is a plain line
+    def moved_state(p):
+        ls = _ascii_lines(p)
+        return ls[2][13] == "┬" and ls[2][17] == "┬" and ls[2][10] == "─"
+    _poll_until(moved_state, page)
+
+    # The commit persisted col_widths on the block
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    assert blocks[grid_id]["meta"]["col_widths"] == [10, 4, 8]
+
+
+def test_web_editor_grid_drag_horizontal_handle(page: Page):
+    """Dragging a horizontal handle resizes the adjacent rows: the
+    partition slides and the ASCII re-renders on commit (0067); the new
+    row_heights are persisted to the block's meta."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    metrics = _select_grid(page, grid_id, 24, 8)
+
+    # Even 2-row split: the partition sits at abs y=6 (left border col 2)
+    def even_state(p):
+        ls = _ascii_lines(p)
+        return ls[6][2] == "├"
+    _poll_until(even_state, page)
+
+    # Drag the only horizontal handle 1 cell down: the first row grows
+    # 3 → 4, the second shrinks 3 → 2 (row_heights [4, 2])
+    _drag_handle(page, page.locator(".grid-handle--h").first, 0, 1, metrics)
+
+    # The partition moves to abs y=7; the old position is a plain border
+    def moved_state(p):
+        ls = _ascii_lines(p)
+        return ls[7][2] == "├" and ls[6][2] == "│"
+    _poll_until(moved_state, page)
+
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    assert blocks[grid_id]["meta"]["row_heights"] == [4, 2]
+
+
+def test_web_editor_grid_handle_clamps_to_one_cell(page: Page):
+    """A handle can't be dragged past the minimum: a column/row keeps at
+    least 1 cell (0067). Dragging the first vertical handle far left
+    clamps the first column to a single cell."""
+    layout_id, (grid_id,) = _create_project_with_blocks(page, [
+        {"block_type": "grid", "x": 2, "y": 2, "width": 24, "height": 8},
+    ])
+    metrics = _select_grid(page, grid_id, 24, 8)
+
+    # Drag the first vertical handle 10 cells left — far past the minimum
+    # (fy=0.25 grabs above the horizontal handle, which wins at the crossing)
+    _drag_handle(page, page.locator(".grid-handle--v").first, -10, 0, metrics, fy=0.25)
+
+    # The first column clamps to 1 cell: the partition sits at abs x=4
+    # (the grid's first inner column is x=3); it can't go further left
+    def clamped_state(p):
+        ls = _ascii_lines(p)
+        return ls[2][4] == "┬" and ls[2][3] == "─"
+    _poll_until(clamped_state, page)
+
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    assert blocks[grid_id]["meta"]["col_widths"][0] == 1

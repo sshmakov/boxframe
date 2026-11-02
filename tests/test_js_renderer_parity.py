@@ -73,6 +73,22 @@ def text_size_js(content: str, border_style: str) -> tuple[int, int]:
     return w, h
 
 
+def button_size_js(content: str, border_style: str) -> tuple[int, int]:
+    """Compute the button fit size with the JS renderer via a node one-liner."""
+    script = (
+        f"const PG = require({json.dumps(RENDERER_JS)});"
+        f"process.stdout.write(JSON.stringify(PG.buttonBlockSize("
+        f"{json.dumps(content)}, {json.dumps(border_style)})));")
+    result = subprocess.run(
+        [NODE, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    w, h = json.loads(result.stdout)
+    return w, h
+
+
 def divider_fit_size_js(content: str, width: int, height: int) -> tuple[int, int]:
     """Compute the divider grow-only fit size via a node one-liner."""
     script = (
@@ -259,7 +275,15 @@ def test_parity_alignment():
         ("header", {"text_align": "center"}, "Header", "double", 20, 4),
         ("button", {"text_align": "center"}, "Button", "solid", 14, 2),
         ("button", {"text_align": "right"}, "Button", "dashed", 14, 3),
-        ("button", {"vertical_align": "bottom"}, "Button", "solid", 14, 3),  # no-op for buttons
+        ("button", {"vertical_align": "bottom"}, "Button", "solid", 14, 3),  # no-op: one line, one inner row
+        ("button", {}, "hi\nthere", "solid", 7, 4),  # multiline, default center/middle
+        ("button", {"vertical_align": "top"}, "hi\nthere", "solid", 7, 6),
+        ("button", {"vertical_align": "bottom"}, "hi\nthere", "dashed", 7, 6),
+        ("button", {"text_align": "left"}, "hi\nthere", "solid", 7, 4),
+        ("button", {"text_align": "right", "vertical_align": "middle"}, "hi\nthere", "double", 7, 6),
+        ("button", {}, "A very long label", "solid", 10, 3),  # wrap + clip
+        ("button", {}, "a\nb", "solid", 12, 1),  # multiline clipped to h=1
+        ("button", {}, "hi\nthere", "none", 5, 2),  # no border, whole block inner
         ("hline", {"text_align": "center"}, "", "solid", 8, 1),  # lines ignore alignment
         ("vline", {"vertical_align": "bottom"}, "", "solid", 1, 8),
     ]
@@ -484,7 +508,8 @@ def test_parity_deep_nesting():
 
 
 def test_parity_button_heights():
-    """Buttons of all heights (h=1 [label], h=2 no top border, h>=3 full box)."""
+    """Buttons of all heights (h=1 [label], h=2 no top border, h>=3 full box),
+    multiline labels, and manual resizes smaller than the fit (task 0060)."""
     blocks = [
         {"id": "b1", "block_type": "button", "x": 0, "y": 0, "width": 16, "height": 1,
          "content": "Button", "border_style": "solid", "order": 0},
@@ -496,9 +521,38 @@ def test_parity_button_heights():
          "content": "Button", "border_style": "solid", "order": 3},
         {"id": "b5", "block_type": "button", "x": 20, "y": 0, "width": 10, "height": 4,
          "content": "A very long label", "border_style": "none", "order": 4},
+        {"id": "b6", "block_type": "button", "x": 20, "y": 5, "width": 7, "height": 4,
+         "content": "hi\nthere", "border_style": "solid", "order": 5},
+        {"id": "b7", "block_type": "button", "x": 20, "y": 10, "width": 7, "height": 6,
+         "content": "hi\nthere", "border_style": "solid",
+         "meta": {"vertical_align": "bottom"}, "order": 6},
+        {"id": "b8", "block_type": "button", "x": 30, "y": 5, "width": 10, "height": 3,
+         "content": "A very long label", "border_style": "solid", "order": 7},
+        {"id": "b9", "block_type": "button", "x": 30, "y": 9, "width": 3, "height": 1,
+         "content": "", "border_style": "solid", "order": 8},
     ]
     py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
     assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 14)
+
+
+def test_parity_button_block_size():
+    """The button fit size (autosize) must agree between the renderers."""
+    from boxframe.services.renderer import button_block_size
+    cases = [
+        ("", "none"),
+        ("", "solid"),
+        ("Button", "solid"),
+        ("a", "solid"),
+        ("a\nb", "solid"),
+        ("hi\nthere", "solid"),
+        ("hi\nthere", "dashed"),
+        ("a\n", "solid"),
+        ("  spaced  ", "solid"),
+        ("hi", "none"),
+        ("a\nbb", "none"),
+    ]
+    for content, style in cases:
+        assert button_block_size(content, style) == button_size_js(content, style), (content, style)
 
 
 def test_parity_grid_expansion():
@@ -511,6 +565,218 @@ def test_parity_grid_expansion():
     ]
     py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
     assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 14)
+
+
+def test_parity_grid_ascii():
+    """Grids (variant 1 — partitions, todo-0005) render identically in
+    both renderers — structured grids (meta cols/rows, 0069) and legacy
+    grids (no cols/rows — the plain box path)."""
+    cases = [
+        # (meta, border_style, width, height)
+        ({"cols": 3, "rows": 2}, "solid", 24, 8),            # new grid 3×2
+        ({"cols": 4, "rows": 2}, "solid", 21, 7),            # remainder split
+        ({"cols": 20, "rows": 2}, "solid", 10, 10),          # clamp cols
+        ({"cols": 2, "rows": 20}, "solid", 10, 10),          # clamp rows
+        ({"cols": 3, "rows": 2}, "none", 24, 8),             # no outer border
+        ({"cols": 2, "rows": 2, "fill": "░"}, "solid", 12, 6),  # fill under partitions
+        ({"cols": 1, "rows": 1}, "solid", 24, 8),            # no partitions
+        ({"cols": 3, "rows": 2}, "double", 24, 8),           # double style
+        ({"cols": 3, "rows": 2}, "dashed", 24, 8),           # dashed style
+        ({"cols": 3, "rows": 2}, "dotted", 24, 8),           # dotted style
+        ({"cols": 4}, "solid", 24, 8),                       # cols only (rows default)
+        ({"cols": 3, "rows": 2}, "solid", 6, 4),             # small: clamped hard
+        ({"cols": 3, "rows": 2}, "solid", 2, 2),             # degenerate: no inner
+        ({"cols": 3, "rows": 2}, "solid", 1, 1),             # degenerate 1×1
+        # Legacy grids (no cols/rows in meta — the plain box path, 0069)
+        (None, "solid", 24, 8),                              # border + [grid] hint
+        (None, "none", 24, 8),                               # borderless: empty
+        (None, "double", 24, 8),                             # double frame + hint
+        (None, "dashed", 24, 8),                             # dashed frame + hint
+        (None, "dotted", 24, 8),                             # dotted frame + hint
+        ({"fill": "░"}, "solid", 24, 8),                     # fill inset by border
+        ({"cols": 0, "rows": -1}, "solid", 24, 8),           # invalid meta → legacy
+        ({"cols": "3", "rows": 2.5}, "solid", 24, 8),        # invalid meta (non-int)
+        (None, "solid", 2, 2),                               # degenerate: no inner
+        (None, "solid", 1, 1),                               # degenerate 1×1
+    ]
+    for meta, base, w, h in cases:
+        block = {"id": "b1", "block_type": "grid", "x": 0, "y": 0,
+                 "width": w, "height": h, "content": "",
+                 "border_style": base, "order": 0}
+        if meta is not None:
+            block["meta"] = meta
+        py_blocks = [{k: v for k, v in block.items() if k != "id"}]
+        assert render_js([block], 40, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 40, 12), \
+            (meta, base, w, h)
+
+
+def test_parity_grid_content_and_hint():
+    """A structured grid's content is not rendered and the hint is
+    suppressed — identically in both renderers (0069)."""
+    block = {"id": "b1", "block_type": "grid", "x": 0, "y": 0,
+             "width": 24, "height": 8, "content": "hello world",
+             "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0}
+    py_blocks = [{k: v for k, v in block.items() if k != "id"}]
+    js = render_js([block], 40, 12)
+    py = PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
+    assert js == py
+    assert "hello" not in js
+    assert "[grid]" not in js
+
+
+def test_parity_grid_legacy_content_and_hint():
+    """A legacy grid (no cols/rows in meta) renders its content and the
+    [grid] hint like a plain box — identically in both renderers (0069)."""
+    block = {"id": "b1", "block_type": "grid", "x": 0, "y": 0,
+             "width": 24, "height": 8, "content": "hello world",
+             "border_style": "solid", "meta": {}, "order": 0}
+    py_blocks = [{k: v for k, v in block.items() if k != "id"}]
+    js = render_js([block], 40, 12)
+    py = PseudoGraphicRenderer.render_simple(py_blocks, 40, 12)
+    assert js == py
+    assert "hello" in js
+    assert "[grid]" not in js  # the content wins over the hint
+
+
+def test_parity_grid_children():
+    """Children inside a grid render over the partitions, identically in
+    both renderers (clipped to the grid's inner area)."""
+    js_blocks = [
+        {"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+         "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+        {"id": "c1", "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 3,
+         "content": "0123456789", "border_style": "solid", "parent_id": "g", "order": 0},
+        {"id": "c2", "block_type": "text", "x": 12, "y": 4, "width": 8, "height": 2,
+         "content": "cell", "border_style": "none", "parent_id": "g", "order": 1},
+        {"id": "c3", "block_type": "box", "x": 18, "y": 1, "width": 20, "height": 10,
+         "content": "big", "border_style": "dashed", "parent_id": "g", "order": 2},
+    ]
+    assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+        to_nested(js_blocks), 40, 12
+    )
+
+
+def test_parity_grid_span():
+    """Partitions under the children's rectangles are not drawn (0062) —
+    identically in both renderers: aligned spans, a 2×2 span, a
+    misaligned child, fill under the child, a child covering the whole
+    inner area, and a borderless grid."""
+    def grid_case(grid: dict, children: list[dict]) -> list[dict]:
+        blocks = [grid]
+        for i, c in enumerate(children):
+            blocks.append(dict(c, id=f"c{i}", parent_id=grid["id"]))
+        return blocks
+
+    cases = [
+        # aligned horizontal span (borderless child, 2 cells)
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 14, "height": 3,
+           "content": "SPAN", "border_style": "none", "order": 0}]),
+        # aligned vertical span
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 7, "height": 6,
+           "content": "", "border_style": "none", "order": 0}]),
+        # 2×2 span
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 14, "height": 6,
+           "content": "", "border_style": "none", "order": 0}]),
+        # misaligned child
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 2, "y": 2, "width": 10, "height": 3,
+           "content": "", "border_style": "none", "order": 0}]),
+        # fill under the child
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 12, "height": 6,
+          "content": "", "border_style": "solid",
+          "meta": {"cols": 2, "rows": 2, "fill": "░"}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 10, "height": 2,
+           "content": "", "border_style": "none", "order": 0}]),
+        # child covering the whole inner area
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 22, "height": 6,
+           "content": "", "border_style": "none", "order": 0}]),
+        # borderless grid + span
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "none", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 8, "height": 4,
+           "content": "", "border_style": "none", "order": 0}]),
+        # two children: one spanning, one in a single cell
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "text", "x": 0, "y": 0, "width": 14, "height": 3,
+           "content": "SPAN", "border_style": "none", "order": 0},
+          {"block_type": "box", "x": 16, "y": 4, "width": 6, "height": 2,
+           "content": "ok", "border_style": "solid", "order": 1}]),
+        # framed child spanning (its border over the suppressed partition)
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "box", "x": 0, "y": 0, "width": 14, "height": 3,
+           "content": "0123456789", "border_style": "solid", "order": 0}]),
+        # left edge flush with a partition (0066/0068: counts as touching)
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 38, "height": 11,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "box", "x": 12, "y": 0, "width": 14, "height": 3,
+           "content": "lorem ipsum", "border_style": "double", "order": 0}]),
+        # top edge flush with a partition (0066/0068: counts as touching)
+        ({"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 38, "height": 11,
+          "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+         [{"block_type": "box", "x": 12, "y": 4, "width": 14, "height": 3,
+           "content": "lorem ipsum", "border_style": "double", "order": 0}]),
+    ]
+    for grid, children in cases:
+        js_blocks = grid_case(grid, children)
+        assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+            to_nested(js_blocks), 40, 12
+        ), (grid.get("meta"), [c.get("width") for c in children])
+
+
+def test_parity_grid_custom_widths():
+    """Custom column/row widths (0067) render identically in both
+    renderers: uneven split, the last column absorbing a sum mismatch,
+    an overflow clamped to >= 1 cell, invalid widths falling back to the
+    even split, row heights, and span suppression on an uneven split."""
+    cases = [
+        # (meta, border_style, width, height, children)
+        ({"cols": 3, "col_widths": [4, 10, 8]}, "solid", 24, 8, []),   # exact sum
+        ({"cols": 3, "col_widths": [8, 8, 4]}, "solid", 24, 8, []),    # sum < inner
+        ({"cols": 3, "col_widths": [10, 10, 10]}, "solid", 24, 8, []), # sum > inner
+        ({"cols": 3, "col_widths": [1, 1, 20]}, "solid", 24, 8, []),   # clamp to >= 1
+        ({"cols": 3, "col_widths": [4, 10]}, "solid", 24, 8, []),      # wrong length
+        ({"cols": 3, "col_widths": [0, 10, 12]}, "solid", 24, 8, []),  # a zero
+        ({"cols": 3, "col_widths": "4,10,8"}, "solid", 24, 8, []),     # not a list
+        ({"rows": 2, "row_heights": [2, 4]}, "solid", 24, 8, []),      # row heights
+        ({"cols": 3, "rows": 3, "col_widths": [2, 9, 11],
+          "row_heights": [1, 2, 3]}, "dashed", 24, 8, []),             # both axes
+        ({"cols": 3, "col_widths": [4, 10, 8]}, "none", 24, 8, []),    # borderless
+        ({"cols": 3, "col_widths": [4, 10, 8], "fill": "░"}, "solid", 24, 8, []),
+        # span suppression on an uneven split
+        ({"cols": 3, "col_widths": [4, 10, 8], "rows": 2}, "solid", 24, 8,
+         [{"block_type": "box", "x": 0, "y": 0, "width": 13, "height": 3,
+           "content": "", "border_style": "solid", "order": 0}]),
+        ({"cols": 3, "col_widths": [4, 10, 8], "rows": 2}, "solid", 24, 8,
+         [{"block_type": "text", "x": 0, "y": 0, "width": 14, "height": 6,
+           "content": "", "border_style": "none", "order": 0}]),
+        # span with right/bottom edges flush with partitions (0068: a
+        # right/bottom flush edge does not extend the span)
+        ({"cols": 4, "rows": 4, "col_widths": [7, 13, 11, 5],
+          "row_heights": [1, 3, 3, 2]}, "double", 38, 11,
+         [{"block_type": "content", "x": 8, "y": 2, "width": 23, "height": 5,
+           "content": "", "border_style": "solid", "order": 0}]),
+    ]
+    for meta, base, w, h, children in cases:
+        block = {"id": "g", "block_type": "grid", "x": 0, "y": 0,
+                 "width": w, "height": h, "content": "",
+                 "border_style": base, "meta": meta, "order": 0}
+        js_blocks = [block]
+        for i, c in enumerate(children):
+            js_blocks.append(dict(c, id=f"c{i}", parent_id="g"))
+        assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+            to_nested(js_blocks), 40, 12
+        ), (meta, base, w, h, len(children))
 
 
 def test_parity_no_dimensions():

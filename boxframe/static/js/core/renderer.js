@@ -220,6 +220,29 @@
         return [Math.max(1, textW), textH];
     }
 
+    // Port of button_block_size in services/renderer.py: the fit size of
+    // a button (task 0060) — the content's extent plus the button's
+    // border, which depends on the height. One line (including empty)
+    // fits the canonical h=1 form ([label]; an empty label keeps one
+    // inner cell: [ ]); N>=2 lines fit a full box, the label flush with
+    // the border (like text). A border (any style except "none") adds
+    // the frame cells; "none" is the text's extent (min 1x1).
+    function buttonBlockSize(content, borderStyle) {
+        var lines = String(content == null ? "" : content).split("\n");
+        var textW = 0;
+        for (var i = 0; i < lines.length; i++) {
+            if (lines[i].length > textW) textW = lines[i].length;
+        }
+        var nLines = Math.max(1, lines.length);
+        if (borderStyle === "none") {
+            return [Math.max(1, textW), nLines];
+        }
+        if (nLines === 1) {
+            return [Math.max(3, textW + 2), 1];
+        }
+        return [textW + 2, nLines + 2];
+    }
+
     // Port of divider_fit_size in services/renderer.py: the grow-only
     // fit size of a divider (variant E, tasks/0003) — the stored size
     // grown to fit the content, never shrunk (unlike textBlockSize,
@@ -232,6 +255,167 @@
         }
         var nLines = Math.max(1, lines.length);
         return [Math.max(width, longest), Math.max(height, nLines)];
+    }
+
+    // Port of grid_meta_int in services/renderer.py: a grid's cols/rows
+    // from meta (todo-0005) — a positive int, or the default. An absent
+    // or invalid value (not an integer, < 1) falls back — the renderer
+    // is tolerant, like fillChar.
+    function gridMetaInt(meta, key, dflt) {
+        var v = meta ? meta[key] : undefined;
+        if (typeof v !== "number" || !isFinite(v) || v < 1 || Math.floor(v) !== v) {
+            return dflt;
+        }
+        return v;
+    }
+
+    // Port of grid_has_structure in services/renderer.py: whether a grid
+    // has explicit structure in its meta (0069, backward compat) — a
+    // valid cols or rows (a positive int). A grid without one (created
+    // before partitions existed) renders as a plain box — border,
+    // [grid] hint, children — exactly as before partitions were
+    // introduced.
+    function gridHasStructure(meta) {
+        return gridMetaInt(meta, "cols", 0) >= 1 || gridMetaInt(meta, "rows", 0) >= 1;
+    }
+
+    // Port of grid_create_meta in services/renderer.py: the meta of a
+    // NEW grid block (0069) — the given meta with cols/rows defaulted
+    // (3/2) when absent or invalid, so the block renders with partitions.
+    // Creation is the only place the defaults are injected (updates and
+    // replace restore the stored meta as-is).
+    function gridCreateMeta(meta) {
+        var m = {};
+        if (meta) {
+            for (var k in meta) {
+                if (Object.prototype.hasOwnProperty.call(meta, k)) m[k] = meta[k];
+            }
+        }
+        m.cols = gridMetaInt(m, "cols", 3);
+        m.rows = gridMetaInt(m, "rows", 2);
+        return m;
+    }
+
+    // Port of grid_meta_widths in services/renderer.py: a grid's
+    // col_widths/row_heights from meta (0067) — a non-empty array of
+    // integers >= 1 (cells), or null when absent/invalid — the caller
+    // falls back to the even split.
+    function gridMetaWidths(meta, key) {
+        var v = meta ? meta[key] : undefined;
+        if (!Array.isArray(v) || !v.length) return null;
+        for (var i = 0; i < v.length; i++) {
+            if (typeof v[i] !== "number" || !isFinite(v[i]) ||
+                Math.floor(v[i]) !== v[i] || v[i] < 1) {
+                return null;
+            }
+        }
+        return v;
+    }
+
+    // Port of _split_axis in services/renderer.py: boundary positions
+    // x[0..n] (x[0] = 0, x[n] = total) for n columns/rows across
+    // `total` cells (0067). Even split (integer division, the remainder
+    // goes to the last one) when widths is null or its length != n.
+    // Otherwise the prefix sums of the widths, clamped so every
+    // column/row keeps at least 1 cell — the last one absorbs the delta
+    // when the widths don't sum to total (an outer resize of the grid
+    // block, or a stale array).
+    function splitAxis(widths, n, total) {
+        if (widths === null || widths.length !== n) {
+            var even = [];
+            for (var i = 0; i <= n; i++) even.push(Math.floor((i * total) / n));
+            return even;
+        }
+        var x = [0];
+        for (var j = 1; j < n; j++) {
+            x.push(Math.min(x[x.length - 1] + widths[j - 1], total - (n - j)));
+        }
+        x.push(total);
+        return x;
+    }
+
+    // Port of grid_split in services/renderer.py: a grid's effective
+    // structure (todo-0005 + 0067) — the effective column/row counts
+    // (clamped to the inner area, every column/row is at least 1 cell)
+    // and the partition boundary positions colX/rowY.
+    function gridSplit(meta, innerW, innerH) {
+        var effCols = Math.min(gridMetaInt(meta, "cols", 3), innerW);
+        var effRows = Math.min(gridMetaInt(meta, "rows", 2), innerH);
+        return {
+            effCols: effCols,
+            effRows: effRows,
+            colX: splitAxis(gridMetaWidths(meta, "col_widths"), effCols, innerW),
+            rowY: splitAxis(gridMetaWidths(meta, "row_heights"), effRows, innerH),
+        };
+    }
+
+    // A grid's custom widths reshaped for a cols/rows change (0067,
+    // editor-side — not part of the render parity): null input (no
+    // custom widths, or a stale array) → null (the even split); growth
+    // — the last column/row is split in half (floor/ceil), a 1-cell
+    // last one borrows a cell from the nearest wider one to its left
+    // (none wider → null); shrink — the last two are merged.
+    function gridReshapeWidths(widths, oldCount, newCount) {
+        if (!Array.isArray(widths) || widths.length !== oldCount) return null;
+        for (var i = 0; i < widths.length; i++) {
+            if (typeof widths[i] !== "number" || !isFinite(widths[i]) ||
+                Math.floor(widths[i]) !== widths[i] || widths[i] < 1) {
+                return null;
+            }
+        }
+        if (newCount === oldCount) return widths.slice();
+        var w = widths.slice();
+        if (newCount > oldCount) {
+            for (var a = oldCount; a < newCount; a++) {
+                var last = w[w.length - 1];
+                if (last >= 2) {
+                    var left = Math.floor(last / 2);
+                    w[w.length - 1] = left;
+                    w.push(last - left);
+                } else {
+                    var bi = -1;
+                    for (var k = w.length - 2; k >= 0; k--) {
+                        if (w[k] >= 2) { bi = k; break; }
+                    }
+                    if (bi === -1) return null;
+                    w[bi] = w[bi] - 1;
+                    w.push(1);
+                }
+            }
+        } else {
+            for (var b = newCount; b < oldCount; b++) {
+                w[w.length - 2] = w[w.length - 2] + w[w.length - 1];
+                w.pop();
+            }
+        }
+        return w;
+    }
+
+    // Port of _grid_junction in services/renderer.py: the box-drawing
+    // character of a grid junction (an interior cross or a frame node)
+    // from the four partition segments actually drawn around it (0063).
+    // A suppressed segment (under a child's span, 0062) degrades the
+    // node — ┼ → ├/┤/┬/┴/│/─ — so no line ends stick out of a spanned
+    // cell. null — no segment is drawn, nothing to place.
+    function gridJunction(part, up, down, left, right) {
+        if (up && down) {
+            if (left && right) return part.b_b;
+            if (left) return part.t_r;
+            if (right) return part.t_l;
+            return part.v;
+        }
+        if (left && right) {
+            if (up) return part.b_l;
+            if (down) return part.t_t;
+            return part.h;
+        }
+        if (up && left) return part.bl;
+        if (up && right) return part.tr;
+        if (down && left) return part.br;
+        if (down && right) return part.tl;
+        if (up || down) return part.v;
+        if (left || right) return part.h;
+        return null;
     }
 
     // ── Grid drawing (ports of the PseudoGraphicRenderer methods) ──
@@ -308,7 +492,14 @@
         }
     }
 
-    // Port of PseudoGraphicRenderer._draw_button
+    // Port of PseudoGraphicRenderer._draw_button: the shape depends on
+    // the height (h=1 [label]; h=2 no top border; h>=3 full box). The
+    // label is word-wrapped to the inner width (explicit newlines are
+    // kept); the line block is vertically aligned (meta.vertical_align,
+    // default middle — unlike box, whose default is top) and each line
+    // is horizontally aligned (meta.text_align, default center — unlike
+    // box, whose default is left). Lines past the inner height are not
+    // drawn (the border is drawn first and is not overwritten).
     function drawButton(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
@@ -346,17 +537,45 @@
             }
         }
 
-        // Label — single line, vertically centered, truncated to fit,
-        // horizontally aligned (meta.text_align)
+        // Label — word-wrapped to the inner width, the line block
+        // vertically aligned (meta.vertical_align, default middle) and
+        // each line horizontally aligned (meta.text_align, default
+        // center). The inner area: h=1/h=2 — one row (row y), h>=3 —
+        // the rows between the borders, none — the whole block.
         if (block.content) {
-            var row = y + Math.floor((h - 1) / 2);
-            var innerX = x + (framed ? 1 : 0);
-            var innerW = w - (framed ? 2 : 0);
-            if (innerW > 0 && row < gh) {
-                var label = String(block.content).split("\n")[0].slice(0, innerW);
-                var off = hAlignOffset(label.length, innerW, (block.meta || {}).text_align);
-                for (var c = 0; c < label.length; c++) {
-                    setCell(grid, gw, gh, clip, innerX + off + c, row, label[c]);
+            var innerX, innerY, innerW, innerH;
+            if (framed) {
+                innerX = x + 1;
+                innerW = w - 2;
+                if (h >= 3) {
+                    innerY = y + 1;
+                    innerH = h - 2;
+                } else {
+                    innerY = y;
+                    innerH = 1;
+                }
+            } else {
+                innerX = x;
+                innerY = y;
+                innerW = w;
+                innerH = h;
+            }
+            if (innerW > 0 && innerH > 0) {
+                var meta = block.meta || {};
+                var align = meta.text_align;
+                if (align !== "left" && align !== "center" && align !== "right") align = "center";
+                var valign = meta.vertical_align;
+                if (valign !== "top" && valign !== "middle" && valign !== "bottom") valign = "middle";
+                var lines = wrapText(block.content, innerW);
+                var vOff = vAlignOffset(lines.length, innerH, valign);
+                for (var li = 0; li < lines.length; li++) {
+                    if (li + vOff >= innerH) break;
+                    var row = innerY + li + vOff;
+                    if (row >= gh) break;
+                    var off = hAlignOffset(lines[li].length, innerW, align);
+                    for (var c = 0; c < lines[li].length; c++) {
+                        setCell(grid, gw, gh, clip, innerX + off + c, row, lines[li][c]);
+                    }
                 }
             }
         }
@@ -407,6 +626,212 @@
             var off = hAlignOffset(line.length, w, align);
             for (var c = 0; c < line.length; c++) {
                 setCell(grid, gw, gh, clip, x + off + c, row, line[c]);
+            }
+        }
+    }
+
+    // Port of PseudoGraphicRenderer._draw_grid: the outer border (per
+    // border_style) plus inner partitions — vertical (eff_cols − 1) and
+    // horizontal (eff_rows − 1) — with junction nodes from the style map.
+    // meta.cols / meta.rows (defaults 3/2, invalid → default) give the
+    // requested number of columns/rows; the effective count is clamped to
+    // the inner area (every column/row is at least 1 cell). The inner area
+    // is split evenly with integer division (the remainder goes to the
+    // last column/row) unless meta.col_widths / meta.row_heights (0067)
+    // give custom per-column/row widths in cells — then the partitions
+    // sit at the prefix sums of the widths, and the last column/row
+    // absorbs the delta when the widths don't sum to the inner size (an
+    // outer resize). The content is not rendered (a grid is a structural
+    // element, like a line) and the [type] hint is suppressed;
+    // fill (meta.fill) is painted under the partitions; children are
+    // rendered over the partitions (by the caller). border_style none —
+    // no outer border, solid partitions.
+    // Partitions are not drawn under the children's rectangles (0062):
+    // a child spanning several cells looks like one intact cell. The skip
+    // is applied at draw time (the fill/space under a skipped partition
+    // cell is left untouched). The frame nodes on the outer border and
+    // the interior junctions reflect the segments actually drawn around
+    // them (0063): a suppressed segment degrades the node (┬ → ─,
+    // ├ → │, ┼ → ├/┬/│/─), so no line ends stick out of a spanned cell.
+    function drawGrid(block, style, grid, gw, gh, clip, allBlocks) {
+        var x = Math.max(0, Math.min(block.x, gw - 2));
+        var y = Math.max(0, Math.min(block.y, gh - 2));
+        var w = Math.min(block.width, gw - x);
+        var h = Math.min(block.height, gh - y);
+
+        if (w < 1 || h < 1) return;
+
+        var framed = block.border_style !== "none" && w >= 2 && h >= 2;
+        var innerX, innerY, innerW, innerH;
+        if (framed) {
+            drawBorder(block, style, grid, gw, gh, clip);
+            innerX = x + 1;
+            innerY = y + 1;
+            innerW = w - 2;
+            innerH = h - 2;
+        } else {
+            innerX = x;
+            innerY = y;
+            innerW = w;
+            innerH = h;
+        }
+
+        if (innerW <= 0 || innerH <= 0) return;
+
+        // Fill under the partitions (meta.fill)
+        var fill = fillChar(block.block_type, block.meta);
+        if (fill) {
+            for (var fj = 0; fj < innerH; fj++) {
+                var frow = innerY + fj;
+                if (frow >= gh) break;
+                for (var fi = 0; fi < innerW; fi++) {
+                    setCell(grid, gw, gh, clip, innerX + fi, frow, fill);
+                }
+            }
+        }
+
+        // Partitions: the frame's style (none → solid)
+        var part = framed ? style : BORDERS.solid;
+
+        var split = gridSplit(block.meta, innerW, innerH);
+        var effCols = split.effCols;
+        var effRows = split.effRows;
+        var colX = split.colX;
+        var rowY = split.rowY;
+
+        // Span regions (absolute, half-open): the union of the whole grid
+        // cells each child's rectangle touches (0062, refined in 0064,
+        // re-refined in 0065, re-refined in 0066, re-refined in 0068) —
+        // the child's half-open rect intersects the cell's closed range:
+        // a left/top edge flush with a cell boundary spans the cell on
+        // the other side of it (the child's border is drawn over the
+        // boundary, 0066), but a right/bottom edge flush does not (the
+        // child's border sits one cell short of the boundary, which stays
+        // drawn, 0068). A partition is suppressed only where the child
+        // actually crosses it (0065): a vertical partition is removed
+        // across the spanned rows only if the child straddles it, a
+        // horizontal one across the spanned columns only if the child
+        // straddles it; at a crossing of the two the cell is removed only
+        // if the child straddles both — so a spanned cell keeps the
+        // borders of the cells it does not cross. A partition under the
+        // child's own left/top border counts as crossed (0066): the
+        // child's border is drawn over it, so it is hidden. Same origin
+        // as renderChildrenInContainer (1-cell padding), clipped to the
+        // inner area.
+        var vParts = {}, hParts = {};
+        for (var vp = 1; vp < effCols; vp++) vParts[innerX + colX[vp]] = true;
+        for (var hp = 1; hp < effRows; hp++) hParts[innerY + rowY[hp]] = true;
+        var childSpans = [];
+        for (var ci = 0; ci < allBlocks.length; ci++) {
+            var cb = allBlocks[ci];
+            if (cb.parent_id !== block.id) continue;
+            if ((cb.width || 0) < 1 || (cb.height || 0) < 1) continue;
+            var rx0 = Math.max(block.x + 1 + cb.x, innerX);
+            var ry0 = Math.max(block.y + 1 + cb.y, innerY);
+            var rx1 = Math.min(block.x + 1 + cb.x + cb.width, innerX + innerW);
+            var ry1 = Math.min(block.y + 1 + cb.y + cb.height, innerY + innerH);
+            if (!(rx1 > rx0 && ry1 > ry0)) continue;
+            var ix0 = rx0 - innerX, iy0 = ry0 - innerY;
+            var ix1 = rx1 - innerX, iy1 = ry1 - innerY;
+            // The child's half-open rect [ix0, ix1) intersects the cell's
+            // closed range [colX[si], colX[si+1]]: the left/top edge flush
+            // with a boundary counts (the child's border is drawn over it,
+            // 0066), the right/bottom edge flush does not (its border sits
+            // one cell short of the boundary, which stays drawn, 0068).
+            var sCol0 = -1, sCol1 = -1, sRow0 = -1, sRow1 = -1;
+            for (var si = 0; si < effCols; si++) {
+                if (colX[si] < ix1 && colX[si + 1] >= ix0) {
+                    if (sCol0 < 0) sCol0 = si;
+                    sCol1 = si;
+                }
+            }
+            for (var sj = 0; sj < effRows; sj++) {
+                if (rowY[sj] < iy1 && rowY[sj + 1] >= iy0) {
+                    if (sRow0 < 0) sRow0 = sj;
+                    sRow1 = sj;
+                }
+            }
+            if (sCol0 < 0 || sRow0 < 0) continue;
+            var crossedV = {}, crossedH = {};
+            for (var cvp in vParts) {
+                if (rx0 <= Number(cvp) && Number(cvp) < rx1) crossedV[cvp] = true;
+            }
+            for (var chp in hParts) {
+                if (ry0 <= Number(chp) && Number(chp) < ry1) crossedH[chp] = true;
+            }
+            childSpans.push([
+                innerX + colX[sCol0],
+                innerY + rowY[sRow0],
+                innerX + colX[sCol1 + 1],
+                innerY + rowY[sRow1 + 1],
+                crossedV,
+                crossedH
+            ]);
+        }
+
+        // r = [sx0, sy0, sx1, sy1, crossedV, crossedH]
+        function coveredBySpan(px, py) {
+            var pxV = !!vParts[px];
+            var pyH = !!hParts[py];
+            for (var k = 0; k < childSpans.length; k++) {
+                var r = childSpans[k];
+                if (!(px >= r[0] && px < r[2] && py >= r[1] && py < r[3])) continue;
+                if (pxV && r[4][px] && (!pyH || r[5][py])) return true;
+                if (pyH && r[5][py] && (!pxV || r[4][px])) return true;
+            }
+            return false;
+        }
+
+        // Vertical partitions
+        for (var vi = 1; vi < effCols; vi++) {
+            var cx = innerX + colX[vi];
+            for (var vj = 0; vj < innerH; vj++) {
+                if (coveredBySpan(cx, innerY + vj)) continue;
+                setCell(grid, gw, gh, clip, cx, innerY + vj, part.v);
+            }
+        }
+
+        // Horizontal partitions
+        for (var hj = 1; hj < effRows; hj++) {
+            var ry = innerY + rowY[hj];
+            for (var hi = 0; hi < innerW; hi++) {
+                if (coveredBySpan(innerX + hi, ry)) continue;
+                setCell(grid, gw, gh, clip, innerX + hi, ry, part.h);
+            }
+        }
+
+        // Frame nodes and interior junctions reflect the partition
+        // segments actually drawn around them (0063): a segment
+        // suppressed by a child's span (0062/0064) degrades the node, so
+        // no line ends stick out of a spanned cell.
+        if (framed) {
+            for (var fi = 1; fi < effCols; fi++) {
+                var fcx = innerX + colX[fi];
+                setCell(grid, gw, gh, clip, fcx, y,
+                    coveredBySpan(fcx, innerY) ? part.h : part.t_t);
+                setCell(grid, gw, gh, clip, fcx, y + h - 1,
+                    coveredBySpan(fcx, innerY + innerH - 1) ? part.h : part.b_l);
+            }
+            for (var fj = 1; fj < effRows; fj++) {
+                var fry = innerY + rowY[fj];
+                setCell(grid, gw, gh, clip, x, fry,
+                    coveredBySpan(innerX, fry) ? part.v : part.t_l);
+                setCell(grid, gw, gh, clip, x + w - 1, fry,
+                    coveredBySpan(innerX + innerW - 1, fry) ? part.v : part.t_r);
+            }
+        }
+
+        for (var ii = 1; ii < effCols; ii++) {
+            for (var ij = 1; ij < effRows; ij++) {
+                var px = innerX + colX[ii];
+                var py = innerY + rowY[ij];
+                if (coveredBySpan(px, py)) continue;
+                var jch = gridJunction(part,
+                    !coveredBySpan(px, py - 1),
+                    !coveredBySpan(px, py + 1),
+                    !coveredBySpan(px - 1, py),
+                    !coveredBySpan(px + 1, py));
+                if (jch) setCell(grid, gw, gh, clip, px, py, jch);
             }
         }
     }
@@ -561,6 +986,19 @@
 
         if (block.block_type === "divider") {
             drawDivider(block, style, grid, gw, gh, clip);
+            return;
+        }
+
+        // A grid with explicit structure in meta (a valid cols or rows)
+        // renders the partitions; a legacy grid (no cols/rows — created
+        // before partitions existed) falls through to the plain box path
+        // (border + [grid] hint + children), as before (0069).
+        if (block.block_type === "grid" && gridHasStructure(block.meta)) {
+            drawGrid(block, style, grid, gw, gh, clip, allBlocks);
+            var hasGridChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
+            if (hasGridChildren) {
+                renderChildrenInContainer(block, style, grid, gw, gh, allBlocks, clip);
+            }
             return;
         }
 
@@ -935,7 +1373,16 @@
         vAlignOffset: vAlignOffset,
         wrapText: wrapText,
         textBlockSize: textBlockSize,
+        buttonBlockSize: buttonBlockSize,
         dividerFitSize: dividerFitSize,
+        gridMetaInt: gridMetaInt,
+        gridHasStructure: gridHasStructure,
+        gridCreateMeta: gridCreateMeta,
+        gridMetaWidths: gridMetaWidths,
+        splitAxis: splitAxis,
+        gridSplit: gridSplit,
+        gridReshapeWidths: gridReshapeWidths,
+        gridJunction: gridJunction,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,
         renderBoundsHtml: renderBoundsHtml,

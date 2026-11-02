@@ -56,6 +56,7 @@ test("schema: the current properties are described (phase 3 set)", () => {
     assert.deepEqual(keys, [
         "border_style", "fill",
         "text_align", "vertical_align", "arrow_start", "arrow_end",
+        "cols", "rows",
         "x", "y", "width", "height", "order", "content",
     ]);
     const style = PGProperties.findProperty("border_style");
@@ -107,11 +108,12 @@ test("schema: the current properties are described (phase 3 set)", () => {
     // divider without the meta key, and picking the type default clears
     // it (clearDefault)
     assert.ok(PGProperties.findProperty("text_align").types.includes("divider"));
-    assert.deepEqual(PGProperties.findProperty("text_align").typeDefaults,
-        { divider: "center" });
     assert.ok(PGProperties.findProperty("vertical_align").types.includes("divider"));
+    // Button: the label is centered on both axes too (task 0060)
+    assert.deepEqual(PGProperties.findProperty("text_align").typeDefaults,
+        { divider: "center", button: "center" });
     assert.deepEqual(PGProperties.findProperty("vertical_align").typeDefaults,
-        { divider: "middle" });
+        { divider: "middle", button: "middle" });
     // Arrows (phase 3 of tasks/0051): meta keys, select (two selects
     // share one row — 14 buttons don't fit the panel width), lines only;
     // six head shapes; "none" is a display sentinel (noneValue: null
@@ -201,6 +203,10 @@ test("readPropValue: the type default wins over the schema default (divider)", (
     // A box keeps the schema default (top)
     const box = block("b3", "box", 0, 0, 5, 2);
     assert.equal(PGProperties.readPropValue(box, vAlign), "top");
+    // Button: the type default (center/middle) wins too (task 0060)
+    const button = block("b4", "button", 0, 0, 8, 1);
+    assert.equal(PGProperties.readPropValue(button, vAlign), "middle");
+    assert.equal(PGProperties.readPropValue(button, hAlign), "center");
 });
 
 test("_blockDefaults: divider is 30x1 with the [divider] label", () => {
@@ -212,6 +218,20 @@ test("_blockDefaults: divider is 30x1 with the [divider] label", () => {
         { width: 20, height: 3, content: "[box]" });
     assert.deepEqual(app._blockDefaults("hline"),
         { width: 20, height: 1, content: "" });
+});
+
+test("_blockDefaults: button is sized by the fit function (task 0060)", () => {
+    const app = editorApp();
+    // 'Button' + solid frame → 8×1 (was a fixed 16×1)
+    assert.deepEqual(app._blockDefaults("button"),
+        { width: 8, height: 1, content: "Button" });
+});
+
+test("_blockDefaults: grid is 24x8 with empty content (todo-0005)", () => {
+    const app = editorApp();
+    // A structural container: no hint, no content
+    assert.deepEqual(app._blockDefaults("grid"),
+        { width: 24, height: 8, content: "" });
 });
 
 // ── Sections ──────────────────────────────────────────────
@@ -310,6 +330,28 @@ test("sectionsForType: Arrows are applicable to lines only", () => {
     for (const type of ["box", "button", "text"]) {
         assert.ok(!PGProperties.sectionsForType(type).some(s => s.name === "Arrows"), type);
     }
+});
+
+test("sectionsForType: grid has a Grid section (cols/rows), Fill, no Align (todo-0005)", () => {
+    const sections = PGProperties.sectionsForType("grid");
+    // The Grid section carries the cols/rows number inputs
+    const grid = sections.find(s => s.name === "Grid");
+    assert.ok(grid, "Grid section is present");
+    assert.deepEqual(grid.props.map(p => p.key), ["cols", "rows"]);
+    assert.equal(grid.props[0].meta, true);
+    assert.equal(grid.props[0].min, 1);
+    assert.equal(grid.props[0].default, 3);
+    assert.equal(grid.props[1].default, 2);
+    // Grid is fillable (FILL_TYPES) but not aligned (content is not
+    // rendered), and has no arrows
+    assert.ok(sections.some(s => s.name === "Fill"), "Fill applies to grid");
+    assert.ok(!sections.some(s => s.name === "Align"), "no Align for grid");
+    assert.ok(!sections.some(s => s.name === "Arrows"), "no Arrows for grid");
+    // The primary panel keeps the Grid section (cols/rows are primary)
+    assert.ok(
+        PGProperties.sectionsForType("grid", "primary")
+            .some(s => s.name === "Grid"),
+    );
 });
 
 test("sectionsForType: the types filter drops inapplicable properties and empty groups", () => {

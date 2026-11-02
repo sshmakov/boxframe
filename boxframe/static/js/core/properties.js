@@ -96,15 +96,15 @@
         // meta.vertical_align position the wrapped content inside the
         // content area (defaults left/top render as before). Picking the
         // default clears the meta key (clearDefault — the default is
-        // implicit). Not applicable to lines. For a button, text_align
-        // aligns the label (the label is already vertically centered).
+        // implicit). Not applicable to lines.
         // typeDefaults: a divider's label is CENTERED by default (variant
-        // E, tasks/0003) — the panel shows center as active for a
-        // divider without meta.text_align, and picking center clears the
-        // key. row: "align" — the two properties share ONE panel row (a
-        // button group each, one shared label). iconPrefix: the buttons
-        // show SVG icons (static/icons/align-*.svg, masked in
-        // editor.css) instead of the option text.
+        // E, tasks/0003) and a button's label is CENTERED by default
+        // (task 0060) — the panel shows center as active without
+        // meta.text_align, and picking center clears the key. row:
+        // "align" — the two properties share ONE panel row (a button
+        // group each, one shared label). iconPrefix: the buttons show
+        // SVG icons (static/icons/align-*.svg, masked in editor.css)
+        // instead of the option text.
         {
             key: "text_align",
             meta: true,
@@ -116,16 +116,17 @@
             row: "align",
             rowLabel: "Align",
             types: ["box", "header", "footer", "sidebar", "content", "button",
-                    "input", "textarea", "image", "divider", "text", "grid"],
+                    "input", "textarea", "image", "divider", "text"],
             default: "left",
-            typeDefaults: { divider: "center" },
+            typeDefaults: { divider: "center", button: "center" },
             clearDefault: true,
             panel: "primary",
         },
         // A divider's label block is shifted vertically inside the
         // stored height — default MIDDLE (unlike box, whose default is
-        // top): a divider without meta.vertical_align centers its label,
-        // and picking middle clears the key (typeDefaults + clearDefault).
+        // top); a button's label block is centered vertically by default
+        // (task 0060). Picking middle clears the key (typeDefaults +
+        // clearDefault).
         {
             key: "vertical_align",
             meta: true,
@@ -136,9 +137,9 @@
             group: "Align",
             row: "align",
             types: ["box", "header", "footer", "sidebar", "content", "button",
-                    "input", "textarea", "image", "text", "grid", "divider"],
+                    "input", "textarea", "image", "text", "divider"],
             default: "top",
-            typeDefaults: { divider: "middle" },
+            typeDefaults: { divider: "middle", button: "middle" },
             clearDefault: true,
             panel: "primary",
         },
@@ -192,6 +193,32 @@
             noneValue: null,
             panel: "primary",
         },
+        // Grid (todo-0005): meta.cols / meta.rows — the requested number
+        // of columns/rows; the effective count is clamped to the inner
+        // area at render (every column/row is at least 1 cell). Number
+        // inputs, primary panel.
+        {
+            key: "cols",
+            meta: true,
+            label: "Cols",
+            kind: "number",
+            group: "Grid",
+            types: ["grid"],
+            min: 1,
+            default: 3,
+            panel: "primary",
+        },
+        {
+            key: "rows",
+            meta: true,
+            label: "Rows",
+            kind: "number",
+            group: "Grid",
+            types: ["grid"],
+            min: 1,
+            default: 2,
+            panel: "primary",
+        },
         // cols: 3 — the five fields sit in three columns (X Y W / H
         // Order) instead of two (X Y / W H / Order)
         { key: "x", label: "X", kind: "number", group: "Geometry", min: 0, cols: 3 },
@@ -217,6 +244,17 @@
     // The default may be type-specific (typeDefaults — e.g. a divider's
     // label is centered by default).
     function readPropValue(block, prop) {
+        // A legacy grid (no valid cols/rows in meta, 0069) renders no
+        // partitions — its effective structure is 1×1 (zero partitions),
+        // so the panel shows 1/1, not the schema defaults (3/2). The
+        // first cols/rows change materializes the structure (see
+        // applyPropValue in editor.js), after which the stored values
+        // are read as usual.
+        if (block.block_type === "grid" &&
+            (prop.key === "cols" || prop.key === "rows") &&
+            !global.PGRenderer.gridHasStructure(block.meta)) {
+            return 1;
+        }
         var v = prop.meta
             ? (block.meta ? block.meta[prop.key] : undefined)
             : block[prop.key];

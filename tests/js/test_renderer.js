@@ -799,25 +799,26 @@ test("button text align", () => {
     }
 });
 
-// ── Button tests (tasks/0021-0030/0022-button.md) ────────
+// ── Button tests (tasks/0021-0030/0022-button.md, 0060) ─────
 
-function button(height, width = 16, content = "Button", border_style = "solid") {
+function button(height, width = 16, content = "Button", border_style = "solid",
+               meta = {}) {
     return [{
         id: "b1", block_type: "button",
         x: 0, y: 0, width, height,
-        content, border_style,
+        content, border_style, meta,
     }];
 }
 
 test("button height 1", () => {
     const result = render(button(1));
-    assert.equal(lines(result)[0], "[Button        ]");
+    assert.equal(lines(result)[0], "[    Button    ]");
 });
 
 test("button height 2", () => {
     const result = render(button(2));
     const ls = lines(result);
-    assert.equal(ls[0], "│Button        │");
+    assert.equal(ls[0], "│    Button    │");
     assert.equal(ls[1], "└──────────────┘");
 });
 
@@ -825,7 +826,7 @@ test("button height 3", () => {
     const result = render(button(3));
     const ls = lines(result);
     assert.equal(ls[0], "┌──────────────┐");
-    assert.equal(ls[1], "│Button        │");
+    assert.equal(ls[1], "│    Button    │");
     assert.equal(ls[2], "└──────────────┘");
 });
 
@@ -833,7 +834,7 @@ test("button height 4 label upper middle", () => {
     const result = render(button(4));
     const ls = lines(result);
     assert.equal(ls[0], "┌──────────────┐");
-    assert.equal(ls[1], "│Button        │");
+    assert.equal(ls[1], "│    Button    │");
     assert.equal(ls[2], "│              │");
     assert.equal(ls[3], "└──────────────┘");
 });
@@ -843,7 +844,7 @@ test("button height 5 label centered", () => {
     const ls = lines(result);
     assert.equal(ls[0], "┌──────────────┐");
     assert.equal(ls[1], "│              │");
-    assert.equal(ls[2], "│Button        │");
+    assert.equal(ls[2], "│    Button    │");
     assert.equal(ls[3], "│              │");
     assert.equal(ls[4], "└──────────────┘");
 });
@@ -851,41 +852,96 @@ test("button height 5 label centered", () => {
 test("button border styles", () => {
     // h=2: side + bottom border use the style characters
     let ls = lines(render(button(2, 16, "Button", "dashed")));
-    assert.equal(ls[0], "┆Button        ┆");
+    assert.equal(ls[0], "┆    Button    ┆");
     assert.equal(ls[1], "└" + "┄".repeat(14) + "┘");
 
     // h=3: full box in the style
     ls = lines(render(button(3, 16, "Button", "double")));
     assert.equal(ls[0], "╔══════════════╗");
-    assert.equal(ls[1], "║Button        ║");
+    assert.equal(ls[1], "║    Button    ║");
     assert.equal(ls[2], "╚══════════════╝");
 
     // h=1: [label] for any style
     for (const style of ["solid", "dashed", "dotted", "double"]) {
         assert.equal(lines(render(button(1, 16, "Button", style)))[0],
-            "[Button        ]", style);
+            "[    Button    ]", style);
     }
 });
 
 test("button border none", () => {
     const ls = lines(render(button(3, 16, "Button", "none")));
     assert.equal(ls[0], "");
-    assert.equal(ls[1], "Button");
+    assert.equal(ls[1], "     Button");
     assert.equal(ls.length, 2); // trailing empty rows are stripped
 });
 
-test("button label truncated not wrapped", () => {
+test("button label word wrapped", () => {
+    // The label is word-wrapped to the inner width; lines past the inner
+    // height are not drawn (manual resize smaller than the fit)
     const ls = lines(render(button(3, 10, "A very long label")));
-    // Inner width = 8: label truncated, no wrapping
+    // Inner 8×1: "A very " / "long " / "label" → only the first line
     assert.equal(ls[0], "┌" + "─".repeat(8) + "┐");
-    assert.equal(ls[1], "│A very l│");
+    assert.equal(ls[1], "│A very  │");
     assert.equal(ls[2], "└" + "─".repeat(8) + "┘");
 });
 
-test("button label ignores newlines", () => {
-    const result = render(button(3, 16, "Line1\nLine2"));
-    assert.equal(lines(result)[1], "│Line1" + " ".repeat(9) + "│");
+test("button multiline", () => {
+    // Explicit newlines are kept: each line on its row, centered
+    const ls = lines(render(button(4, 7, "hi\nthere")));
+    assert.equal(ls[0], "┌─────┐");
+    assert.equal(ls[1], "│ hi  │");
+    assert.equal(ls[2], "│there│");
+    assert.equal(ls[3], "└─────┘");
+});
+
+test("button multiline h1 clips to first line", () => {
+    assert.equal(lines(render(button(1, 12, "a\nb")))[0], "[    a     ]");
+});
+
+test("button multiline h2 manual form", () => {
+    // The manual h=2 form (no top border) keeps one inner row
+    const result = render(button(2, 16, "Line1\nLine2"));
+    const ls = lines(result);
+    assert.equal(ls[0], "│    Line1     │");
+    assert.equal(ls[1], "└──────────────┘");
     assert.ok(!result.includes("Line2"));
+});
+
+test("button vertical align", () => {
+    // vertical_align shifts the line block inside the inner height
+    // (default middle)
+    const expected = {
+        top: [1, 2],
+        middle: [2, 3],
+        bottom: [3, 4],
+    };
+    for (const [valign, [hiRow, thereRow]] of Object.entries(expected)) {
+        const ls = lines(render(button(6, 7, "hi\nthere", "solid",
+            { vertical_align: valign })));
+        assert.equal(ls[hiRow], "│ hi  │", valign);
+        assert.equal(ls[thereRow], "│there│", valign);
+    }
+});
+
+test("button text align multiline", () => {
+    // text_align aligns each line (default center)
+    const expected = {
+        left: ["│hi   │", "│there│"],
+        center: ["│ hi  │", "│there│"],
+        right: ["│   hi│", "│there│"],
+    };
+    for (const [align, [hi, there]] of Object.entries(expected)) {
+        const ls = lines(render(button(4, 7, "hi\nthere", "solid",
+            { text_align: align })));
+        assert.equal(ls[1], hi, align);
+        assert.equal(ls[2], there, align);
+    }
+});
+
+test("button border none multiline", () => {
+    const ls = lines(render(button(2, 5, "hi\nthere", "none")));
+    assert.equal(ls[0], " hi"); // rstripped
+    assert.equal(ls[1], "there");
 });
 
 test("button empty content", () => {
@@ -893,6 +949,28 @@ test("button empty content", () => {
     assert.equal(ls[0], "┌──────────────┐");
     assert.equal(ls[1], "│              │");
     assert.equal(ls[2], "└──────────────┘");
+});
+
+test("button empty content h1", () => {
+    // An empty framed button keeps the canonical h=1 form
+    assert.equal(lines(render(button(1, 3, "")))[0], "[ ]");
+});
+
+// ── buttonBlockSize tests (task 0060) ─────────────────────
+
+test("button block size unit", () => {
+    // Fit size: 1 line → [label] (h=1), N>=2 lines → full box (h=N+2),
+    // none → the text's extent
+    assert.deepEqual(PG.buttonBlockSize("", "solid"), [3, 1]);
+    assert.deepEqual(PG.buttonBlockSize("Button", "solid"), [8, 1]);
+    assert.deepEqual(PG.buttonBlockSize("a", "solid"), [3, 1]);
+    assert.deepEqual(PG.buttonBlockSize("a\nb", "solid"), [3, 4]);
+    assert.deepEqual(PG.buttonBlockSize("hi\nthere", "solid"), [7, 4]);
+    assert.deepEqual(PG.buttonBlockSize("a\n", "solid"), [3, 4]);
+    assert.deepEqual(PG.buttonBlockSize("hi\nthere", "dashed"), [7, 4]);
+    assert.deepEqual(PG.buttonBlockSize("", "none"), [1, 1]);
+    assert.deepEqual(PG.buttonBlockSize("hi", "none"), [2, 1]);
+    assert.deepEqual(PG.buttonBlockSize("a\nbb", "none"), [2, 2]);
 });
 
 // ── Word wrap tests ───────────────────────────────────────
@@ -1824,4 +1902,1013 @@ test("content placeholder small block", () => {
     assert.equal(ls[0], "┌┐");
     assert.equal(ls[1], "└┘");
     assert.ok(!result.includes("lorem"));
+});
+
+// ── Grid tests (variant 1 — partitions, todo-0005) ─────────────────
+
+// A grid block. meta == undefined means a NEW grid — explicit structure
+// {cols: 3, rows: 2} (what the editor/API create, 0069); pass meta: {}
+// for a LEGACY grid (no cols/rows — renders as a plain box).
+function gridBlock(width = 24, height = 8, meta, border_style = "solid",
+                   x = 0, y = 0, content = "") {
+    const b = {
+        id: "g1", block_type: "grid",
+        x, y, width, height, content, border_style,
+    };
+    b.meta = meta === undefined ? { cols: 3, rows: 2 } : meta;
+    return [b];
+}
+
+test("gridMetaInt: positive int or default", () => {
+    assert.equal(PG.gridMetaInt(null, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({}, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: 5 }, "cols", 3), 5);
+    assert.equal(PG.gridMetaInt({ cols: 1 }, "cols", 3), 1);
+    assert.equal(PG.gridMetaInt({ cols: 0 }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: -1 }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: "5" }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: true }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ cols: 2.5 }, "cols", 3), 3);
+    assert.equal(PG.gridMetaInt({ rows: 4 }, "rows", 2), 4);
+});
+
+test("gridHasStructure: valid cols or rows", () => {
+    assert.equal(PG.gridHasStructure(null), false);
+    assert.equal(PG.gridHasStructure({}), false);
+    assert.equal(PG.gridHasStructure({ fill: "░" }), false);
+    assert.equal(PG.gridHasStructure({ cols: 3 }), true);
+    assert.equal(PG.gridHasStructure({ rows: 2 }), true);
+    assert.equal(PG.gridHasStructure({ cols: 1 }), true);
+    assert.equal(PG.gridHasStructure({ cols: 0 }), false);
+    assert.equal(PG.gridHasStructure({ cols: -1 }), false);
+    assert.equal(PG.gridHasStructure({ cols: "3" }), false);
+    assert.equal(PG.gridHasStructure({ cols: true }), false);
+    assert.equal(PG.gridHasStructure({ cols: 2.5 }), false);
+    assert.equal(PG.gridHasStructure({ cols: 0, rows: 4 }), true);
+});
+
+test("gridCreateMeta: default cols/rows to 3/2", () => {
+    assert.deepEqual(PG.gridCreateMeta(null), { cols: 3, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({}), { cols: 3, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({ cols: 4 }), { cols: 4, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({ rows: 3 }), { cols: 3, rows: 3 });
+    assert.deepEqual(PG.gridCreateMeta({ cols: 4, rows: 3 }), { cols: 4, rows: 3 });
+    assert.deepEqual(PG.gridCreateMeta({ cols: 0 }), { cols: 3, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({ cols: "4", rows: -1 }), { cols: 3, rows: 2 });
+    assert.deepEqual(PG.gridCreateMeta({ fill: "░" }), { fill: "░", cols: 3, rows: 2 });
+    // the input object is not mutated
+    const src = { fill: "░" };
+    PG.gridCreateMeta(src);
+    assert.deepEqual(src, { fill: "░" });
+});
+
+test("grid legacy (no meta) renders as a plain box", () => {
+    // A legacy grid (no cols/rows in meta) renders as a plain box — the
+    // border and the [grid] hint, no partitions (0069).
+    const result = render(gridBlock(24, 8, {}));
+    const expected = [
+        "┌" + "─".repeat(22) + "┐",
+        "│[grid]" + " ".repeat(16) + "│",
+        "│" + " ".repeat(22) + "│",
+        "│" + " ".repeat(22) + "│",
+        "│" + " ".repeat(22) + "│",
+        "│" + " ".repeat(22) + "│",
+        "│" + " ".repeat(22) + "│",
+        "└" + "─".repeat(22) + "┘",
+    ].join("\n");
+    assert.equal(result, expected);
+    assert.ok(!result.includes("┬") && !result.includes("┼") && !result.includes("┴"));
+});
+
+test("grid legacy none border renders empty", () => {
+    // A legacy grid without a border renders nothing (0069)
+    const result = render(gridBlock(24, 8, {}, "none"));
+    assert.equal(result.trim(), "");
+});
+
+test("grid legacy double border", () => {
+    // A legacy grid with a double border: the double frame and the
+    // [grid] hint, no partitions (0069)
+    const result = render(gridBlock(24, 8, {}, "double"));
+    const ls = lines(result);
+    assert.equal(ls[0][0], "╔");
+    assert.equal(ls[0][23], "╗");
+    assert.equal(ls[7][0], "╚");
+    assert.equal(ls[7][23], "╝");
+    assert.equal(ls[1].slice(1, 7), "[grid]");
+    assert.ok(!result.includes("╦") && !result.includes("╬"));
+});
+
+test("grid legacy fill inset by border", () => {
+    // A legacy grid with fill: the fill is inset by the border (the box
+    // path), no partitions, the hint is suppressed by the fill (0069)
+    const result = render(gridBlock(24, 8, { fill: "░" }));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌" + "─".repeat(22) + "┐");
+    assert.equal(ls[1], "│" + "░".repeat(22) + "│");
+    assert.equal(ls[7], "└" + "─".repeat(22) + "┘");
+    assert.ok(!result.includes("[grid]"));
+    assert.ok(!result.includes("┬") && !result.includes("┼"));
+});
+
+test("grid legacy children render without partitions", () => {
+    // A legacy grid with a child: the child renders in the inner area,
+    // no partitions are drawn (0069)
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: {} },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 0, y: 0,
+          width: 10, height: 3, content: "0123456789", border_style: "solid" },
+    ]);
+    const ls = lines(result);
+    // child box at abs (1,1) 10×3
+    assert.equal(ls[1].slice(1, 11), "┌────────┐");
+    assert.equal(ls[2].slice(1, 11), "│01234567│");
+    assert.ok(!result.includes("┬") && !result.includes("┼") && !result.includes("┴"));
+});
+
+test("grid cols only activates structure", () => {
+    // A grid with only meta.cols (no rows) has structure — it renders
+    // the partitions with the default rows=2 (0069)
+    const result = render(gridBlock(24, 8, { cols: 4 }));
+    const ls = lines(result);
+    // inner 22, 4 cols → partitions at inner 5, 11, 16 → abs 6, 12, 17
+    assert.equal(ls[0][6], "┬");
+    assert.equal(ls[0][12], "┬");
+    assert.equal(ls[0][17], "┬");
+    // rows default 2 → the horizontal partition at inner 3 → abs row 4
+    assert.equal(ls[4][0], "├");
+    assert.ok(!result.includes("[grid]"));
+});
+
+test("grid invalid meta is legacy", () => {
+    // A grid whose meta carries only invalid cols/rows has no structure
+    // — it renders as a plain box (0069)
+    const result = render(gridBlock(24, 8, { cols: "3", rows: 2.5 }));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌" + "─".repeat(22) + "┐");
+    assert.equal(ls[1].slice(1, 7), "[grid]");
+    assert.ok(!result.includes("┬") && !result.includes("┼"));
+});
+
+test("grid default 3x2", () => {
+    // A new grid (meta cols=3/rows=2 — the create default, 0069), solid
+    // border: the outer frame plus inner partitions with junction nodes;
+    // empty content area.
+    const result = render(gridBlock());
+    const expected = [
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+test("grid split with remainder", () => {
+    // 21×7 → inner 19×5, cols=4 → partitions at inner 4, 9, 14
+    const result = render(gridBlock(21, 7, { cols: 4, rows: 2 }));
+    const ls = lines(result);
+    // inner_x = 1, so partitions at absolute cols 5, 10, 15
+    assert.equal(ls[0][5], "┬");
+    assert.equal(ls[0][10], "┬");
+    assert.equal(ls[0][15], "┬");
+    assert.equal(ls[6][5], "┴");
+    assert.equal(ls[6][10], "┴");
+    assert.equal(ls[6][15], "┴");
+    // rows=2 → the single horizontal partition at inner 2 → absolute row 3
+    assert.equal(ls[3][0], "├");
+    assert.equal(ls[3][20], "┤");
+    assert.equal(ls[3][5], "┼");
+    assert.equal(ls[3][10], "┼");
+    assert.equal(ls[3][15], "┼");
+});
+
+test("grid clamps cols to inner width", () => {
+    // 10×10 (inner 8) with cols=20 → 8 columns
+    const result = render(gridBlock(10, 10, { cols: 20, rows: 2 }));
+    const ls = lines(result);
+    // inner_x=1, inner_w=8 → partitions at every inner col 1..7 → abs 2..8
+    for (let col = 2; col <= 8; col++) {
+        assert.equal(ls[0][col], "┬");
+        assert.equal(ls[1][col], "│");
+    }
+});
+
+test("grid clamps rows to inner height", () => {
+    // 10×10 (inner 8) with rows=20 → 8 rows
+    const result = render(gridBlock(10, 10, { cols: 2, rows: 20 }));
+    const ls = lines(result);
+    // inner_y=1, inner_h=8 → partitions at every inner row 1..7 → abs 2..8
+    for (let row = 2; row <= 8; row++) {
+        assert.equal(ls[row][1], "─");
+        assert.equal(ls[row][8], "─");
+    }
+});
+
+test("grid none border", () => {
+    // border_style none — no outer border, solid partitions over the
+    // whole block area
+    const result = render(gridBlock(24, 8, { cols: 3, rows: 2 }, "none"));
+    const ls = lines(result);
+    // 24×8, inner = whole block, cols=3 → partitions at inner 8, 16;
+    // rows=2 → the horizontal partition at inner 4
+    assert.equal(ls[0][8], "│");
+    assert.equal(ls[0][16], "│");
+    assert.equal(ls[4][0], "─");
+    assert.equal(ls[4][8], "┼");
+    assert.equal(ls[4][16], "┼");
+    assert.equal(ls[7][8], "│");
+    // no outer border characters
+    assert.ok(!result.includes("┌") && !result.includes("┐"));
+    assert.ok(!result.includes("└") && !result.includes("┘"));
+});
+
+test("grid fill under partitions", () => {
+    const result = render(gridBlock(12, 6, { cols: 2, rows: 2, fill: "░" }));
+    const ls = lines(result);
+    // inner 10×4, partition at inner 5 → abs col 6 (the partition takes a
+    // cell, so the columns are 5 and 4 wide); row partition at abs 3
+    assert.equal(ls[1], "│░░░░░│░░░░│");
+    assert.equal(ls[2], "│░░░░░│░░░░│");
+    assert.equal(ls[3], "├─────┼────┤");
+    assert.equal(ls[4], "│░░░░░│░░░░│");
+});
+
+test("grid children render over partitions", () => {
+    // Children are drawn after the partitions: the partition under the
+    // child is not drawn at all (0062), the child's border and content
+    // are drawn there; the partition stays visible outside the child's
+    // span. Under 0066 the child's bottom edge sits on the row boundary,
+    // so the span extends into the row below and the crossed partition
+    // x=8 is suppressed there; the uncrossed partition x=15 stays visible.
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 0, y: 0,
+          width: 10, height: 3, content: "0123456789", border_style: "solid" },
+    ]);
+    const ls = lines(result);
+    // child box at abs (1,1) 10×3 covers the partition at abs col 8, rows 1..3
+    assert.equal(ls[1][8], "─"); // child top border overwrote the partition
+    assert.equal(ls[2][8], "6"); // child content overwrote the partition
+    assert.equal(ls[3][8], "─"); // child bottom border overwrote the partition
+    assert.equal(ls[5][15], "│"); // uncrossed partition x=15 stays visible
+});
+
+test("grid degenerate 2x2 is plain border", () => {
+    // A 2×2 grid has no inner area → just the border, no partitions
+    const result = render(gridBlock(2, 2));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌┐");
+    assert.equal(ls[1], "└┘");
+});
+
+test("grid hint suppressed", () => {
+    // A grid is a structural element: no [grid] hint is drawn
+    const result = render(gridBlock());
+    assert.ok(!result.includes("[grid]"));
+});
+
+test("grid content not rendered", () => {
+    // A structured grid's content is not rendered (like a line)
+    const result = render(gridBlock(24, 8, { cols: 3, rows: 2 }, "solid", 0, 0, "hello"));
+    assert.ok(!result.includes("hello"));
+});
+
+test("grid single col single row", () => {
+    // cols=1, rows=1 → no partitions, just the outer border
+    const result = render(gridBlock(24, 8, { cols: 1, rows: 1 }));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌" + "─".repeat(22) + "┐");
+    assert.equal(ls[3], "│" + " ".repeat(22) + "│");
+    assert.equal(ls[7], "└" + "─".repeat(22) + "┘");
+    // no interior partition nodes
+    assert.ok(!result.includes("┬") && !result.includes("┼") && !result.includes("┴"));
+});
+
+test("grid double border", () => {
+    // border_style double — the frame and the partitions use the double
+    // style map
+    const result = render(gridBlock(24, 8, { cols: 3, rows: 2 }, "double"));
+    const ls = lines(result);
+    assert.equal(ls[0][0], "╔");
+    assert.equal(ls[0][8], "╦");
+    assert.equal(ls[0][15], "╦");
+    assert.equal(ls[0][23], "╗");
+    assert.equal(ls[1][0], "║");
+    assert.equal(ls[1][8], "║");
+    assert.equal(ls[4][0], "╠");
+    assert.equal(ls[4][8], "╬");
+    assert.equal(ls[4][23], "╣");
+    assert.equal(ls[7][0], "╚");
+    assert.equal(ls[7][8], "╩");
+    assert.equal(ls[7][23], "╝");
+});
+
+// ── Grid span: partitions are not drawn under children (0062) ─────────
+
+function gridWithChild(child) {
+    return [
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        Object.assign({ id: "c1", parent_id: "g1", content: "",
+                        border_style: "none" }, child),
+    ];
+}
+
+test("grid span suppresses partitions under child", () => {
+    // A borderless child at the top-left (14×3) spans cols 1–2 × the top
+    // row (0064): its right edge sits inside the second column and its
+    // bottom edge is flush with the row boundary, which does not extend
+    // the span (0068). The partition x=8 the child straddles is
+    // suppressed across the spanned rows, the horizontal partition y=4
+    // stays fully drawn (the child does not straddle it), the junction
+    // (8,4) keeps only the drawn arms (┬) and the frame node over x=8
+    // degrades to a plain line (0063).
+    const result = render(gridWithChild({ block_type: "text",
+        x: 0, y: 0, width: 14, height: 3, content: "SPAN" }));
+    assert.equal(result, [
+        "┌──────────────┬───────┐",
+        "│SPAN          │       │",
+        "│              │       │",
+        "│              │       │",
+        "├───────┬──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n"));
+});
+
+test("grid span vertical", () => {
+    // A child at the left (7×6) spans the first column × both rows
+    // (0064): its right edge is flush with the column boundary, which
+    // does not extend the span (0068). The horizontal partition y=4 the
+    // child straddles is suppressed across the spanned column (x=1..7),
+    // the vertical partitions stay, and the junction (8,4) keeps only
+    // the drawn arms (├) (0063).
+    const result = render(gridWithChild({ block_type: "text",
+        x: 0, y: 0, width: 7, height: 6 }));
+    assert.equal(result, [
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       ├──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n"));
+});
+
+test("grid span 2x2", () => {
+    // A child at the top-left (14×6) spans cols 1–2 × both rows (0064):
+    // its right edge is flush with the column boundary, which does not
+    // extend the span (0068). The partition x=8 the child straddles is
+    // suppressed across the full height, the horizontal partition y=4 is
+    // suppressed across the spanned columns (the junction at x=15, which
+    // the child does not straddle, degrades to ├), and the frame nodes
+    // over the suppressed segments degrade to plain lines (0063).
+    const result = render(gridWithChild({ block_type: "text",
+        x: 0, y: 0, width: 14, height: 6 }));
+    assert.equal(result, [
+        "┌──────────────┬───────┐",
+        "│              │       │",
+        "│              │       │",
+        "│              │       │",
+        "│              ├───────┤",
+        "│              │       │",
+        "│              │       │",
+        "└──────────────┴───────┘",
+    ].join("\n"));
+});
+
+test("grid span misaligned child", () => {
+    // A child not aligned to the cell boundaries spans the whole cells
+    // it touches (0064): the partitions inside the spanned cells are not
+    // drawn, including segments outside the child's own rectangle; the
+    // partitions outside the spanned cells stay.
+    const result = render(gridWithChild({ block_type: "text",
+        x: 2, y: 2, width: 10, height: 3 }));
+    const ls = lines(result);
+    // child at abs (3,3) 10×3 intersects cols 1–2 (abs x [1,15)) and both
+    // rows (abs y [1,7)) — the span region is the whole 2×2 block
+    assert.equal(ls[1][8], " "); // col partition inside the span — suppressed
+    assert.equal(ls[3][8], " "); // under the child
+    assert.equal(ls[6][8], " "); // ...including above/below the child's rect
+    assert.equal(ls[1][15], "│"); // col partition outside the span — stays
+    assert.equal(ls[4][15], "├"); // junction: the left arm is suppressed
+    assert.equal(ls[4][2], " "); // row partition inside the span — suppressed
+    assert.equal(ls[4][14], " ");
+    assert.equal(ls[4][16], "─"); // row partition outside the span — stays
+    assert.equal(ls[0][8], "─"); // frame node over a suppressed segment
+    assert.equal(ls[0][15], "┬");
+    assert.equal(ls[7][8], "─");
+    assert.equal(ls[7][15], "┴");
+});
+
+test("grid span fill kept under child", () => {
+    // meta.fill is kept under the child: a suppressed partition cell
+    // shows the fill, not a space. The child (10×2 at the top) spans
+    // both columns × the top row (0064): its bottom edge is flush with
+    // the row boundary, which does not extend the span (0068). The
+    // partition x=6 the child straddles is suppressed across the spanned
+    // row (showing the fill), and the horizontal partition y=3 stays
+    // fully drawn (the child does not straddle it).
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 12, height: 6,
+          content: "", border_style: "solid",
+          meta: { cols: 2, rows: 2, fill: "░" } },
+        { id: "c1", block_type: "text", parent_id: "g1", x: 0, y: 0,
+          width: 10, height: 2, content: "", border_style: "none" },
+    ]);
+    const ls = lines(result);
+    assert.equal(ls[0], "┌" + "─".repeat(10) + "┐"); // top frame node degraded (0063)
+    assert.equal(ls[1], "│░░░░░░░░░░│");
+    assert.equal(ls[2], "│░░░░░░░░░░│");
+    assert.equal(ls[3], "├─────┬────┤"); // y=3 stays drawn (not straddled)
+    assert.equal(ls[4], "│░░░░░│░░░░│"); // x=6 drawn in the bottom row
+    assert.equal(ls[5], "└─────┴────┘"); // bottom frame node over x=6
+});
+
+test("grid span child covers whole inner area", () => {
+    // A child covering the whole inner area — no inner partitions and
+    // the frame nodes on the outer border degrade to plain line
+    // characters (0063): no line ends stick out of the spanned cell.
+    const result = render(gridWithChild({ block_type: "text",
+        x: 0, y: 0, width: 22, height: 6 }));
+    const ls = lines(result);
+    assert.equal(ls[0], "┌" + "─".repeat(22) + "┐");
+    assert.equal(ls[7], "└" + "─".repeat(22) + "┘");
+    assert.equal(ls[4], "│" + " ".repeat(22) + "│");
+    assert.ok(!result.includes("┼"));
+});
+
+test("grid span none border", () => {
+    // border_style none (solid partitions over the whole area) — the
+    // suppression works the same: the child spans the whole cells it
+    // touches (0064), so the partitions inside them are not drawn and
+    // the junction at the span's edge keeps only the drawn arms.
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "none", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "text", parent_id: "g1", x: 0, y: 0,
+          width: 8, height: 4, content: "", border_style: "none" },
+    ]);
+    const ls = lines(result);
+    // child at abs (1,1) 8×4 intersects cols 1–2 (abs x [0,16)) and both
+    // rows (abs y [0,8)) — the span region is the whole 2×2 block
+    assert.equal(ls[0][8], " "); // col partition inside the span — suppressed
+    assert.equal(ls[2][8], " ");
+    assert.equal(ls[5][8], " "); // ...including above/below the child's rect
+    assert.equal(ls[4][0], " "); // row partition inside the span — suppressed
+    assert.equal(ls[4][1], " ");
+    assert.equal(ls[4][8], " "); // junction inside the span — suppressed
+    assert.equal(ls[4][16], "├"); // junction at the span's edge: left arm gone
+    assert.equal(ls[2][16], "│"); // the other vertical partition stays
+});
+
+test("grid span frame nodes full picture", () => {
+    // A child at the top-left (24×9) spans cols 1–2 × both rows (0064):
+    // its right edge is flush with the column boundary, which does not
+    // extend the span (0068). The partition x=13 the child straddles is
+    // suppressed across the full height, the horizontal partition y=5 is
+    // suppressed across the spanned columns (the junction at x=25, which
+    // the child does not straddle, degrades to ├), and the frame nodes
+    // over the suppressed segments degrade to plain lines (0063).
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 38, height: 11,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "text", parent_id: "g1", x: 0, y: 0,
+          width: 24, height: 9, content: "", border_style: "none" },
+    ], 40, 12);
+    const expected = [
+        "┌────────────────────────┬───────────┐",
+        "│                        │           │",
+        "│                        │           │",
+        "│                        │           │",
+        "│                        │           │",
+        "│                        ├───────────┤",
+        "│                        │           │",
+        "│                        │           │",
+        "│                        │           │",
+        "│                        │           │",
+        "└────────────────────────┴───────────┘",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+test("grid span TO BE change-cells", () => {
+    // The TO BE picture from tasks/0061-0070/change-cells-span.md, case
+    // «grid с одним дочерним элементом, пересекающим внутренние границы»:
+    // a child smaller than the spanned cells still spans the whole cells
+    // it touches (0064) — the partition column between cells 1–2 is not
+    // drawn above/below the child either, and the row partition starts at
+    // the span's edge (├, not ┼).
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 38, height: 11,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 2, y: 2,
+          width: 19, height: 5,
+          content: "lorem ipsum dolor\nsit amet,\nconsectetur",
+          border_style: "double" },
+    ], 40, 12);
+    const expected = [
+        "┌────────────────────────┬───────────┐",
+        "│                        │           │",
+        "│                        │           │",
+        "│  ╔═════════════════╗   │           │",
+        "│  ║lorem ipsum dolor║   │           │",
+        "│  ║sit amet,        ║   ├───────────┤",
+        "│  ║consectetur      ║   │           │",
+        "│  ╚═════════════════╝   │           │",
+        "│                        │           │",
+        "│                        │           │",
+        "└────────────────────────┴───────────┘",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+test("grid span TO BE change-cells 2", () => {
+    // The TO BE picture from tasks/0061-0070/change-cells-span2.md: a
+    // child in the bottom-right area (rel (16,5), 18×3) crossing only the
+    // vertical partition x=25 — under the crossing rule (0065) the
+    // horizontal partition y=5 stays fully drawn (the child does not
+    // straddle it), the left partition x=13 stays drawn (not crossed),
+    // and only x=25 is removed across the spanned rows; the junction
+    // (25,5) and the bottom frame nodes keep only the drawn arms
+    // ((25,5) → ┴, (25,10) → ─, (13,10) → ┴).
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 38, height: 11,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 16, y: 5,
+          width: 18, height: 3, content: "lorem ipsum",
+          border_style: "double" },
+    ], 40, 12);
+    const expected = [
+        "┌────────────┬───────────┬───────────┐",
+        "│            │           │           │",
+        "│            │           │           │",
+        "│            │           │           │",
+        "│            │           │           │",
+        "├────────────┼───────────┴───────────┤",
+        "│            │   ╔════════════════╗  │",
+        "│            │   ║lorem ipsum     ║  │",
+        "│            │   ╚════════════════╝  │",
+        "│            │                       │",
+        "└────────────┴───────────────────────┘",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+test("grid span TO BE change-cells 3 (1)", () => {
+    // The TO BE (1) picture from tasks/0061-0070/change-cells-span3.md:
+    // a child whose LEFT edge sits exactly on the vertical partition
+    // x=13 (rel (12,0), 14×3, abs x[13,27) y[1,4)). Under the
+    // boundary-inclusive crossing rule (0066) the partition x=13 is
+    // counted as crossed (rx0 <= p) and suppressed; x=25 is also
+    // crossed (the child's right edge x=26 is past it). The span is all
+    // 3 columns × row 1 (the child is entirely in row 1), so both
+    // vertical partitions are removed across row 1; the horizontal
+    // partition y=5 is not crossed (ry1=4 < 5) and stays drawn, and the
+    // junctions (13,5)/(25,5) lose their upper arm (┼ → ┬).
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 38, height: 11,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 12, y: 0,
+          width: 14, height: 3, content: "lorem ipsum",
+          border_style: "double" },
+    ], 40, 12);
+    const expected = [
+        "┌────────────────────────────────────┐",
+        "│            ╔════════════╗          │",
+        "│            ║lorem ipsum ║          │",
+        "│            ╚════════════╝          │",
+        "│                                    │",
+        "├────────────┬───────────┬───────────┤",
+        "│            │           │           │",
+        "│            │           │           │",
+        "│            │           │           │",
+        "│            │           │           │",
+        "└────────────┴───────────┴───────────┘",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+test("grid span TO BE change-cells 3 (2)", () => {
+    // The TO BE (2) picture from tasks/0061-0070/change-cells-span3.md:
+    // a child whose TOP edge sits exactly on the horizontal partition
+    // y=5 (rel (12,4), 14×3, abs x[13,27) y[5,8)). Under the
+    // closed-interval cell intersection (0066) the span extends into the
+    // row above (the child touches row 1's bottom boundary at y=5), so
+    // the span is all 3 columns × both rows; under the
+    // boundary-inclusive crossing rule the partition y=5 is counted as
+    // crossed (ry0 <= q) and suppressed, and x=13/x=25 are crossed too —
+    // every partition is removed, leaving only the outer frame.
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 38, height: 11,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "c1", block_type: "box", parent_id: "g1", x: 12, y: 4,
+          width: 14, height: 3, content: "lorem ipsum",
+          border_style: "double" },
+    ], 40, 12);
+    const expected = [
+        "┌────────────────────────────────────┐",
+        "│                                    │",
+        "│                                    │",
+        "│                                    │",
+        "│                                    │",
+        "│            ╔════════════╗          │",
+        "│            ║lorem ipsum ║          │",
+        "│            ╚════════════╝          │",
+        "│                                    │",
+        "│                                    │",
+        "└────────────────────────────────────┘",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+test("grid span TO BE change-cells 4", () => {
+    // The TO BE picture from tasks/0061-0070/change-cells-span4.md: a
+    // 4×4 double grid with custom col_widths/row_heights (partitions at
+    // abs x=8,21,32 and y=2,5,8) and a content child 23×5 at abs x[9,32)
+    // y[3,8) whose right edge is flush with the C2|C3 partition (x=32)
+    // and its bottom edge with the R1|R2 partition (y=8). Under 0068 a
+    // right/bottom edge flush with a boundary does not extend the span,
+    // so the span is cols 2–3 × rows 2–3 (abs x[8,32) y[2,8)): the
+    // partition x=21 the child straddles is suppressed across the
+    // spanned rows, the partition y=5 across the spanned columns, and
+    // the boundaries x=32 / y=8 (and the cells beyond them) stay fully
+    // drawn.
+    const result = render([
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 38, height: 11,
+          content: "", border_style: "double",
+          meta: { cols: 4, rows: 4, col_widths: [7, 13, 11, 5],
+                  row_heights: [1, 3, 3, 2] } },
+        { id: "c1", block_type: "content", parent_id: "g1", x: 8, y: 2,
+          width: 23, height: 5, content: "", border_style: "solid" },
+    ], 38, 11);
+    const expected = [
+        "╔═══════╦════════════╦══════════╦════╗",
+        "║       ║            ║          ║    ║",
+        "╠═══════╬════════════╩══════════╬════╣",
+        "║       ║┌─────────────────────┐║    ║",
+        "║       ║│lorem ipsum dolor sit│║    ║",
+        "╠═══════╣│amet, consectetur    │╠════╣",
+        "║       ║│adipiscing eli       │║    ║",
+        "║       ║└─────────────────────┘║    ║",
+        "╠═══════╬════════════╦══════════╬════╣",
+        "║       ║            ║          ║    ║",
+        "╚═══════╩════════════╩══════════╩════╝",
+    ].join("\n");
+    assert.equal(result, expected);
+});
+
+function grid3x3WithChild(child) {
+    // A 24×12 grid (3 cols × 3 rows, solid) with one borderless, empty
+    // child — the child renders nothing, only its span region is visible.
+    // Inner x[1,23) y[1,11); vertical partitions at abs x=8,15;
+    // horizontal at abs y=4,7; cells C1 x[1,8), C2 x[8,15), C3 x[15,23),
+    // R1 y[1,4), R2 y[4,7), R3 y[7,11).
+    return [
+        { id: "g1", block_type: "grid", x: 0, y: 0, width: 24, height: 12,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 3 } },
+        Object.assign({ id: "c1", parent_id: "g1", block_type: "text",
+                        content: "", border_style: "none" }, child),
+    ];
+}
+
+test("grid span top horizontal", () => {
+    // Child in the top row crossing the C1|C2 boundary (x=8): the span is
+    // C1-C2 × R1 (abs x[1,15) y[1,4)) — the vertical partition x=8 is not
+    // drawn across the whole top row, the top frame node over it degrades
+    // to ─, and the junction below the span (8,4) loses its upper arm (┬).
+    const result = render(grid3x3WithChild({ x: 1, y: 1, width: 12, height: 1 }));
+    assert.equal(result, [
+        "┌──────────────┬───────┐",
+        "│              │       │",
+        "│              │       │",
+        "│              │       │",
+        "├───────┬──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n"));
+});
+
+test("grid span right vertical", () => {
+    // Child in the right column crossing the R1|R2 boundary (y=4): the
+    // span is C3 × R1-R2 (abs x[15,23) y[1,7)) — the child straddles only
+    // the horizontal partition y=4, so it is suppressed across the spanned
+    // columns (x=16-22) while the vertical partition x=15 is kept (the
+    // child does not cross it, 0065); the right frame node at (23,4)
+    // degrades to │, and the junctions (15,4)/(15,7) keep only the drawn
+    // arms (┤/┼).
+    const result = render(grid3x3WithChild({ x: 17, y: 1, width: 4, height: 4 }));
+    assert.equal(result, [
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┤       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n"));
+});
+
+test("grid span bottom horizontal", () => {
+    // Child in the bottom row crossing the C2|C3 boundary (x=15): the span
+    // is C2-C3 × R3 (abs x[8,23) y[7,11)) — the child straddles only the
+    // vertical partition x=15, so it is suppressed across the spanned rows
+    // (y=8-10) while the horizontal partition y=7 is kept (the child does
+    // not cross it, 0065); the bottom frame node over x=15 degrades to ─,
+    // and the junctions (8,7)/(15,7) keep only the drawn arms (┼/┴).
+    const result = render(grid3x3WithChild({ x: 9, y: 7, width: 12, height: 2 }));
+    assert.equal(result, [
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┴───────┤",
+        "│       │              │",
+        "│       │              │",
+        "│       │              │",
+        "└───────┴──────────────┘",
+    ].join("\n"));
+});
+
+test("grid span middle row horizontal", () => {
+    // Child in the middle row crossing the C1|C2 boundary (x=8): the span
+    // is C1-C2 × R2 (abs x[1,15) y[4,7)) — the child straddles only the
+    // vertical partition x=8, so it is suppressed across the spanned rows
+    // (y=5-6) while both horizontal partitions (y=4, y=7) are kept (the
+    // child does not cross them, 0065); the junctions (8,4)/(8,7) keep
+    // only the drawn arms (┴/┬).
+    const result = render(grid3x3WithChild({ x: 1, y: 4, width: 12, height: 1 }));
+    assert.equal(result, [
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┴──────┼───────┤",
+        "│              │       │",
+        "│              │       │",
+        "├───────┬──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n"));
+});
+
+test("grid span left vertical", () => {
+    // Child in the left column crossing the R2|R3 boundary (y=7): the span
+    // is C1 × R2-R3 (abs x[1,8) y[4,11)) — the child straddles only the
+    // horizontal partition y=7, so it is suppressed across the spanned
+    // columns (x=1-7) while the vertical partition x=8 and the horizontal
+    // partition y=4 are kept (the child does not cross them, 0065); the
+    // left frame node at (1,7) degrades to │, and the junctions (8,4)/(8,7)
+    // keep only the drawn arms (┼/├).
+    const result = render(grid3x3WithChild({ x: 1, y: 4, width: 4, height: 4 }));
+    assert.equal(result, [
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       ├──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n"));
+});
+
+test("grid span center 2x2", () => {
+    // Child in the center crossing both the C1|C2 boundary (x=8) and the
+    // R1|R2 boundary (y=4): the span is C1-C2 × R1-R2 (abs x[1,15) y[1,7))
+    // — a 2×2 block; the vertical partition x=8 and the horizontal
+    // partition y=4 are not drawn across it, the top frame node over x=8
+    // degrades to ─, the left frame node at (1,4) degrades to │, and the
+    // interior junction (8,4) keeps all four drawn arms (┼).
+    const result = render(grid3x3WithChild({ x: 1, y: 1, width: 12, height: 4 }));
+    assert.equal(result, [
+        "┌──────────────┬───────┐",
+        "│              │       │",
+        "│              │       │",
+        "│              │       │",
+        "│              ├───────┤",
+        "│              │       │",
+        "│              │       │",
+        "├───────┬──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n"));
+});
+
+test("grid span single cell no suppression", () => {
+    // Control: a child inside a single cell (C1R1) does not cross any
+    // boundary — its span region is exactly that cell, which contains no
+    // partition cells, so nothing is suppressed and the grid renders
+    // normally (all frame nodes and junctions intact).
+    const result = render(grid3x3WithChild({ x: 1, y: 1, width: 4, height: 1 }));
+    assert.equal(result, [
+        "┌───────┬──────┬───────┐",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "├───────┼──────┼───────┤",
+        "│       │      │       │",
+        "│       │      │       │",
+        "│       │      │       │",
+        "└───────┴──────┴───────┘",
+    ].join("\n"));
+});
+
+test("gridJunction char table", () => {
+    // The junction character from the four drawn arms (0063) — full
+    // crosses, degraded nodes, corners, single arms, and nothing.
+    // BORDERS is not exported — the solid map is inlined.
+    const j = PG.gridJunction;
+    const part = {
+        b_b: "┼", t_l: "├", t_r: "┤", t_t: "┬", b_l: "┴",
+        v: "│", h: "─", tl: "┌", tr: "┐", bl: "└", br: "┘",
+    };
+    assert.equal(j(part, true, true, true, true), "┼");
+    assert.equal(j(part, true, true, true, false), "┤");
+    assert.equal(j(part, true, true, false, true), "├");
+    assert.equal(j(part, true, true, false, false), "│");
+    assert.equal(j(part, true, false, true, true), "┴");
+    assert.equal(j(part, false, true, true, true), "┬");
+    assert.equal(j(part, false, false, true, true), "─");
+    assert.equal(j(part, true, false, true, false), "└");
+    assert.equal(j(part, true, false, false, true), "┐");
+    assert.equal(j(part, false, true, true, false), "┘");
+    assert.equal(j(part, false, true, false, true), "┌");
+    assert.equal(j(part, true, false, false, false), "│");
+    assert.equal(j(part, false, true, false, false), "│");
+    assert.equal(j(part, false, false, true, false), "─");
+    assert.equal(j(part, false, false, false, true), "─");
+    assert.equal(j(part, false, false, false, false), null);
+});
+
+// ── Grid custom column/row widths (0067) ─────────────────────
+
+test("gridSplit: custom widths", () => {
+    const s = PG.gridSplit;
+    // No widths — the even split (backward compatible)
+    assert.deepEqual(s({}, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 7, 14, 22], rowY: [0, 3, 6] });
+    // Custom widths, exact sum
+    assert.deepEqual(s({ cols: 3, col_widths: [4, 10, 8] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 4, 14, 22], rowY: [0, 3, 6] });
+    // Sum < total — the last column absorbs the remainder
+    assert.deepEqual(s({ cols: 3, col_widths: [8, 8, 4] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 8, 16, 22], rowY: [0, 3, 6] });
+    // Sum > total — the last column shrinks (>= 1 cell)
+    assert.deepEqual(s({ cols: 3, col_widths: [10, 10, 10] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 10, 20, 22], rowY: [0, 3, 6] });
+    // Invalid (wrong length, a zero) — the even split
+    assert.deepEqual(s({ cols: 3, col_widths: [4, 10] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 7, 14, 22], rowY: [0, 3, 6] });
+    assert.deepEqual(s({ cols: 3, col_widths: [0, 10, 12] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 7, 14, 22], rowY: [0, 3, 6] });
+    // Row heights
+    assert.deepEqual(s({ rows: 2, row_heights: [2, 4] }, 22, 6),
+        { effCols: 3, effRows: 2, colX: [0, 7, 14, 22], rowY: [0, 2, 6] });
+});
+
+test("grid custom col_widths", () => {
+    // 24×8 (inner 22) with [4, 10, 8] → partitions at inner 4 and 14
+    // (absolute 5 and 15)
+    const ls = lines(render(gridBlock(24, 8, { cols: 3, col_widths: [4, 10, 8] })));
+    assert.equal(ls[0][5], "┬");
+    assert.equal(ls[0][15], "┬");
+    assert.equal(ls[7][5], "┴");
+    assert.equal(ls[7][15], "┴");
+    // The even-split positions are gone
+    assert.equal(ls[0][8], "─");
+    assert.equal(ls[0][14], "─");
+    // The rows stay even (no row_heights): the partition at absolute row 4
+    assert.equal(ls[4][5], "┼");
+    assert.equal(ls[4][15], "┼");
+});
+
+test("grid custom widths last absorbs", () => {
+    // [8, 8, 4] (sum 20) in an inner 22 → [0, 8, 16, 22]
+    const ls = lines(render(gridBlock(24, 8, { cols: 3, col_widths: [8, 8, 4] })));
+    // Partitions at inner 8 and 16 (absolute 9 and 17); the even-split
+    // positions (absolute 8 and 15) are plain line
+    assert.equal(ls[0][9], "┬");
+    assert.equal(ls[0][17], "┬");
+    assert.equal(ls[0][8], "─");
+    assert.equal(ls[0][15], "─");
+});
+
+test("grid custom widths overflow clamped", () => {
+    // [10, 10, 10] (sum 30) in an inner 22 → [0, 10, 20, 22]
+    const ls = lines(render(gridBlock(24, 8, { cols: 3, col_widths: [10, 10, 10] })));
+    // Partitions at inner 10 and 20 (absolute 11 and 21)
+    assert.equal(ls[0][11], "┬");
+    assert.equal(ls[0][21], "┬");
+    // The last column is a single cell between the partition and the frame
+    assert.equal(ls[1][21], "│");
+    assert.equal(ls[1][22], " ");
+    assert.equal(ls[1][23], "│");
+});
+
+test("grid custom widths invalid fallback", () => {
+    // Invalid col_widths (not an array, wrong length, a zero) — the even
+    // split (backward compatible)
+    const even = render(gridBlock(24, 8, { cols: 3 }));
+    for (const bad of ["x", [4, 10], [0, 10, 12], [4.5, 10, 7], true]) {
+        assert.equal(render(gridBlock(24, 8, { cols: 3, col_widths: bad })), even);
+    }
+});
+
+test("grid custom row_heights", () => {
+    // Inner 6 with [2, 4] → the partition at inner 2 (absolute row 3),
+    // not the even 3 (absolute 4)
+    const ls = lines(render(gridBlock(24, 8, { rows: 2, row_heights: [2, 4] })));
+    assert.equal(ls[3][0], "├");
+    assert.equal(ls[3][23], "┤");
+    assert.equal(ls[4][0], "│"); // the even position is a plain border
+});
+
+test("grid span with uneven split", () => {
+    // Span suppression (0062–0068) on an uneven split (0067): a child
+    // spanning cells 0–1 of a [4, 10, 8] grid × the top row suppresses
+    // the partition between them (absolute x=5) across the spanned rows,
+    // the other partition (absolute x=15) is untouched, and the
+    // horizontal partition y=4 stays drawn (the child's bottom edge is
+    // flush with it, which does not extend the span, 0068).
+    const blocks = [
+        { id: "g", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid",
+          meta: { cols: 3, col_widths: [4, 10, 8], rows: 2 } },
+        { id: "c", block_type: "box", x: 0, y: 0, width: 13, height: 3,
+          content: "", border_style: "solid", parent_id: "g" },
+    ];
+    const ls = lines(render(blocks));
+    // The partition x=5 is suppressed across the span (rows 1–3)
+    for (let row = 1; row <= 3; row++) {
+        assert.notEqual(ls[row][5], "│");
+    }
+    // ...and drawn again in the bottom row (the span does not reach it)
+    assert.equal(ls[5][5], "│");
+    assert.equal(ls[6][5], "│");
+    // The partition x=15 is drawn where the child doesn't cover it
+    assert.equal(ls[1][15], "│");
+    assert.equal(ls[5][15], "│");
+    // The top frame node over x=5 degrades (suppressed in the top row)
+    assert.equal(ls[0][5], "─");
+    // ...the bottom one keeps its up arm (x=5 drawn in the bottom row)
+    assert.equal(ls[7][5], "┴");
+    // The junction at (5,4) keeps only the drawn arms (0063)
+    assert.equal(ls[4][5], "┬");
+    assert.equal(ls[4][15], "┼");
+});
+
+test("gridReshapeWidths: split/merge the last", () => {
+    const r = PG.gridReshapeWidths;
+    // No custom widths (or a stale array) → null (the even split)
+    assert.equal(r(null, 3, 4), null);
+    assert.equal(r([4, 10], 3, 4), null);
+    assert.equal(r([0, 10, 12], 3, 4), null);
+    // Same count — a copy
+    assert.deepEqual(r([4, 10, 8], 3, 3), [4, 10, 8]);
+    // Growth — the last column is split in half (floor/ceil)
+    assert.deepEqual(r([4, 10, 8], 3, 4), [4, 10, 4, 4]);
+    assert.deepEqual(r([4, 10, 9], 3, 4), [4, 10, 4, 5]);
+    // A 1-cell last one borrows from the nearest wider left neighbor
+    assert.deepEqual(r([5, 1], 2, 3), [4, 1, 1]);
+    assert.deepEqual(r([3, 1, 1], 3, 4), [2, 1, 1, 1]);
+    // All 1-cell — can't split → null
+    assert.equal(r([1, 1], 2, 3), null);
+    // Shrink — the last two are merged
+    assert.deepEqual(r([4, 10, 4, 4], 4, 3), [4, 10, 8]);
+    assert.deepEqual(r([4, 10, 8], 3, 2), [4, 18]);
 });
