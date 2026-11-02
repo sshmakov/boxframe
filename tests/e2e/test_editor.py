@@ -2878,6 +2878,55 @@ def test_web_editor_legacy_grid_first_change_materializes_1x1(page: Page):
     expect(inputs.nth(1)).to_have_value("1")
 
 
+def test_web_editor_import_legacy_json_grid_panel_shows_1x1(page: Page):
+    """Importing a legacy layout JSON (a grid with metadata {}) through
+    the Import button keeps the grid legacy: the server stores meta {}
+    (no structure injection on the replace path) and, after a page
+    reload, the panel shows 1/1 — the effective structure, not the
+    schema defaults 3/2 (0069)."""
+    import os
+
+    layout_id, _ = _create_project_with_blocks(page, [])
+    _wait_editor_ready(page, 0)
+
+    # Import the legacy file through the hidden file input
+    file_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))),
+        "tasks", "0061-0070", "legacy.json")
+    page.set_input_files(".import-file-input", file_path)
+
+    # The import replaces the (empty) layout content — 8 blocks appear
+    _wait_editor_ready(page, 8)
+
+    # The server stored the grid's meta as-is (no injection on replace)
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    blocks = {b["id"]: b for b in r.json()["blocks"]}
+    grids = [b for b in blocks.values() if b["block_type"] == "grid"]
+    assert len(grids) == 1
+    assert grids[0]["meta"] == {}
+
+    # Reload — the editor loads the layout fresh from the server
+    page.reload()
+    _wait_editor_ready(page, 8)
+
+    # Select the grid (1,10) 60×8. The center is covered by the
+    # textarea (24,11) 34×5, so click (5,17) — inside the grid, outside
+    # the textarea (the grid is topmost there, over the sidebar).
+    grid_id = grids[0]["id"]
+    metrics = _canvas_metrics(page, grid_id, 60, 8)
+    x, y = _grid_point(metrics, 5, 17)
+    page.mouse.click(x, y)
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    inputs = panel.locator(
+        '.props-section[data-section="Grid"] input[type=number]')
+    expect(inputs.nth(0)).to_have_value("1")
+    expect(inputs.nth(1)).to_have_value("1")
+
+
 def _ascii_lines(page: Page) -> list[str]:
     t = page.evaluate(
         "() => document.querySelector('.canvas-container .ascii-art')"

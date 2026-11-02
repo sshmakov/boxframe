@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Depends
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -75,7 +75,23 @@ app = FastAPI(
 
 # ── Mount static files & templates ────────────────────────
 
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+class NoCacheStaticFiles(StaticFiles):
+    """Static files with Cache-Control: no-cache.
+
+    Without it the browser heuristically caches the JS (the response
+    carries only ETag/Last-Modified), so an edited file may keep being
+    served from the cache for a while — the editor then runs a mix of
+    old and new scripts. no-cache forces a revalidation on every load
+    (ETag → 304 when unchanged, fresh content when it changed).
+    """
+
+    async def get_response(self, path: str, scope) -> "Response":
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/static", NoCacheStaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 # ── Include API routers ───────────────────────────────────

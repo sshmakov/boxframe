@@ -1,0 +1,112 @@
+{
+  "id": "53598382-cdc7-4f43-87a7-c3e97be434f6",
+  "name": "win",
+  "width": 80,
+  "height": 24,
+  "blocks": [
+    {
+      "id": "c5579082-a497-4cb9-a972-83a57369a59f",
+      "type": "button",
+      "x": 50,
+      "y": 18,
+      "width": 10,
+      "height": 3,
+      "content": "Button",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 0,
+      "children": []
+    },
+    {
+      "id": "eeae1eb1-6583-4f63-9dbc-01c3dda17dba",
+      "type": "content",
+      "x": 1,
+      "y": 4,
+      "width": 29,
+      "height": 6,
+      "content": "[content]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 1,
+      "children": []
+    },
+    {
+      "id": "268c56a3-28c6-41fd-8838-4faf1d0c5cff",
+      "type": "sidebar",
+      "x": 0,
+      "y": 0,
+      "width": 62,
+      "height": 22,
+      "content": "[sidebar]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 2,
+      "children": []
+    },
+    {
+      "id": "8e648a6f-83e9-4297-a302-733a5b6b43aa",
+      "type": "divider",
+      "x": 30,
+      "y": 4,
+      "width": 31,
+      "height": 6,
+      "content": "[divider]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 3,
+      "children": []
+    },
+    {
+      "id": "e1d55d4e-3426-4c1e-a02c-9beae2482a7a",
+      "type": "header",
+      "x": 0,
+      "y": 0,
+      "width": 62,
+      "height": 4,
+      "content": "[header]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 4,
+      "children": []
+    },
+    {
+      "id": "d454a68f-7874-4856-8f58-b3663071e7e2",
+      "type": "button",
+      "x": 38,
+      "y": 18,
+      "width": 10,
+      "height": 3,
+      "content": "Button",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 5,
+      "children": []
+    },
+    {
+      "id": "b6844c79-db3e-439b-b5d5-b7ffb0403152",
+      "type": "grid",
+      "x": 1,
+      "y": 10,
+      "width": 60,
+      "height": 8,
+      "content": "[grid]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 6,
+      "children": []
+    },
+    {
+      "id": "21089cb8-786a-4279-96ae-5ea12a386320",
+      "type": "textarea",
+      "x": 24,
+      "y": 11,
+      "width": 34,
+      "height": 5,
+      "content": "[textarea]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 7,
+      "children": []
+    }
+  ]
+}

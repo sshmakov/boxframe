@@ -1,0 +1,112 @@
+{
+  "id": "6605fdb0-3042-4ac3-9d26-1923fa68291e",
+  "name": "test",
+  "width": null,
+  "height": null,
+  "blocks": [
+    {
+      "id": "c6da2ac6-d237-4b82-af8a-d11009ea56da",
+      "type": "button",
+      "x": 50,
+      "y": 18,
+      "width": 10,
+      "height": 3,
+      "content": "Button",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 0,
+      "children": []
+    },
+    {
+      "id": "f3fbd614-c86d-4680-9235-78e787be834c",
+      "type": "content",
+      "x": 1,
+      "y": 4,
+      "width": 29,
+      "height": 6,
+      "content": "[content]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 1,
+      "children": []
+    },
+    {
+      "id": "78362bc9-e1c0-462d-a4c1-dc02d3e0a53e",
+      "type": "sidebar",
+      "x": 0,
+      "y": 0,
+      "width": 62,
+      "height": 22,
+      "content": "[sidebar]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 2,
+      "children": []
+    },
+    {
+      "id": "3296967e-ca6c-4544-97af-37e996710f15",
+      "type": "divider",
+      "x": 30,
+      "y": 4,
+      "width": 31,
+      "height": 6,
+      "content": "[divider]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 3,
+      "children": []
+    },
+    {
+      "id": "afd94b3e-45a3-4a7c-b134-833a6988cb3d",
+      "type": "header",
+      "x": 0,
+      "y": 0,
+      "width": 62,
+      "height": 4,
+      "content": "[header]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 4,
+      "children": []
+    },
+    {
+      "id": "81f87b00-96a1-480c-908d-f7e29725f464",
+      "type": "button",
+      "x": 38,
+      "y": 18,
+      "width": 10,
+      "height": 3,
+      "content": "Button",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 5,
+      "children": []
+    },
+    {
+      "id": "932acb64-fadc-444e-932d-57faaf11ed81",
+      "type": "grid",
+      "x": 1,
+      "y": 10,
+      "width": 60,
+      "height": 8,
+      "content": "[grid]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 6,
+      "children": []
+    },
+    {
+      "id": "fc4e3e1b-997c-4732-b411-f74d355d6909",
+      "type": "textarea",
+      "x": 24,
+      "y": 11,
+      "width": 34,
+      "height": 5,
+      "content": "[textarea]",
+      "border_style": "solid",
+      "metadata": {},
+      "order": 7,
+      "children": []
+    }
+  ]
+}
