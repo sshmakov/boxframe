@@ -507,6 +507,44 @@ def test_parity_deep_nesting():
     )
 
 
+def test_parity_borderless_container_children():
+    """ASCII: children of a borderless container (1-cell padding, inner
+    clip) render identically in both renderers."""
+    js_blocks = [
+        {"id": "p", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 8,
+         "content": "", "border_style": "none", "order": 0},
+        {"id": "c1", "block_type": "content", "x": 2, "y": 2, "width": 10, "height": 3,
+         "content": "", "border_style": "solid", "parent_id": "p", "order": 0},
+    ]
+    assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+        to_nested(js_blocks), 40, 12
+    )
+
+    # A child bigger than the borderless parent is clipped to the inner area
+    js_blocks = [
+        {"id": "p", "block_type": "box", "x": 0, "y": 0, "width": 10, "height": 4,
+         "content": "", "border_style": "none", "order": 0},
+        {"id": "c", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+         "content": "", "border_style": "solid", "parent_id": "p", "order": 0},
+    ]
+    assert render_js(js_blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+        to_nested(js_blocks), 40, 12
+    )
+
+    # Borderless containers compose (3 levels, all borderless)
+    js_blocks = [
+        {"id": "p", "block_type": "box", "x": 0, "y": 0, "width": 24, "height": 10,
+         "content": "", "border_style": "none", "order": 0},
+        {"id": "c", "block_type": "box", "x": 1, "y": 1, "width": 16, "height": 6,
+         "content": "", "border_style": "none", "parent_id": "p", "order": 0},
+        {"id": "g", "block_type": "text", "x": 1, "y": 1, "width": 6, "height": 1,
+         "content": "Deep", "border_style": "none", "parent_id": "c", "order": 0},
+    ]
+    assert render_js(js_blocks, 40, 14) == PseudoGraphicRenderer.render_simple(
+        to_nested(js_blocks), 40, 14
+    )
+
+
 def test_parity_button_heights():
     """Buttons of all heights (h=1 [label], h=2 no top border, h>=3 full box),
     multiline labels, and manual resizes smaller than the fit (task 0060)."""

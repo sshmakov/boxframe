@@ -668,12 +668,13 @@ class PseudoGraphicRenderer:
 
         if has_border:
             self._draw_border(block, style_map)
-            self._draw_content(block)
-            if block.children:
-                self._render_children_in_container(block, style_map)
-        else:
-            # No border - just place content at the block's position
-            self._draw_content(block)
+        self._draw_content(block)
+        # Children are rendered regardless of the parent's border: a
+        # borderless container keeps the same 1-cell padding and inner
+        # clip as a framed one (the HTML overlay and the editor's
+        # coordinate math assume the padding unconditionally).
+        if block.children:
+            self._render_children_in_container(block, style_map)
 
     def _draw_border(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw the border of a block."""

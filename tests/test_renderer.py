@@ -116,6 +116,94 @@ def test_render_simple_deep_nesting():
     assert "Deep" in lines[4]
 
 
+def test_borderless_box_renders_children():
+    """A borderless container renders its children: the child's border is
+    drawn at the same 1-cell padding as inside a framed container."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 20, "height": 8,
+        "content": "",
+        "border_style": "none",
+        "children": [{
+            "block_type": "content",
+            "x": 2, "y": 2,
+            "width": 10, "height": 3,
+            "content": "",
+            "border_style": "solid",
+        }],
+    }])
+    lines = result.split("\n")
+    # Child absolute rect: (0+1+2, 0+1+2) = (3, 3), 10×3
+    assert lines[3][3] == "┌"
+    assert lines[3][12] == "┐"
+    assert lines[5][3] == "└"
+    assert lines[5][12] == "┘"
+    # The lorem placeholder is drawn inside the child
+    assert "lorem" in lines[4]
+    # The borderless parent draws nothing of its own (rows 0–2 are empty)
+    assert lines[0] == ""
+    assert lines[1] == ""
+    assert lines[2] == ""
+
+
+def test_borderless_box_clips_children_to_inner_area():
+    """A borderless container clips children to the same inner area as a
+    framed one (1 cell inside the block's edge)."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "content": "",
+        "border_style": "none",
+        "children": [{
+            "block_type": "box",
+            "x": 0, "y": 0,
+            "width": 20, "height": 10,
+            "content": "",
+            "border_style": "solid",
+        }],
+    }])
+    lines = result.split("\n")
+    # Child absolute rect: (1, 1)–(21, 11); clipped to (1, 1)–(9, 3):
+    # row 1 — "┌" + top border to the clip edge (no ┐), row 2 — "│" + the
+    # child's [box] hint (cols 2–6), nothing at col 8 (right border
+    # clipped away), the bottom border is clipped away too
+    assert lines[1][1] == "┌"
+    assert lines[1][8] == "─"
+    assert len(lines[1]) == 9
+    assert lines[2] == " │[box]"
+    assert len(lines) == 3
+
+
+def test_borderless_box_deep_nesting():
+    """Borderless containers compose: every level keeps its 1-cell padding."""
+    result = _render([{
+        "block_type": "box",
+        "x": 0, "y": 0,
+        "width": 24, "height": 10,
+        "content": "",
+        "border_style": "none",
+        "children": [{
+            "block_type": "box",
+            "x": 1, "y": 1,
+            "width": 16, "height": 6,
+            "content": "",
+            "border_style": "none",
+            "children": [{
+                "block_type": "text",
+                "x": 1, "y": 1,
+                "width": 6, "height": 1,
+                "content": "Deep",
+                "border_style": "none",
+            }],
+        }],
+    }])
+    lines = result.split("\n")
+    # Grandchild absolute position: (0+1+1+1+1, 0+1+1+1+1) = (4, 4)
+    assert "Deep" in lines[4]
+
+
 def test_border_styles():
     corners = {
         "solid": ("┌", "┐"),

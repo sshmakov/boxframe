@@ -1007,13 +1007,15 @@
 
         if (hasBorder) {
             drawBorder(block, style, grid, gw, gh, clip);
-            drawContent(block, grid, gw, gh, clip);
-            var hasChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
-            if (hasChildren) {
-                renderChildrenInContainer(block, style, grid, gw, gh, allBlocks, clip);
-            }
-        } else {
-            drawContent(block, grid, gw, gh, clip);
+        }
+        drawContent(block, grid, gw, gh, clip);
+        // Children are rendered regardless of the parent's border: a
+        // borderless container keeps the same 1-cell padding and inner
+        // clip as a framed one (the HTML overlay and the editor's
+        // coordinate math assume the padding unconditionally).
+        var hasChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
+        if (hasChildren) {
+            renderChildrenInContainer(block, style, grid, gw, gh, allBlocks, clip);
         }
     }
 
