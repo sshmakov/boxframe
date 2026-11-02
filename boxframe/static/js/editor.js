@@ -1918,15 +1918,17 @@ function editorApp() {
                 (b.order - a.order) || ((b._seq || 0) - (a._seq || 0)));
         },
 
-        // Whether the renderer draws a block's children: only bordered
-        // blocks (border_style != none, at least 2x2) render their
-        // children, and lines/dividers/buttons never do — a child is
-        // clipped to the parent's inner area. Mirrors
-        // PseudoGraphicRenderer._render_block / _render_children_in_container.
+        // Whether the renderer draws a block's children: everything
+        // except lines/dividers/buttons (atomic elements) renders its
+        // children — regardless of the parent's border: a borderless
+        // container keeps the same 1-cell padding and inner clip as a
+        // framed one. A child is clipped to the parent's inner area
+        // (empty for w<3 or h<3 — the descent in _blockAt checks that).
+        // Mirrors PseudoGraphicRenderer._render_block /
+        // _render_children_in_container.
         _childrenRendered(b) {
-            if (b.block_type === 'hline' || b.block_type === 'vline' ||
-                b.block_type === 'button' || b.block_type === 'divider') return false;
-            return b.border_style !== 'none' && b.width >= 2 && b.height >= 2;
+            return b.block_type !== 'hline' && b.block_type !== 'vline' &&
+                b.block_type !== 'button' && b.block_type !== 'divider';
         },
 
         // The topmost VISIBLE block at grid point (x, y) — or null.

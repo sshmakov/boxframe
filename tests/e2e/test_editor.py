@@ -414,6 +414,91 @@ def test_click_empty_canvas_deselects(page: Page):
     expect(page.locator(".block-item--selected")).to_have_count(0)
 
 
+def _create_borderless_box_with_child(page: Page) -> tuple[str, str, str]:
+    """Create a project/layout, a borderless box and a content child.
+
+    The box is 20x10 at (2,2) with border_style=none; the child is a
+    10x4 content block at relative (2,2) — absolute (5,5). Returns
+    (layout_id, box_id, child_id).
+    """
+    page.goto(BASE_URL)
+    page.get_by_role("button", name="+ New Project").click()
+    page.get_by_placeholder("Project name...").fill("E2E: Editor Test")
+    page.get_by_role("button", name="Create").click()
+    expect(page).to_have_title("E2E: Editor Test — boxframe")
+
+    page.get_by_role("button", name="+ New Layout").click()
+    page.get_by_placeholder("Layout name...").fill("Editor Test Layout")
+    page.get_by_role("button", name="Create").click()
+    expect(page).to_have_url(re.compile(f"{BASE_URL}/layout/[0-9a-f-]+"))
+    layout_id = re.search(r"/layout/([0-9a-f-]+)", page.url).group(1)
+
+    r = requests.post(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks",
+        json={"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 10,
+              "border_style": "none", "content": ""},
+        timeout=5,
+    )
+    assert r.status_code == 200
+    box_id = r.json()["id"]
+
+    r = requests.post(
+        f"{BASE_URL}/api/layouts/{layout_id}/blocks",
+        json={"block_type": "content", "x": 2, "y": 2, "width": 10, "height": 4,
+              "parent_id": box_id, "content": "hello"},
+        timeout=5,
+    )
+    assert r.status_code == 200
+    child_id = r.json()["id"]
+
+    # Reload so the editor renders the new blocks
+    page.reload()
+    expect(page.locator(f'.block-preview[data-block-id="{child_id}"]')).to_be_visible()
+    return layout_id, box_id, child_id
+
+
+def test_click_borderless_box_child_selects_child(page: Page):
+    """A content child of a borderless box is selectable: the child is
+    drawn in both layers (ASCII + overlay) with the same 1-cell padding,
+    so the hit-test must descend into the borderless container (0070)."""
+    layout_id, box_id, child_id = _create_borderless_box_with_child(page)
+
+    page.locator(f'.block-preview[data-block-id="{child_id}"]').click()
+
+    expect(page.locator(".block-selection")).to_be_visible()
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    expect(page.locator(".block-item--selected .block-item__info strong")).to_have_text("content")
+
+
+def test_click_borderless_box_outer_cell_selects_box(page: Page):
+    """Clicking the borderless box's outer cell (inside the box, outside
+    the child and outside the box's inner area) selects the box itself
+    (0070)."""
+    layout_id, box_id, child_id = _create_borderless_box_with_child(page)
+
+    # The box's top-left cell (absolute (2,2)) — the child starts at
+    # absolute (5,5), so the first cell is the box's own area
+    page.locator(f'.block-preview[data-block-id="{box_id}"]').click(position={"x": 1, "y": 1})
+
+    expect(page.locator(".block-selection")).to_be_visible()
+    expect(page.locator(".block-item--selected")).to_have_count(1)
+    expect(page.locator(".block-item--selected .block-item__info strong")).to_have_text("box")
+
+
+def test_double_click_borderless_box_child_edits_child(page: Page):
+    """Double-clicking the child of a borderless box opens inline
+    editing for the child, not the parent (0070)."""
+    layout_id, box_id, child_id = _create_borderless_box_with_child(page)
+
+    page.locator(f'.block-preview[data-block-id="{child_id}"]').dblclick()
+    textarea = page.locator(".block-edit-overlay textarea")
+    expect(textarea).to_be_visible()
+    expect(textarea).to_have_value("hello")
+
+    textarea.press("Escape")
+    expect(page.locator(".block-edit-overlay")).not_to_be_visible()
+
+
 def test_panel_duplicate_creates_block_copy(page: Page):
     """The Duplicate action in the properties panel creates a copy of the block."""
     layout_id, block_id = _create_project_with_block(page)

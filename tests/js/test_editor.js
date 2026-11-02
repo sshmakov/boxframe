@@ -650,13 +650,19 @@ test("_blockAt: a child of a high-order container beats a lower-order root", () 
     assert.equal(app._blockAt(5, 5).id, "kid");
 });
 
-test("_blockAt: children of a borderless container are not drawn", () => {
+test("_blockAt: a child of a borderless container is on top (0070)", () => {
     const app = appWith([
         block("p", "box", 0, 0, 20, 10),
         block("c", "text", 2, 2, 8, 3, "p"),
     ]);
     app.blocks[0].border_style = "none";
-    assert.equal(app._blockAt(5, 4).id, "p");
+    // c abs = (0+1+2, 0+1+2) = (3, 3), 8x3 — a borderless container
+    // keeps the same 1-cell padding and inner clip as a framed one, so
+    // the child is drawn (and clickable) inside it
+    assert.equal(app._blockAt(5, 4).id, "c");
+    // The container's outer cell (0, 4) — outside the inner area — is
+    // still the container
+    assert.equal(app._blockAt(0, 4).id, "p");
 });
 
 test("_blockAt: buttons never render their children", () => {
