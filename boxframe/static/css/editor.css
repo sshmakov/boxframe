@@ -793,7 +793,7 @@ body.file-drop-active::after {
     background: rgba(233, 69, 96, 0.12);
 }
 
-/* Icon buttons (the Align row, schema iconPrefix): the label is an SVG
+/* Icon buttons (the Text row, schema iconPrefix): the label is an SVG
    applied as a CSS mask over currentColor, so the icon tints like the
    glyph buttons (muted → accent when active).
 
@@ -805,8 +805,9 @@ body.file-drop-active::after {
    mask failed and a failed mask renders fully transparent). A data:
    URI makes NO cross-origin request (data: is in the allowed-scheme
    list), so the mask works from file:// in any config. The canonical,
-   inspectable icons live in static/icons/align-*.svg; regenerate these
-   data: URIs with tmp/gen_icon_datauris.py after editing an SVG.
+   inspectable icons live in static/icons/ (align-*.svg, text-*.svg);
+   regenerate these data: URIs with tmp/gen_icon_datauris.py after
+   editing an SVG.
 
    FALLBACK: the option text stays in the button and is the visible
    label until the editor verifies the mask (editor.js flips
@@ -853,6 +854,25 @@ body.file-drop-active::after {
 .style-btn--align-bottom::before {
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='10' width='16' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='18' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Crect x='4' y='10' width='16' height='2' rx='1'/%3E %3Crect x='4' y='14' width='16' height='2' rx='1'/%3E %3Crect x='4' y='18' width='16' height='2' rx='1'/%3E %3C/svg%3E") center / contain no-repeat;
+}
+
+/* Hide-text toggle (the Text row, kind: "toggle"): the button shows the
+   CURRENT state's icon — eye (text visible, the default) / eye-off
+   (hidden, the button is active). */
+.style-btn--text-eye::before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Cpath fill-rule='evenodd' d='M12 5C6.2 5 2.1 9.5 1 12c1.1 2.5 5.2 7 11 7s9.9-4.5 11-7c-1.1-2.5-5.2-7-11-7zm0 10.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z'/%3E %3Ccircle cx='12' cy='12' r='1.8'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Cpath fill-rule='evenodd' d='M12 5C6.2 5 2.1 9.5 1 12c1.1 2.5 5.2 7 11 7s9.9-4.5 11-7c-1.1-2.5-5.2-7-11-7zm0 10.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z'/%3E %3Ccircle cx='12' cy='12' r='1.8'/%3E %3C/svg%3E") center / contain no-repeat;
+}
+.style-btn--text-eye-off::before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Cpath fill-rule='evenodd' d='M12 5C6.2 5 2.1 9.5 1 12c1.1 2.5 5.2 7 11 7s9.9-4.5 11-7c-1.1-2.5-5.2-7-11-7zm0 10.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z'/%3E %3Ccircle cx='12' cy='12' r='1.8'/%3E %3Cpath d='M3.8 2.2 21.8 20.2 20.2 21.8 2.2 3.8Z'/%3E %3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23000'%3E %3Cpath fill-rule='evenodd' d='M12 5C6.2 5 2.1 9.5 1 12c1.1 2.5 5.2 7 11 7s9.9-4.5 11-7c-1.1-2.5-5.2-7-11-7zm0 10.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z'/%3E %3Ccircle cx='12' cy='12' r='1.8'/%3E %3Cpath d='M3.8 2.2 21.8 20.2 20.2 21.8 2.2 3.8Z'/%3E %3C/svg%3E") center / contain no-repeat;
+}
+
+/* The toggle group: a single icon button (not stretched like the
+   segmented groups' buttons) */
+.style-btns--toggle .style-btn {
+    flex: none;
+    width: 30px;
 }
 
 /* Number fields: label to the left of the input (one grid cell each) */

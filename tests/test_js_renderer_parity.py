@@ -296,6 +296,46 @@ def test_parity_alignment():
             (block_type, meta, content, base)
 
 
+def test_parity_hide_text():
+    """meta.hide_text (content/hint/placeholder/label suppression) renders
+    identically in both renderers."""
+    cases = [
+        # (block_type, meta, content, border_style, width, height)
+        ("box", {"hide_text": True}, "Hi", "solid", 10, 4),
+        ("box", {"hide_text": True}, "", "solid", 10, 4),  # hint suppressed
+        ("box", {"hide_text": False}, "Hi", "solid", 10, 4),  # explicit false
+        ("box", {"hide_text": True, "fill": "░"}, "Hi", "solid", 10, 4),  # fill stays
+        ("box", {"hide_text": True, "fill": " "}, "", "solid", 10, 4),  # space fill stays
+        ("box", {"hide_text": True, "text_align": "center"}, "Hello World", "solid", 10, 5),
+        ("box", {"hide_text": True}, "Hi", "none", 10, 4),
+        ("content", {"hide_text": True}, "", "solid", 12, 4),  # lorem suppressed
+        ("content", {"hide_text": True}, "Real text", "solid", 12, 4),
+        ("header", {"hide_text": True}, "Header", "double", 20, 3),
+        ("button", {"hide_text": True}, "Button", "solid", 16, 1),
+        ("button", {"hide_text": True}, "Button", "solid", 16, 2),
+        ("button", {"hide_text": True}, "Button", "solid", 16, 4),
+        ("button", {"hide_text": True}, "hi\nthere", "solid", 12, 3),
+        ("button", {"hide_text": True}, "Button", "none", 16, 2),
+        ("text", {"hide_text": True}, "Hi", "none", 10, 2),
+        ("text", {"hide_text": True}, "Hi", "solid", 10, 2),
+        ("input", {"hide_text": True}, "", "solid", 10, 3),  # hint suppressed
+        ("image", {"hide_text": True}, "", "solid", 10, 3),  # hint suppressed
+        ("divider", {"hide_text": True}, "or", "solid", 20, 1),
+        ("divider", {"hide_text": True}, "a\nbb\nccc", "solid", 20, 3),
+        ("divider", {"hide_text": True, "text_align": "left"}, "or", "dashed", 20, 2),
+        ("divider", {"hide_text": True}, "or", "none", 20, 1),  # fully empty
+        ("hline", {"hide_text": True}, "", "solid", 8, 1),  # lines ignore it
+        ("vline", {"hide_text": True}, "", "solid", 1, 8),
+    ]
+    for block_type, meta, content, base, w, h in cases:
+        blocks = [{"id": "b1", "block_type": block_type, "x": 0, "y": 0,
+                   "width": w, "height": h, "content": content,
+                   "border_style": base, "meta": meta, "order": 0}]
+        py_blocks = [{k: v for k, v in b.items() if k != "id"} for b in blocks]
+        assert render_js(blocks, 30, 12) == PseudoGraphicRenderer.render_simple(py_blocks, 30, 12), \
+            (block_type, meta, content, base)
+
+
 def test_parity_text_block_size():
     """The text fit size (autosize) must agree between the renderers."""
     from boxframe.services.renderer import text_block_size

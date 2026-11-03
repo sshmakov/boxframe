@@ -2358,14 +2358,34 @@ function editorApp() {
             return (prop.icons && prop.icons[opt]) || opt;
         },
 
+        // Toggle (kind: "toggle"): the single button shows the CURRENT
+        // state's icon — eye (text visible) / eye-off (hidden). The
+        // options list for the button loop is [toggleOpt(prop)], so the
+        // icon follows the value; a mixed selection reads as visible
+        // (propValue "" → eye — the click hides all).
+        toggleOpt(prop) {
+            return this.propValue(prop.key) ? "eye-off" : "eye";
+        },
+
+        // The toggle button's title: the action it performs (Hide text /
+        // Show text).
+        toggleTitle(prop) {
+            return this.propValue(prop.key) ? "Show text" : "Hide text";
+        },
+
         // style-btn classes: the active state, plus for iconPrefix
-        // properties (the Align row) the SVG-icon classes — the
+        // properties (the Text row) the SVG-icon classes — the
         // `style-btn--<iconPrefix>-<opt>` class selects the CSS mask
         // (static/icons/<iconPrefix>-<opt>.svg, see editor.css). The
         // option text stays in the button as a fallback (hidden by CSS
-        // only after _verifyAlignIcons flips `align-icons-ok`).
+        // only after _verifyAlignIcons flips `align-icons-ok`). A toggle
+        // is active while the value is set (text hidden) — the opt
+        // passed in is the state icon, so "eye-off" ⇔ active.
         styleBtnClasses(prop, opt) {
-            const cls = { 'style-btn--active': this.propActive(prop.key, opt) };
+            const active = prop.kind === "toggle"
+                ? !this.isMixedProp(prop.key) && opt === "eye-off"
+                : this.propActive(prop.key, opt);
+            const cls = { 'style-btn--active': active };
             if (prop.iconPrefix) {
                 cls['style-btn--icon'] = true;
                 cls['style-btn--' + prop.iconPrefix + '-' + opt] = true;
@@ -2571,6 +2591,16 @@ function editorApp() {
         },
 
         onPropSelect(prop, opt) {
+            // A toggle flips the boolean: all selected blocks hidden →
+            // show (null clears the meta key — the default is implicit);
+            // visible or mixed → hide all.
+            if (prop.kind === "toggle") {
+                const sel = this.selectedBlocks;
+                const allHidden = sel.length > 0 && sel.every(
+                    b => PGProperties.readPropValue(b, prop) === true);
+                this.applyPropValue(prop, allHidden ? null : true);
+                return;
+            }
             // The "none" option may be a display sentinel for the absent
             // value (fill/arrows): noneValue gives the stored value (null
             // clears the meta key). Omitted → "none" is stored as-is.

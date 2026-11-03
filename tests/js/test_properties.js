@@ -55,7 +55,8 @@ test("schema: the current properties are described (phase 3 set)", () => {
     const keys = PGProperties.PROPERTY_SCHEMA.map(p => p.key);
     assert.deepEqual(keys, [
         "border_style", "fill",
-        "text_align", "vertical_align", "arrow_start", "arrow_end",
+        "text_align", "vertical_align", "hide_text",
+        "arrow_start", "arrow_end",
         "cols", "rows",
         "x", "y", "width", "height", "order", "content",
     ]);
@@ -81,10 +82,12 @@ test("schema: the current properties are described (phase 3 set)", () => {
     assert.ok(!fill.types.includes("hline"));
     // Alignment (phase 3 of tasks/0051): meta keys, segmented; picking
     // the default clears the meta key (clearDefault — the default is
-    // implicit). Not applicable to lines. row: "align" — the pair shares
-    // one panel row (one button group each, one shared label).
-    // iconPrefix: the buttons show SVG icons (static/icons/align-*.svg,
-    // masked in editor.css) instead of the option text.
+    // implicit). Not applicable to lines. row: "text" — the properties
+    // share one panel row (one button group each, one shared label
+    // "Text" — the section covers all text properties: alignment +
+    // visibility). iconPrefix: the buttons show SVG icons
+    // (static/icons/align-*.svg, masked in editor.css) instead of the
+    // option text.
     for (const [key, options, defaultValue] of [
         ["text_align", ["left", "center", "right"], "left"],
         ["vertical_align", ["top", "middle", "bottom"], "top"],
@@ -94,15 +97,32 @@ test("schema: the current properties are described (phase 3 set)", () => {
         assert.equal(prop.kind, "segmented");
         assert.deepEqual(prop.options, options);
         assert.equal(prop.iconPrefix, "align");
-        assert.equal(prop.group, "Align");
-        assert.equal(prop.row, "align");
+        assert.equal(prop.group, "Text");
+        assert.equal(prop.row, "text");
         assert.equal(prop.default, defaultValue);
         assert.equal(prop.clearDefault, true);
         assert.ok(prop.types.includes("button"));
         assert.ok(!prop.types.includes("hline"));
         assert.ok(!prop.types.includes("vline"));
     }
-    assert.equal(PGProperties.findProperty("text_align").rowLabel, "Align");
+    assert.equal(PGProperties.findProperty("text_align").rowLabel, "Text");
+    // Hide text: meta key, a single toggle icon (kind: "toggle") in the
+    // same row; the button shows the CURRENT state's icon (eye /
+    // eye-off, static/icons/text-*.svg) and clicking flips the value
+    // (absent = visible, the default)
+    const hide = PGProperties.findProperty("hide_text");
+    assert.equal(hide.meta, true);
+    assert.equal(hide.kind, "toggle");
+    assert.equal(hide.iconPrefix, "text");
+    assert.equal(hide.group, "Text");
+    assert.equal(hide.row, "text");
+    assert.equal(hide.default, false);
+    assert.equal(hide.panel, "primary");
+    assert.deepEqual(hide.icons, { eye: "👁", "eye-off": "🚫" });
+    assert.ok(hide.types.includes("button"));
+    assert.ok(hide.types.includes("divider"));
+    assert.ok(!hide.types.includes("hline"));
+    assert.ok(!hide.types.includes("grid"));
     // Divider: the label is centered horizontally AND vertically
     // (typeDefaults) — the panel shows center/middle as active for a
     // divider without the meta key, and picking the type default clears
@@ -152,10 +172,10 @@ test("schema: the current properties are described (phase 3 set)", () => {
         assert.equal(PGProperties.findProperty(key).cols, 3, key);
     }
     // Panel split (task 0054): the floating panel keeps the primary
-    // properties (style, fill, alignment, arrows); the rest (geometry,
-    // text) are secondary — modal only (panel omitted)
+    // properties (style, fill, text, arrows); the rest (geometry,
+    // content) are secondary — modal only (panel omitted)
     for (const key of ["border_style", "fill", "text_align", "vertical_align",
-                       "arrow_start", "arrow_end"]) {
+                       "hide_text", "arrow_start", "arrow_end"]) {
         assert.equal(PGProperties.findProperty(key).panel, "primary", key);
     }
     for (const key of ["x", "y", "width", "height", "order", "content"]) {
@@ -239,10 +259,11 @@ test("_blockDefaults: grid is 24x8 with empty content (todo-0005)", () => {
 test("sectionsForType: groups in declaration order, all properties applicable", () => {
     const sections = PGProperties.sectionsForType("box");
     assert.deepEqual(sections.map(s => s.name),
-        ["Style", "Fill", "Align", "Geometry", "Text"]);
+        ["Style", "Fill", "Text", "Geometry", "Content"]);
     assert.deepEqual(sections[0].props.map(p => p.key), ["border_style"]);
     assert.deepEqual(sections[1].props.map(p => p.key), ["fill"]);
-    assert.deepEqual(sections[2].props.map(p => p.key), ["text_align", "vertical_align"]);
+    assert.deepEqual(sections[2].props.map(p => p.key),
+        ["text_align", "vertical_align", "hide_text"]);
     assert.deepEqual(
         sections[3].props.map(p => p.key),
         ["x", "y", "width", "height", "order"],
@@ -254,35 +275,35 @@ test("sectionsForType: the panel filter keeps the primary properties (task 0054)
     // The floating panel: primary sections only
     assert.deepEqual(
         PGProperties.sectionsForType("box", "primary").map(s => s.name),
-        ["Style", "Fill", "Align"]);
-    // A line: Arrows instead of Fill/Align
+        ["Style", "Fill", "Text"]);
+    // A line: Arrows instead of Fill/Text
     assert.deepEqual(
         PGProperties.sectionsForType("hline", "primary").map(s => s.name),
         ["Style", "Arrows"]);
     // A type with no primary property at all (text: no fill, no arrows —
-    // but it has alignment) — the primary filter still keeps Align
+    // but it has alignment) — the primary filter still keeps Text
     assert.deepEqual(
         PGProperties.sectionsForType("text", "primary").map(s => s.name),
-        ["Style", "Align"]);
+        ["Style", "Text"]);
     // The default ("all") is unchanged — the modal shows everything
     assert.deepEqual(
         PGProperties.sectionsForType("box").map(s => s.name),
-        ["Style", "Fill", "Align", "Geometry", "Text"]);
+        ["Style", "Fill", "Text", "Geometry", "Content"]);
     assert.deepEqual(
         PGProperties.sectionsForType("box", "all").map(s => s.name),
-        ["Style", "Fill", "Align", "Geometry", "Text"]);
+        ["Style", "Fill", "Text", "Geometry", "Content"]);
 });
 
-test("sectionsForType: rows group the Align pair, Geometry widens to 3 columns", () => {
+test("sectionsForType: rows group the Text row, Geometry widens to 3 columns", () => {
     const sections = PGProperties.sectionsForType("box");
-    const align = sections.find(s => s.name === "Align");
-    // Two properties → one group row (a shared label, a button group
-    // each)
-    assert.equal(align.rows.length, 1);
-    assert.equal(align.rows[0].kind, "group");
-    assert.equal(align.rows[0].label, "Align");
-    assert.deepEqual(align.rows[0].props.map(p => p.key),
-        ["text_align", "vertical_align"]);
+    const text = sections.find(s => s.name === "Text");
+    // Three properties → one group row (a shared label, a button group
+    // each; the toggle renders a single button)
+    assert.equal(text.rows.length, 1);
+    assert.equal(text.rows[0].kind, "group");
+    assert.equal(text.rows[0].label, "Text");
+    assert.deepEqual(text.rows[0].props.map(p => p.key),
+        ["text_align", "vertical_align", "hide_text"]);
     const geometry = sections.find(s => s.name === "Geometry");
     assert.equal(geometry.cols, 3);
     assert.equal(geometry.rows.length, 5);
@@ -292,7 +313,7 @@ test("sectionsForType: rows group the Align pair, Geometry widens to 3 columns",
     }
     // The other sections: one row per property, two columns
     for (const s of sections) {
-        if (s.name === "Align" || s.name === "Geometry") continue;
+        if (s.name === "Text" || s.name === "Geometry") continue;
         assert.equal(s.cols, 2, s.name);
         assert.equal(s.rows.length, s.props.length, s.name);
     }
@@ -313,12 +334,12 @@ test("sectionsForType: Fill is not applicable to button and lines", () => {
         const sections = PGProperties.sectionsForType(type);
         assert.ok(!sections.some(s => s.name === "Fill"), type);
     }
-    // Align applies to all content types (including button — text_align
-    // aligns the label) but not to lines
+    // Text (alignment + hide_text) applies to all content types
+    // (including button — text_align aligns the label) but not to lines
     for (const type of ["hline", "vline"]) {
-        assert.ok(!PGProperties.sectionsForType(type).some(s => s.name === "Align"), type);
+        assert.ok(!PGProperties.sectionsForType(type).some(s => s.name === "Text"), type);
     }
-    assert.ok(PGProperties.sectionsForType("button").some(s => s.name === "Align"));
+    assert.ok(PGProperties.sectionsForType("button").some(s => s.name === "Text"));
 });
 
 test("sectionsForType: Arrows are applicable to lines only", () => {
@@ -332,7 +353,7 @@ test("sectionsForType: Arrows are applicable to lines only", () => {
     }
 });
 
-test("sectionsForType: grid has a Grid section (cols/rows), Fill, no Align (todo-0005)", () => {
+test("sectionsForType: grid has a Grid section (cols/rows), Fill, no Text (todo-0005)", () => {
     const sections = PGProperties.sectionsForType("grid");
     // The Grid section carries the cols/rows number inputs
     const grid = sections.find(s => s.name === "Grid");
@@ -342,10 +363,10 @@ test("sectionsForType: grid has a Grid section (cols/rows), Fill, no Align (todo
     assert.equal(grid.props[0].min, 1);
     assert.equal(grid.props[0].default, 3);
     assert.equal(grid.props[1].default, 2);
-    // Grid is fillable (FILL_TYPES) but not aligned (content is not
-    // rendered), and has no arrows
+    // Grid is fillable (FILL_TYPES) but has no text properties (content
+    // is not rendered), and no arrows
     assert.ok(sections.some(s => s.name === "Fill"), "Fill applies to grid");
-    assert.ok(!sections.some(s => s.name === "Align"), "no Align for grid");
+    assert.ok(!sections.some(s => s.name === "Text"), "no Text for grid");
     assert.ok(!sections.some(s => s.name === "Arrows"), "no Arrows for grid");
     // The primary panel keeps the Grid section (cols/rows are primary)
     assert.ok(
@@ -447,9 +468,9 @@ test("panelSections: the floating panel shows the primary sections only (task 00
     const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
     assert.deepEqual(
         app.panelSections.map(s => s.name),
-        ["Style", "Fill", "Align"],
+        ["Style", "Fill", "Text"],
     );
-    // A line: no Fill/Align, but Arrows
+    // A line: no Fill/Text, but Arrows
     const line = appWith([block("b1", "hline", 0, 0, 5, 1)], ["b1"]);
     assert.deepEqual(
         line.panelSections.map(s => s.name),
@@ -461,13 +482,13 @@ test("modalSections: the modal shows all sections (primary + secondary)", () => 
     const app = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
     assert.deepEqual(
         app.modalSections.map(s => s.name),
-        ["Style", "Fill", "Align", "Geometry", "Text"],
+        ["Style", "Fill", "Text", "Geometry", "Content"],
     );
-    // A line: no Fill/Align, but Arrows
+    // A line: no Fill/Text, but Arrows
     const line = appWith([block("b1", "hline", 0, 0, 5, 1)], ["b1"]);
     assert.deepEqual(
         line.modalSections.map(s => s.name),
-        ["Style", "Arrows", "Geometry", "Text"],
+        ["Style", "Arrows", "Geometry", "Content"],
     );
 });
 
@@ -749,6 +770,92 @@ test("styleBtnClasses: active state + the SVG icon classes (iconPrefix)", () => 
         { "style-btn--active": true });
     assert.deepEqual(app.styleBtnClasses(style, "dashed"),
         { "style-btn--active": false });
+});
+
+test("toggle: toggleOpt/toggleTitle follow the current state", () => {
+    const hide = PGProperties.findProperty("hide_text");
+    const visible = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
+    assert.equal(visible.toggleOpt(hide), "eye");
+    assert.equal(visible.toggleTitle(hide), "Hide text");
+    const hidden = appWith(
+        [block("b1", "box", 0, 0, 5, 2, { meta: { hide_text: true } })], ["b1"]);
+    assert.equal(hidden.toggleOpt(hide), "eye-off");
+    assert.equal(hidden.toggleTitle(hide), "Show text");
+    // Mixed selection reads as visible (propValue "" → eye)
+    const mixed = appWith([
+        block("a", "box", 0, 0, 5, 2, { meta: { hide_text: true } }),
+        block("b", "box", 0, 0, 5, 2),
+    ], ["a", "b"]);
+    assert.equal(mixed.toggleOpt(hide), "eye");
+    assert.equal(mixed.toggleTitle(hide), "Hide text");
+});
+
+test("toggle: styleBtnClasses highlights the current-state icon", () => {
+    const hide = PGProperties.findProperty("hide_text");
+    // The single button shows the CURRENT state's icon: visible → "eye"
+    // (inactive), hidden → "eye-off" (active)
+    const visible = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
+    assert.deepEqual(visible.styleBtnClasses(hide, "eye"), {
+        "style-btn--active": false,
+        "style-btn--icon": true,
+        "style-btn--text-eye": true,
+    });
+    const hidden = appWith(
+        [block("b1", "box", 0, 0, 5, 2, { meta: { hide_text: true } })], ["b1"]);
+    assert.deepEqual(hidden.styleBtnClasses(hide, "eye-off"), {
+        "style-btn--active": true,
+        "style-btn--icon": true,
+        "style-btn--text-eye-off": true,
+    });
+    assert.deepEqual(hidden.styleBtnClasses(hide, "eye"), {
+        "style-btn--active": false,
+        "style-btn--icon": true,
+        "style-btn--text-eye": true,
+    });
+    // Mixed → nothing highlighted
+    const mixed = appWith([
+        block("a", "box", 0, 0, 5, 2, { meta: { hide_text: true } }),
+        block("b", "box", 0, 0, 5, 2),
+    ], ["a", "b"]);
+    assert.equal(mixed.styleBtnClasses(hide, "eye-off")["style-btn--active"], false);
+});
+
+test("toggle: onPropSelect flips the value (all hidden → null, else true)", () => {
+    const hide = PGProperties.findProperty("hide_text");
+    // Visible → hide: true
+    const app1 = appWith([block("b1", "box", 0, 0, 5, 2)], ["b1"]);
+    const applied1 = [];
+    app1.applyPropValue = (prop, value) => applied1.push([prop.key, value]);
+    app1.onPropSelect(hide, "eye");
+    assert.deepEqual(applied1, [["hide_text", true]]);
+
+    // Hidden → show: null (clears the meta key)
+    const app2 = appWith(
+        [block("b1", "box", 0, 0, 5, 2, { meta: { hide_text: true } })], ["b1"]);
+    const applied2 = [];
+    app2.applyPropValue = (prop, value) => applied2.push([prop.key, value]);
+    app2.onPropSelect(hide, "eye-off");
+    assert.deepEqual(applied2, [["hide_text", null]]);
+
+    // Mixed selection (one hidden, one visible) → hide all
+    const app3 = appWith([
+        block("a", "box", 0, 0, 5, 2, { meta: { hide_text: true } }),
+        block("b", "box", 0, 0, 5, 2),
+    ], ["a", "b"]);
+    const applied3 = [];
+    app3.applyPropValue = (prop, value) => applied3.push([prop.key, value]);
+    app3.onPropSelect(hide, "eye");
+    assert.deepEqual(applied3, [["hide_text", true]]);
+
+    // All hidden → show all (null)
+    const app4 = appWith([
+        block("a", "box", 0, 0, 5, 2, { meta: { hide_text: true } }),
+        block("b", "box", 0, 0, 5, 2, { meta: { hide_text: true } }),
+    ], ["a", "b"]);
+    const applied4 = [];
+    app4.applyPropValue = (prop, value) => applied4.push([prop.key, value]);
+    app4.onPropSelect(hide, "eye-off");
+    assert.deepEqual(applied4, [["hide_text", null]]);
 });
 
 test("maskUrlFromComputed: extracts the mask image URL (icon fallback)", () => {

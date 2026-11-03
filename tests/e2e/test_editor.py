@@ -993,8 +993,8 @@ def test_props_modal_geometry_fields_in_one_row(page: Page):
 
 def test_properties_panel_section_order(page: Page):
     """The floating panel keeps the primary sections only (task 0054):
-    actions, Style, Fill, Align (for a box — no Arrows); Geometry and
-    Text live in the all-properties modal, which shows all five
+    actions, Style, Fill, Text (for a box — no Arrows); Geometry and
+    Content live in the all-properties modal, which shows all five
     sections. Sections are always open (no headers/collapse)."""
     layout_id, block_id = _create_project_with_block(page)
 
@@ -1006,7 +1006,7 @@ def test_properties_panel_section_order(page: Page):
     expect(sections).to_have_count(3)
     assert [
         sections.nth(i).get_attribute("data-section") for i in range(3)
-    ] == ["Style", "Fill", "Align"]
+    ] == ["Style", "Fill", "Text"]
 
     tops = [panel.locator(".block-props__actions").bounding_box()["y"]]
     tops += [sections.nth(i).bounding_box()["y"] for i in range(3)]
@@ -1021,7 +1021,7 @@ def test_properties_panel_section_order(page: Page):
     expect(modal_sections).to_have_count(5)
     assert [
         modal_sections.nth(i).get_attribute("data-section") for i in range(5)
-    ] == ["Style", "Fill", "Align", "Geometry", "Text"]
+    ] == ["Style", "Fill", "Text", "Geometry", "Content"]
 
 
 def test_props_modal_esc_closes_modal_then_selection(page: Page):
@@ -1190,8 +1190,9 @@ def test_props_modal_closes_when_selection_cleared(page: Page):
 
 
 def test_props_modal_content_textarea_saves(page: Page):
-    """The modal's Text section is a multi-line textarea; the value is
-    committed on blur (closing the modal) and persists to the database."""
+    """The modal's Content section is a multi-line textarea; the value
+    is committed on blur (closing the modal) and persists to the
+    database."""
     layout_id, block_id = _create_project_with_block(page)
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
@@ -1199,16 +1200,16 @@ def test_props_modal_content_textarea_saves(page: Page):
     modal = page.locator(".props-modal")
     expect(modal).to_be_visible()
 
-    # Wait for the Align icons to load (the dialog height and the field
+    # Wait for the Text icons to load (the dialog height and the field
     # positions inside it settle only after `align-icons-ok` flips)
     expect(page.locator(".editor-root")).to_have_class(
         re.compile("align-icons-ok"))
 
-    textarea = modal.locator('.props-section[data-section="Text"] textarea')
+    textarea = modal.locator('.props-section[data-section="Content"] textarea')
     expect(textarea).to_have_count(1)
     # No single-line input for the content in the modal
     expect(
-        modal.locator('.props-section[data-section="Text"] input[type=text]')
+        modal.locator('.props-section[data-section="Content"] input[type=text]')
     ).to_have_count(0)
 
     textarea.fill("line one\nline two")
@@ -1305,27 +1306,28 @@ def test_properties_panel_updates_alignment(page: Page):
     panel = page.locator(".block-props")
     expect(panel).to_be_visible()
 
-    align_section = panel.locator('.props-section[data-section="Align"]')
+    text_section = panel.locator('.props-section[data-section="Text"]')
     # Two segmented rows: H Align (left/center/right) + V Align
-    # (top/middle/bottom)
-    expect(align_section.locator(".style-btn")).to_have_count(6)
+    # (top/middle/bottom) + the hide-text toggle (one icon button)
+    expect(text_section.locator(".style-btn")).to_have_count(7)
     # The buttons show SVG icons (CSS-mask classes, static/icons/),
     # not the option text
-    expect(align_section.locator(".style-btn--icon")).to_have_count(6)
-    expect(align_section.locator(".style-btn--align-center")).to_have_count(1)
-    expect(align_section.locator(".style-btn--align-middle")).to_have_count(1)
+    expect(text_section.locator(".style-btn--icon")).to_have_count(7)
+    expect(text_section.locator(".style-btn--align-center")).to_have_count(1)
+    expect(text_section.locator(".style-btn--align-middle")).to_have_count(1)
     # The icons load in the web editor — the editor flips `align-icons-ok`
     # on the root (the fallback option text is hidden by CSS)
     expect(page.locator(".editor-root")).to_have_class(
         re.compile("align-icons-ok"))
-    # No alignment yet → the defaults are active (left / top)
-    active_titles = align_section.locator(".style-btn--active")
+    # No alignment yet → the defaults are active (left / top); the
+    # toggle is inactive (the text is visible)
+    active_titles = text_section.locator(".style-btn--active")
     expect(active_titles).to_have_count(2)
     assert sorted(
         active_titles.nth(i).get_attribute("title") for i in range(2)
     ) == ["left", "top"]
 
-    align_section.locator(".style-btn[title='center']").click()
+    text_section.locator(".style-btn[title='center']").click()
     block = _wait_block_meta(
         page, layout_id, block_id,
         lambda m: m.get("text_align") == "center",
@@ -1333,7 +1335,7 @@ def test_properties_panel_updates_alignment(page: Page):
     assert block["meta"].get("text_align") == "center"
     assert "vertical_align" not in block["meta"]
 
-    align_section.locator(".style-btn[title='middle']").click()
+    text_section.locator(".style-btn[title='middle']").click()
     block = _wait_block_meta(
         page, layout_id, block_id,
         lambda m: m.get("vertical_align") == "middle",
@@ -1341,12 +1343,51 @@ def test_properties_panel_updates_alignment(page: Page):
     assert block["meta"] == {"text_align": "center", "vertical_align": "middle"}
 
     # Picking the default (left) clears the meta key
-    align_section.locator(".style-btn[title='left']").click()
+    text_section.locator(".style-btn[title='left']").click()
     block = _wait_block_meta(
         page, layout_id, block_id,
         lambda m: "text_align" not in m,
     )
     assert block["meta"] == {"vertical_align": "middle"}
+
+
+def test_properties_panel_hide_text_toggle(page: Page):
+    """The hide-text toggle in the Text section persists meta.hide_text;
+    the button shows the CURRENT state's icon (eye / eye-off) and a
+    second click clears the meta key (the default is implicit)."""
+    layout_id, block_id = _create_project_with_block(page)
+
+    page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
+    panel = page.locator(".block-props")
+    expect(panel).to_be_visible()
+
+    text_section = panel.locator('.props-section[data-section="Text"]')
+    # Visible → the eye icon, title "Hide text", inactive
+    toggle = text_section.locator(".style-btn--text-eye")
+    expect(toggle).to_have_count(1)
+    expect(toggle).to_have_attribute("title", "Hide text")
+    expect(toggle).not_to_have_class(re.compile("style-btn--active"))
+
+    # Click → meta.hide_text = true; the button flips to eye-off
+    toggle.click()
+    block = _wait_block_meta(
+        page, layout_id, block_id,
+        lambda m: m.get("hide_text") is True,
+    )
+    assert block["meta"].get("hide_text") is True
+    toggle_off = text_section.locator(".style-btn--text-eye-off")
+    expect(toggle_off).to_have_count(1)
+    expect(toggle_off).to_have_attribute("title", "Show text")
+    expect(toggle_off).to_have_class(re.compile("style-btn--active"))
+
+    # Click again → the meta key is cleared
+    toggle_off.click()
+    block = _wait_block_meta(
+        page, layout_id, block_id,
+        lambda m: "hide_text" not in m,
+    )
+    assert "hide_text" not in block["meta"]
+    expect(text_section.locator(".style-btn--text-eye")).to_have_count(1)
 
 
 def test_properties_panel_updates_arrows(page: Page):
@@ -2050,13 +2091,13 @@ def test_static_editor_panel_matches_web_layout(page: Page):
     # Duplicate / Copy / Delete / Properties
     expect(panel.locator(".block-props__actions .action-btn")).to_have_count(4)
 
-    # Primary sections only (task 0054): Style, Fill, Align
+    # Primary sections only (task 0054): Style, Fill, Text
     expect(panel.locator(".props-section")).to_have_count(3)
     expect(
         panel.locator('.props-section[data-section="Style"] .style-btn')
     ).to_have_count(5)
 
-    # Align: the SVG icons load in the static editor too (served over
+    # Text: the SVG icons load in the static editor too (served over
     # HTTP here) — the editor flips `align-icons-ok` on the root
     expect(page.locator(".editor-root")).to_have_class(
         re.compile("align-icons-ok"))

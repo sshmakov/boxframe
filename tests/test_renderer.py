@@ -959,6 +959,94 @@ def test_button_text_align():
         assert result.split("\n")[0] == expected, align
 
 
+# ── Hide text (meta.hide_text) ──────────────────────────────
+
+
+def test_hide_text_box_content():
+    """meta.hide_text suppresses the content — the border stays."""
+    plain = _render(_align_box(None, content="Hi"))
+    hidden = _render(_align_box({"hide_text": True}, content="Hi"))
+    assert "Hi" not in hidden
+    assert hidden == "┌────────┐\n│        │\n│        │\n└────────┘"
+    # The border rows are identical to the visible render
+    assert hidden.split("\n")[0] == plain.split("\n")[0]
+    assert hidden.split("\n")[-1] == plain.split("\n")[-1]
+
+
+def test_hide_text_box_hint():
+    """meta.hide_text also suppresses the [type] hint (empty content)."""
+    hidden = _render([{"block_type": "box", "x": 0, "y": 0, "width": 10,
+                       "height": 4, "content": "", "border_style": "solid",
+                       "meta": {"hide_text": True}}])
+    assert "[box]" not in hidden
+    assert hidden == "┌────────┐\n│        │\n│        │\n└────────┘"
+
+
+def test_hide_text_false_and_absent_render_as_before():
+    """hide_text absent or false — the content is drawn (backward
+    compatibility)."""
+    plain = _render(_align_box(None))
+    false = _render(_align_box({"hide_text": False}))
+    assert plain == false
+
+
+def test_hide_text_fill_stays():
+    """The fill is not text — it stays under hide_text."""
+    result = _render(_align_box({"hide_text": True, "fill": "░"}))
+    lines = result.split("\n")
+    assert lines[1] == "│░░░░░░░░│"
+    assert lines[2] == "│░░░░░░░░│"
+
+
+def test_hide_text_content_placeholder():
+    """The lorem placeholder is text — hide_text suppresses it."""
+    blocks = [{"block_type": "content", "x": 0, "y": 0, "width": 12,
+               "height": 3, "content": "", "border_style": "solid",
+               "meta": {"hide_text": True}}]
+    result = _render(blocks)
+    assert result == "┌──────────┐\n│          │\n└──────────┘"
+
+
+def test_hide_text_button_label():
+    """The button label is suppressed — the frame stays."""
+    result = _render([{
+        "block_type": "button", "x": 0, "y": 0, "width": 16, "height": 3,
+        "content": "Button", "border_style": "solid",
+        "meta": {"hide_text": True},
+    }])
+    assert result == "┌──────────────┐\n│              │\n└──────────────┘"
+
+
+def test_hide_text_button_h1():
+    """h=1 button: [        ] — the brackets stay, the label goes."""
+    result = _render([{
+        "block_type": "button", "x": 0, "y": 0, "width": 10, "height": 1,
+        "content": "Button", "border_style": "solid",
+        "meta": {"hide_text": True},
+    }])
+    assert result == "[        ]"
+
+
+def test_hide_text_divider_label():
+    """The divider label is suppressed — the line stays."""
+    result = _render([{
+        "block_type": "divider", "x": 0, "y": 0, "width": 10, "height": 1,
+        "content": "or", "border_style": "solid",
+        "meta": {"hide_text": True},
+    }])
+    assert result == "──────────"
+
+
+def test_hide_text_text_block():
+    """A text block (no border by default) becomes empty."""
+    result = _render([{
+        "block_type": "text", "x": 0, "y": 0, "width": 10, "height": 2,
+        "content": "Hi", "border_style": "none",
+        "meta": {"hide_text": True},
+    }])
+    assert result == ""
+
+
 # ── Button tests (tasks/0021-0030/0022-button.md, 0060) ─────
 
 

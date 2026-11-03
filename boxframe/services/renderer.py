@@ -799,7 +799,8 @@ class PseudoGraphicRenderer:
         # each line horizontally aligned (meta.text_align, default
         # center). The inner area: h=1/h=2 — one row (row y), h>=3 —
         # the rows between the borders, none — the whole block.
-        if block.content:
+        # meta.hide_text suppresses the label (the frame stays).
+        if block.content and not (block.meta or {}).get("hide_text"):
             if framed:
                 inner_x, inner_w = x + 1, w - 2
                 if h >= 3:
@@ -859,25 +860,27 @@ class PseudoGraphicRenderer:
         # Label: each content line over its row, as-is, truncated to the
         # stored width, aligned (meta.text_align, default center); the
         # line block is shifted vertically (meta.vertical_align, default
-        # middle), lines past the bottom are not drawn
-        align = (block.meta or {}).get("text_align")
-        if align not in ("left", "center", "right"):
-            align = "center"
-        valign = (block.meta or {}).get("vertical_align")
-        if valign not in ("top", "middle", "bottom"):
-            valign = "middle"
-        lines = (block.content or "").split("\n")
-        v_off = v_align_offset(len(lines), h, valign)
-        for i, line in enumerate(lines):
-            if i + v_off >= h:
-                break
-            row = y + v_off + i
-            if row >= self.grid_height:
-                break
-            line = line[:w]
-            off = h_align_offset(len(line), w, align)
-            for col, ch in enumerate(line):
-                self._set(x + off + col, row, ch)
+        # middle), lines past the bottom are not drawn.
+        # meta.hide_text suppresses the label (the line stays).
+        if not (block.meta or {}).get("hide_text"):
+            align = (block.meta or {}).get("text_align")
+            if align not in ("left", "center", "right"):
+                align = "center"
+            valign = (block.meta or {}).get("vertical_align")
+            if valign not in ("top", "middle", "bottom"):
+                valign = "middle"
+            lines = (block.content or "").split("\n")
+            v_off = v_align_offset(len(lines), h, valign)
+            for i, line in enumerate(lines):
+                if i + v_off >= h:
+                    break
+                row = y + v_off + i
+                if row >= self.grid_height:
+                    break
+                line = line[:w]
+                off = h_align_offset(len(line), w, align)
+                for col, ch in enumerate(line):
+                    self._set(x + off + col, row, ch)
 
     def _draw_grid(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw a grid (todo-0005): the outer border (per border_style)
@@ -1114,6 +1117,12 @@ class PseudoGraphicRenderer:
                     break
                 for i in range(content_w):
                     self._set(content_x + i, row, fill)
+
+        # Hide text (meta.hide_text): the content, the lorem placeholder
+        # and the [type] hint are not drawn — the fill (above) and the
+        # border (drawn by the caller) remain.
+        if (block.meta or {}).get("hide_text"):
+            return
 
         if not block.content:
             if block.block_type == "content" and not fill and content_w > 0 and content_h > 0:

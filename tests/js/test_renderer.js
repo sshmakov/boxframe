@@ -883,6 +883,92 @@ test("button text align", () => {
     }
 });
 
+// ── Hide text (meta.hide_text) ──────────────────────────────
+
+test("hide text: box content suppressed, the border stays", () => {
+    const plain = render(alignBox(null, "Hi"));
+    const hidden = render(alignBox({ hide_text: true }, "Hi"));
+    assert.ok(!hidden.includes("Hi"));
+    assert.equal(hidden, "┌────────┐\n│        │\n│        │\n└────────┘");
+    // The border rows are identical to the visible render
+    assert.equal(lines(hidden)[0], lines(plain)[0]);
+    assert.equal(lines(hidden).pop(), lines(plain).pop());
+});
+
+test("hide text: the [type] hint is suppressed too", () => {
+    const hidden = render([{
+        id: "b1", block_type: "box",
+        x: 0, y: 0, width: 10, height: 4,
+        content: "", border_style: "solid",
+        meta: { hide_text: true },
+    }]);
+    assert.ok(!hidden.includes("[box]"));
+    assert.equal(hidden, "┌────────┐\n│        │\n│        │\n└────────┘");
+});
+
+test("hide text: absent or false renders as before", () => {
+    const plain = render(alignBox(null));
+    const false_ = render(alignBox({ hide_text: false }));
+    assert.equal(plain, false_);
+});
+
+test("hide text: the fill stays", () => {
+    const result = render(alignBox({ hide_text: true, fill: "░" }));
+    const ls = lines(result);
+    assert.equal(ls[1], "│░░░░░░░░│");
+    assert.equal(ls[2], "│░░░░░░░░│");
+});
+
+test("hide text: the lorem placeholder is suppressed", () => {
+    const result = render([{
+        id: "b1", block_type: "content",
+        x: 0, y: 0, width: 12, height: 3,
+        content: "", border_style: "solid",
+        meta: { hide_text: true },
+    }]);
+    assert.equal(result, "┌──────────┐\n│          │\n└──────────┘");
+});
+
+test("hide text: the button label is suppressed, the frame stays", () => {
+    const result = render([{
+        id: "b1", block_type: "button",
+        x: 0, y: 0, width: 16, height: 3,
+        content: "Button", border_style: "solid",
+        meta: { hide_text: true },
+    }]);
+    assert.equal(result, "┌──────────────┐\n│              │\n└──────────────┘");
+});
+
+test("hide text: h=1 button keeps the brackets", () => {
+    const result = render([{
+        id: "b1", block_type: "button",
+        x: 0, y: 0, width: 10, height: 1,
+        content: "Button", border_style: "solid",
+        meta: { hide_text: true },
+    }]);
+    assert.equal(result, "[        ]");
+});
+
+test("hide text: the divider label is suppressed, the line stays", () => {
+    const result = render([{
+        id: "b1", block_type: "divider",
+        x: 0, y: 0, width: 10, height: 1,
+        content: "or", border_style: "solid",
+        meta: { hide_text: true },
+    }]);
+    assert.equal(result, "──────────");
+});
+
+test("hide text: a borderless text block becomes empty", () => {
+    const result = render([{
+        id: "b1", block_type: "text",
+        x: 0, y: 0, width: 10, height: 2,
+        content: "Hi", border_style: "none",
+        meta: { hide_text: true },
+    }]);
+    assert.equal(result, "");
+});
+
 // ── Button tests (tasks/0021-0030/0022-button.md, 0060) ─────
 
 function button(height, width = 16, content = "Button", border_style = "solid",

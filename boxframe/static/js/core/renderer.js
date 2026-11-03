@@ -542,7 +542,8 @@
         // each line horizontally aligned (meta.text_align, default
         // center). The inner area: h=1/h=2 — one row (row y), h>=3 —
         // the rows between the borders, none — the whole block.
-        if (block.content) {
+        // meta.hide_text suppresses the label (the frame stays).
+        if (block.content && !(block.meta || {}).hide_text) {
             var innerX, innerY, innerW, innerH;
             if (framed) {
                 innerX = x + 1;
@@ -610,22 +611,25 @@
         // Label: each content line over its row, as-is, truncated to the
         // stored width, aligned (meta.text_align, default center); the
         // line block is shifted vertically (meta.vertical_align, default
-        // middle), lines past the bottom are not drawn
+        // middle), lines past the bottom are not drawn.
+        // meta.hide_text suppresses the label (the line stays).
         var meta = block.meta || {};
-        var align = meta.text_align;
-        if (align !== "left" && align !== "center" && align !== "right") align = "center";
-        var valign = meta.vertical_align;
-        if (valign !== "top" && valign !== "middle" && valign !== "bottom") valign = "middle";
-        var lines = String(block.content == null ? "" : block.content).split("\n");
-        var vOff = vAlignOffset(lines.length, h, valign);
-        for (var li = 0; li < lines.length; li++) {
-            if (li + vOff >= h) break;
-            var row = y + vOff + li;
-            if (row >= gh) break;
-            var line = lines[li].slice(0, w);
-            var off = hAlignOffset(line.length, w, align);
-            for (var c = 0; c < line.length; c++) {
-                setCell(grid, gw, gh, clip, x + off + c, row, line[c]);
+        if (!meta.hide_text) {
+            var align = meta.text_align;
+            if (align !== "left" && align !== "center" && align !== "right") align = "center";
+            var valign = meta.vertical_align;
+            if (valign !== "top" && valign !== "middle" && valign !== "bottom") valign = "middle";
+            var lines = String(block.content == null ? "" : block.content).split("\n");
+            var vOff = vAlignOffset(lines.length, h, valign);
+            for (var li = 0; li < lines.length; li++) {
+                if (li + vOff >= h) break;
+                var row = y + vOff + li;
+                if (row >= gh) break;
+                var line = lines[li].slice(0, w);
+                var off = hAlignOffset(line.length, w, align);
+                for (var c = 0; c < line.length; c++) {
+                    setCell(grid, gw, gh, clip, x + off + c, row, line[c]);
+                }
             }
         }
     }
@@ -866,6 +870,11 @@
                 }
             }
         }
+
+        // Hide text (meta.hide_text): the content, the lorem placeholder
+        // and the [type] hint are not drawn — the fill (above) and the
+        // border (drawn by the caller) remain.
+        if ((block.meta || {}).hide_text) return;
 
         if (!block.content) {
             if (block.block_type === "content" && !fill && contentW > 0 && contentH > 0) {

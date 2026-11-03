@@ -12,7 +12,10 @@
  *   meta     — true → block.meta[key], false → block[key]
  *   label    — panel label
  *   kind     — number | segmented | select | charpicker | text |
- *               textarea (multi-line text, the modal's Content field)
+ *               textarea (multi-line text, the modal's Content field) |
+ *               toggle (a single icon button that flips a boolean — the
+ *               button shows the CURRENT state's icon, clicking flips the
+ *               value; absent = the default)
  *   options  — for segmented / select / charpicker
  *   icons    — optional option → glyph map (button labels, or the
  *               option text for select), or a (blockType, option) →
@@ -101,9 +104,10 @@
         // E, tasks/0003) and a button's label is CENTERED by default
         // (task 0060) — the panel shows center as active without
         // meta.text_align, and picking center clears the key. row:
-        // "align" — the two properties share ONE panel row (a button
-        // group each, one shared label). iconPrefix: the buttons show
-        // SVG icons (static/icons/align-*.svg, masked in editor.css)
+        // "text" — the properties share ONE panel row (a button group
+        // each, one shared label "Text" — the section covers all text
+        // properties: alignment + visibility). iconPrefix: the buttons
+        // show SVG icons (static/icons/align-*.svg, masked in editor.css)
         // instead of the option text.
         {
             key: "text_align",
@@ -112,9 +116,9 @@
             kind: "segmented",
             options: ["left", "center", "right"],
             iconPrefix: "align",
-            group: "Align",
-            row: "align",
-            rowLabel: "Align",
+            group: "Text",
+            row: "text",
+            rowLabel: "Text",
             types: ["box", "header", "footer", "sidebar", "content", "button",
                     "input", "textarea", "image", "divider", "text"],
             default: "left",
@@ -134,13 +138,34 @@
             kind: "segmented",
             options: ["top", "middle", "bottom"],
             iconPrefix: "align",
-            group: "Align",
-            row: "align",
+            group: "Text",
+            row: "text",
             types: ["box", "header", "footer", "sidebar", "content", "button",
                     "input", "textarea", "image", "text", "divider"],
             default: "top",
             typeDefaults: { divider: "middle", button: "middle" },
             clearDefault: true,
+            panel: "primary",
+        },
+        // Hide text: meta.hide_text — the block's text (content, the
+        // [type] hint, the lorem placeholder, the button/divider label)
+        // is not drawn; the border and the fill stay. A single toggle
+        // icon in the Text row (kind: "toggle"): the button shows the
+        // CURRENT state's icon (eye — visible, eye-off — hidden,
+        // static/icons/text-*.svg) and clicking flips the value
+        // (absent = visible, the default).
+        {
+            key: "hide_text",
+            meta: true,
+            label: "Hide text",
+            kind: "toggle",
+            iconPrefix: "text",
+            icons: { eye: "👁", "eye-off": "🚫" },
+            group: "Text",
+            row: "text",
+            types: ["box", "header", "footer", "sidebar", "content", "button",
+                    "input", "textarea", "image", "divider", "text"],
+            default: false,
             panel: "primary",
         },
         // Arrows (phase 3 of tasks/0051): meta.arrow_start / meta.arrow_end
@@ -228,8 +253,11 @@
         { key: "order", label: "Order", kind: "number", group: "Geometry", min: 0, cols: 3 },
         // Content (task 0054): multi-line textarea — the block's text is
         // edited inline on the canvas (double-click) or here in the
-        // all-properties modal; secondary (modal only)
-        { key: "content", label: "Content", kind: "textarea", group: "Text" },
+        // all-properties modal; secondary (modal only). The group is
+        // "Content" (not "Text" — that name is the alignment/visibility
+        // section, and section names are x-for keys — they must be
+        // unique)
+        { key: "content", label: "Content", kind: "textarea", group: "Content" },
     ];
 
     function findProperty(key) {
@@ -268,7 +296,8 @@
 
     // Grid rows of a section body: consecutive properties sharing a
     // `row` name collapse into one row (a button group per property, one
-    // shared label — the Align pair); the rest are single-property rows.
+    // shared label — the Text row: the alignment pair + the hide-text
+    // toggle); the rest are single-property rows.
     // A row that ends up with a single property keeps its own label.
     // `kind` ("group" or the single property's kind) and `prop` (the
     // single property) let the generated markup branch on the row kind
@@ -361,14 +390,18 @@
     <div class="props-section__body"
          :class="{ 'props-section__body--3col': section.cols === 3 }">
       <!-- Rows: a section's properties grouped into grid rows (see
-           rowsForProps). A group row (row: "align") renders one shared
+           rowsForProps). A group row (row: "text") renders one shared
            label and a button group per property; the rest are
-           single-property rows rendered by row.kind. Alpine's x-for/x-if
-           clone only the FIRST element child of the template content, so
-           each iteration needs a single root: the .prop-cell wrapper
-           (display:contents — the inner control stays the grid item).
-           The kind branches are sibling x-if's (an x-for as the direct
-           content of an x-if template is not initialized by Alpine). -->
+           single-property rows rendered by row.kind. A toggle property
+           (kind: "toggle") renders ONE button with the CURRENT state's
+           icon — the options list is [toggleOpt(prop)] (the icon of the
+           current value), and clicking flips the value (onPropSelect).
+           Alpine's x-for/x-if clone only the FIRST element child of the
+           template content, so each iteration needs a single root: the
+           .prop-cell wrapper (display:contents — the inner control stays
+           the grid item). The kind branches are sibling x-if's (an x-for
+           as the direct content of an x-if template is not initialized
+           by Alpine). -->
       <template x-for="row in section.rows" :key="row.key">
         <div class="prop-cell">
           <template x-if="row.kind === 'group'">
@@ -376,11 +409,12 @@
               <span x-text="row.label"></span>
               <div class="align-row">
                 <template x-for="prop in row.props" :key="prop.key">
-                  <div class="style-btns">
-                    <template x-for="opt in prop.options" :key="opt">
+                  <div class="style-btns"
+                       :class="{ 'style-btns--toggle': prop.kind === 'toggle' }">
+                    <template x-for="opt in (prop.kind === 'toggle' ? [toggleOpt(prop)] : prop.options)" :key="opt">
                       <button type="button" class="style-btn"
                               :class="styleBtnClasses(prop, opt)"
-                              :title="String(opt)"
+                              :title="prop.kind === 'toggle' ? toggleTitle(prop) : String(opt)"
                               @click="onPropSelect(prop, opt)"
                               x-text="propIcon(prop, opt)"></button>
                     </template>
