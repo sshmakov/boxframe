@@ -1158,9 +1158,12 @@
     // Build the HTML for a block and its nested children (recursive).
     // A root block is positioned relative to the canvas (paddingOffset +
     // grid * charSize). A child is positioned relative to its parent's div
-    // (1-cell container padding + relative grid * charSize); the parent's
-    // overflow:hidden clips it at the container border — mirroring the ASCII
-    // clip. Must stay in sync with Python's _block_preview_html.
+    // (1-cell container padding + relative grid * charSize); children are
+    // wrapped in a .block-clip div (overflow:hidden, inset 0) that clips
+    // them at the container border — mirroring the ASCII clip. The clip
+    // lives on the wrapper, not on .block-preview itself, so the
+    // container's own outline (drawn OUTSIDE its border box) is not
+    // clipped. Must stay in sync with Python's _block_preview_html.
     function _blockPreviewHtml(bd, opts, isRoot) {
         var x = bd.x || 0;
         var y = bd.y || 0;
@@ -1184,9 +1187,6 @@
         var children = bd.children || [];
         // fmtPx already appends "px" (mirrors Python's _fmt_px + "px")
         var style = "position:absolute;left:" + fmtPx(left) + ";top:" + fmtPx(top) + ";width:" + fmtPx(widthPx) + ";height:" + fmtPx(heightPx) + ";z-index:" + (10 + order) + ";";
-        if (children.length) {
-            style += "overflow:hidden;";
-        }
 
         var borderMap = { solid: "solid", dashed: "dashed", dotted: "dotted", double: "double", none: "none" };
         var bs = borderMap[borderStyle] || "solid";
@@ -1205,6 +1205,12 @@
         children.forEach(function (c) {
             childrenHtml += _blockPreviewHtml(c, opts, false);
         });
+        if (children.length) {
+            // Clip wrapper: children are clipped at the container border here,
+            // while the container's own outline (outside its border box) stays
+            // unclipped — .block-preview itself has no overflow.
+            childrenHtml = '<div class="block-clip">' + childrenHtml + '</div>';
+        }
 
         return '<div class="block-preview" data-block-id="' + bd.id + '" style="' + style + '" data-order="' + order + '">' +
             '<div class="block-inner block-' + blockType + '">' +
@@ -1235,8 +1241,9 @@
     /**
      * Generate HTML previews for all blocks. Takes a flat list (children
      * reference their parent via parent_id) and nests the children inside
-     * their parent's div so the parent's overflow:hidden clips them —
-     * mirroring the ASCII clip and the Python renderer.
+     * their parent's div, wrapped in a .block-clip div that clips them at
+     * the container border — mirroring the ASCII clip and the Python
+     * renderer (the parent's own outline stays unclipped).
      */
     function renderHtmlPreview(blocks, opts) {
         var o = _previewOpts(opts);

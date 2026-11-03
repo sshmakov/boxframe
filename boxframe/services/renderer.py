@@ -492,9 +492,11 @@ def _block_preview_html(
 
     A root block is positioned relative to the canvas (padding_offset +
     grid * char_size). A child is positioned relative to its parent's div
-    (1-cell container padding + relative grid * char_size); the parent's
-    ``overflow:hidden`` clips it at the container border — mirroring the
-    ASCII clip.
+    (1-cell container padding + relative grid * char_size); children are
+    wrapped in a ``.block-clip`` div (``overflow:hidden``, inset 0) that
+    clips them at the container border — mirroring the ASCII clip. The
+    clip lives on the wrapper, not on ``.block-preview`` itself, so the
+    container's own outline (drawn OUTSIDE its border box) is not clipped.
     """
     x = bd.get("x", 0)
     y = bd.get("y", 0)
@@ -519,8 +521,6 @@ def _block_preview_html(
         f"width:{_fmt_px(width_px)}px;height:{_fmt_px(height_px)}px;"
         f"z-index:{10 + order};"
     )
-    if children:
-        style += "overflow:hidden;"
 
     border_map = {
         "solid": "solid",
@@ -542,6 +542,11 @@ def _block_preview_html(
         _block_preview_html(c, char_width_px, char_height_px, padding_offset, False)
         for c in children
     )
+    if children:
+        # Clip wrapper: children are clipped at the container border here,
+        # while the container's own outline (outside its border box) stays
+        # unclipped — .block-preview itself has no overflow.
+        children_html = f'<div class="block-clip">{children_html}</div>'
 
     return (
         f'<div class="block-preview" data-block-id="{bd["id"]}"'
@@ -1307,9 +1312,10 @@ class PseudoGraphicRenderer:
         """Generate an HTML preview with positioned block divs and resize handles.
 
         Children are nested inside their parent's div and positioned relative
-        to it (1-cell container padding + relative grid), so the parent's
-        ``overflow:hidden`` clips them at the container border — mirroring the
-        ASCII clip.
+        to it (1-cell container padding + relative grid); a ``.block-clip``
+        wrapper (``overflow:hidden``) clips them at the container border —
+        mirroring the ASCII clip — while the parent's own outline stays
+        visible (it is drawn outside the parent's border box).
         """
         parts: list[str] = [
             _block_preview_html(bd, char_width_px, char_height_px, padding_offset, True)

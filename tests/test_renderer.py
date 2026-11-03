@@ -1623,8 +1623,12 @@ def test_render_html_preview_child_nested_in_parent():
     }])
     parent_tag = _opening_tag(html, "parent")
     child_tag = _opening_tag(html, "child-1")
-    # The parent has overflow:hidden (it contains children); the child does not
-    assert "overflow:hidden" in parent_tag
+    # The clip lives on a .block-clip wrapper inside the parent (NOT on
+    # .block-preview itself, so the parent's outline is not clipped);
+    # the child has no clip wrapper of its own
+    assert "overflow:hidden" not in parent_tag
+    assert html.index('class="block-clip"') > html.index('data-block-id="parent"')
+    assert html.index('class="block-clip"') < html.index('data-block-id="child-1"')
     assert "overflow:hidden" not in child_tag
     # The child is nested inside the parent: the parent's tag opens first
     assert html.index('data-block-id="parent"') < html.index('data-block-id="child-1"')
@@ -1662,10 +1666,12 @@ def test_render_html_preview_box_in_box():
     outer_tag = _opening_tag(html, "outer")
     inner_tag = _opening_tag(html, "inner")
     leaf_tag = _opening_tag(html, "leaf")
-    # Both containers have overflow:hidden; the leaf does not
-    assert "overflow:hidden" in outer_tag
-    assert "overflow:hidden" in inner_tag
+    # Both containers wrap their children in .block-clip; no block preview
+    # itself carries overflow (the clip lives on the wrapper)
+    assert "overflow:hidden" not in outer_tag
+    assert "overflow:hidden" not in inner_tag
     assert "overflow:hidden" not in leaf_tag
+    assert html.count('class="block-clip"') == 2
     # Nesting order: outer < inner < leaf
     assert html.index('data-block-id="outer"') < html.index('data-block-id="inner"')
     assert html.index('data-block-id="inner"') < html.index('data-block-id="leaf"')
@@ -1688,10 +1694,12 @@ def test_render_html_preview_child_bigger_than_parent():
     }])
     parent_tag = _opening_tag(html, "parent")
     big_tag = _opening_tag(html, "big")
-    # The oversized child is still nested and clipped by the parent
-    assert "overflow:hidden" in parent_tag
+    # The oversized child is still nested and clipped by the parent's
+    # .block-clip wrapper
+    assert "overflow:hidden" not in parent_tag
+    assert 'class="block-clip"' in html
     assert html.index('data-block-id="parent"') < html.index('data-block-id="big"')
-    # The child keeps its full size — clipping is visual (overflow:hidden)
+    # The child keeps its full size — clipping is visual (.block-clip)
     assert "width:360px" in big_tag   # 30*12
     assert "height:144px" in big_tag  # 10*14.4
 
@@ -1853,6 +1861,33 @@ def test_render_html_preview_border_none():
         "border_style": "none",
     }])
     assert 'class="block-border block-border--none"' in html
+
+
+def test_render_html_preview_border_none_with_children():
+    """A borderless box with children still gets the (weak) block-border
+    overlay and clips its children — the border div is generated
+    regardless of border_style."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 20, "height": 8,
+        "block_type": "box", "content": "", "border_style": "none",
+        "children": [{
+            "id": "child-1", "x": 1, "y": 1, "width": 8, "height": 3,
+            "block_type": "text", "content": "hi", "border_style": "solid",
+        }],
+    }])
+    parent_tag = _opening_tag(html, "parent")
+    child_tag = _opening_tag(html, "child-1")
+    # The parent keeps the weak dashed outline despite border_style=none
+    assert 'class="block-border block-border--none"' in html
+    # The child is nested inside the parent and clipped by the parent's
+    # .block-clip wrapper — the parent's own outline is not clipped
+    assert "overflow:hidden" not in parent_tag
+    assert 'class="block-clip"' in html
+    assert "overflow:hidden" not in child_tag
+    assert html.index('data-block-id="parent"') < html.index('data-block-id="child-1"')
+    # Child positioned relative to the parent: (1+1)*12=24px, (1+1)*14.4=28.8px
+    assert "left:24px" in child_tag
+    assert "top:28.8px" in child_tag
 
 
 # ── Order / z-index tests ──────────────────────────────────

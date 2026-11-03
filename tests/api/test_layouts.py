@@ -324,7 +324,9 @@ def test_render_nested_three_levels_html_preview(client: TestClient):
     """The HTML preview nests children at arbitrary depth (box in box in box).
 
     Every block gets its own .block-preview div — including a grandchild two
-    levels deep — and each container clips its children (overflow:hidden).
+    levels deep — and each container clips its children in a .block-clip
+    wrapper (not on .block-preview itself, so the container's outline is
+    not clipped).
     """
     _, layout_id = _create_project_with_layout(client)
     parent_id, child_id, grandchild_id = _create_nested(client, layout_id)
@@ -337,8 +339,9 @@ def test_render_nested_three_levels_html_preview(client: TestClient):
     assert f'data-block-id="{parent_id}"' in html
     assert f'data-block-id="{child_id}"' in html
     assert f'data-block-id="{grandchild_id}"' in html
-    # The containers clip their children
-    assert "overflow:hidden" in html
+    # The two containers (parent, child) each wrap their children in a
+    # .block-clip wrapper; the leaf has none
+    assert html.count('class="block-clip"') == 2
 
 
 def test_render_nested_three_levels_ascii(client: TestClient):

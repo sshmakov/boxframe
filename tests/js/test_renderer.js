@@ -1567,7 +1567,12 @@ test("renderHtmlPreview child nested in parent", () => {
     ]);
     const parentTag = openingTag(html, "parent");
     const childTag = openingTag(html, "child-1");
-    assert.ok(parentTag.includes("overflow:hidden"));
+    // The clip lives on a .block-clip wrapper inside the parent (NOT on
+    // .block-preview itself, so the parent's outline is not clipped);
+    // the child has no clip wrapper of its own
+    assert.ok(!parentTag.includes("overflow:hidden"));
+    assert.ok(html.indexOf('class="block-clip"') > html.indexOf('data-block-id="parent"'));
+    assert.ok(html.indexOf('class="block-clip"') < html.indexOf('data-block-id="child-1"'));
     assert.ok(!childTag.includes("overflow:hidden"));
     assert.ok(html.indexOf('data-block-id="parent"') < html.indexOf('data-block-id="child-1"'));
 });
@@ -1615,9 +1620,12 @@ test("renderHtmlPreview box in box", () => {
     const outerTag = openingTag(html, "outer");
     const innerTag = openingTag(html, "inner");
     const leafTag = openingTag(html, "leaf");
-    assert.ok(outerTag.includes("overflow:hidden"));
-    assert.ok(innerTag.includes("overflow:hidden"));
+    // Both containers wrap their children in .block-clip; no block preview
+    // itself carries overflow (the clip lives on the wrapper)
+    assert.ok(!outerTag.includes("overflow:hidden"));
+    assert.ok(!innerTag.includes("overflow:hidden"));
     assert.ok(!leafTag.includes("overflow:hidden"));
+    assert.equal(html.split('class="block-clip"').length - 1, 2);
     assert.ok(html.indexOf('data-block-id="outer"') < html.indexOf('data-block-id="inner"'));
     assert.ok(html.indexOf('data-block-id="inner"') < html.indexOf('data-block-id="leaf"'));
     // inner relative to outer: (1+2)*12=36px, (1+2)*14.4=43.2px
@@ -1644,7 +1652,10 @@ test("renderHtmlPreview child bigger than parent", () => {
     ]);
     const parentTag = openingTag(html, "parent");
     const bigTag = openingTag(html, "big");
-    assert.ok(parentTag.includes("overflow:hidden"));
+    // The oversized child is still nested and clipped by the parent's
+    // .block-clip wrapper
+    assert.ok(!parentTag.includes("overflow:hidden"));
+    assert.ok(html.includes('class="block-clip"'));
     assert.ok(html.indexOf('data-block-id="parent"') < html.indexOf('data-block-id="big"'));
     assert.ok(bigTag.includes("width:360px"));   // 30*12
     assert.ok(bigTag.includes("height:144px"));  // 10*14.4
@@ -1671,6 +1682,37 @@ test("renderHtmlPreview border classes", () => {
         content: "", border_style: "none",
     }]);
     assert.ok(none.includes('class="block-border block-border--none"'));
+});
+
+test("renderHtmlPreview border none with children", () => {
+    // A borderless box with children still gets the (weak) block-border
+    // overlay and clips its children — the border div is generated
+    // regardless of border_style.
+    const html = PG.renderHtmlPreview([
+        {
+            id: "parent", block_type: "box",
+            x: 0, y: 0, width: 20, height: 8,
+            content: "", border_style: "none",
+        },
+        {
+            id: "child-1", block_type: "text",
+            x: 1, y: 1, width: 8, height: 3,
+            content: "hi", border_style: "solid",
+            parent_id: "parent",
+        },
+    ]);
+    const parentTag = openingTag(html, "parent");
+    const childTag = openingTag(html, "child-1");
+    assert.ok(html.includes('class="block-border block-border--none"'));
+    // The child is nested inside the parent and clipped by the parent's
+    // .block-clip wrapper — the parent's own outline is not clipped
+    assert.ok(!parentTag.includes("overflow:hidden"));
+    assert.ok(html.includes('class="block-clip"'));
+    assert.ok(!childTag.includes("overflow:hidden"));
+    assert.ok(html.indexOf('data-block-id="parent"') < html.indexOf('data-block-id="child-1"'));
+    // Child positioned relative to the parent: (1+1)*12=24px, (1+1)*14.4=28.8px
+    assert.ok(childTag.includes("left:24px"));
+    assert.ok(childTag.includes("top:28.8px"));
 });
 
 test("renderHtmlPreview line blocks", () => {

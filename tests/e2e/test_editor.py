@@ -2446,9 +2446,9 @@ def test_drag_child_out_of_box_unparents(page: Page):
 
 def test_drag_preselected_child_out_of_box_stays_visible(page: Page):
     """Dragging a PRE-SELECTED child out of its parent box: the child's
-    preview is not clipped by the parent's overflow:hidden while it
+    preview is not clipped by the parent's .block-clip wrapper while it
     crosses the border (the group-move path transforms the real preview
-    element, which is nested inside the parent's div), and the selection
+    element, which is nested inside the wrapper), and the selection
     frame follows the block. The re-parenting still happens on commit."""
     specs = [
         {"block_type": "box", "x": 0, "y": 0, "width": 30, "height": 10},  # container
@@ -2470,20 +2470,22 @@ def test_drag_preselected_child_out_of_box_stays_visible(page: Page):
     page.mouse.down()
     page.mouse.move(*end, steps=12)
 
-    # Mid-drag: the child's preview extends past the box's border, the box
-    # no longer clips it, and the selection frame sits on the child.
+    # Mid-drag: the child's preview extends past the box's border, the box's
+    # .block-clip wrapper no longer clips it, and the selection frame sits
+    # on the child.
     state = page.evaluate(
         """(args) => {
             const [boxId, childId] = args;
             const box = document.querySelector('.block-preview[data-block-id="' + boxId + '"]');
             const child = document.querySelector('.block-preview[data-block-id="' + childId + '"]');
             const sel = document.querySelector('.block-selection');
+            const clip = box.querySelector('.block-clip');
             const br = box.getBoundingClientRect();
             const cr = child.getBoundingClientRect();
             const sr = sel.getBoundingClientRect();
             return {
                 outside: cr.x > br.x + br.width || cr.y > br.y + br.height,
-                boxClips: getComputedStyle(box).overflow === 'hidden',
+                boxClips: clip ? getComputedStyle(clip).overflow === 'hidden' : false,
                 frameOnChild: Math.abs(sr.x - cr.x) < 2 && Math.abs(sr.y - cr.y) < 2,
             };
         }""",

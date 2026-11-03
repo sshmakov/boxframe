@@ -830,7 +830,7 @@ def test_parity_no_dimensions():
 
 
 def test_parity_html_preview_nested():
-    """HTML preview: children nested in the parent div (overflow:hidden clip)."""
+    """HTML preview: children nested in the parent's .block-clip wrapper."""
     blocks = [
         {"id": "p", "block_type": "box", "x": 0, "y": 0, "width": 24, "height": 8,
          "content": "", "border_style": "solid", "order": 0},

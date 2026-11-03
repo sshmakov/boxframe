@@ -341,6 +341,17 @@ body.file-drop-active::after {
 .block-border--double { outline: 2px double rgba(136, 136, 170, 0.5); }
 .block-border--none { outline: 1px dashed rgba(136, 136, 170, 0.3); }
 
+/* Clips a container's children at the container border (mirrors the ASCII
+   clip). A separate wrapper — NOT overflow on .block-preview itself — so
+   the container's own outline, drawn OUTSIDE its border box, is not
+   clipped by it. inset:0 keeps the children's coordinate origin identical
+   to the parent's padding box. */
+.block-clip {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
 /* Line blocks (hline / vline) */
 .block-line {
     position: absolute;

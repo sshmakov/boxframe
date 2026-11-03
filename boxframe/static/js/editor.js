@@ -1508,9 +1508,9 @@ function editorApp() {
             if (sel) sel.style.transform = t;
         },
 
-        // A container clips its children (overflow:hidden) — release the
-        // clip on the selected blocks' ancestors while a group move is in
-        // progress, so a block dragged across a container border stays
+        // A container clips its children in a .block-clip wrapper — release
+        // the clip on the selected blocks' ancestors while a group move is
+        // in progress, so a block dragged across a container border stays
         // visible (the re-parenting itself happens on commit). Saves the
         // previous values for _restoreClipping.
         _unclipAncestors() {
@@ -1521,11 +1521,13 @@ function editorApp() {
                 const el = canvas.querySelector('.block-preview[data-block-id="' + id + '"]');
                 if (!el) continue;
                 let a = el.parentElement;
-                while (a && a !== canvas && a.classList.contains('block-preview')) {
-                    if (!this._unclippedAncestors.has(a)) {
-                        this._unclippedAncestors.set(a, a.style.overflow);
+                while (a && a !== canvas) {
+                    if (a.classList.contains('block-clip')) {
+                        if (!this._unclippedAncestors.has(a)) {
+                            this._unclippedAncestors.set(a, a.style.overflow);
+                        }
+                        a.style.overflow = 'visible';
                     }
-                    a.style.overflow = 'visible';
                     a = a.parentElement;
                 }
             }
