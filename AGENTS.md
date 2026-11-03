@@ -6,6 +6,8 @@
 
 **Стек:** Python 3.11+, FastAPI, SQLAlchemy (aiosqlite), Jinja2, HTMX 2, Alpine.js 3.
 
+**Глоссарий терминов:** [GLOSSARY.md](GLOSSARY.md)
+
 ## Структура
 
 ```
@@ -59,7 +61,8 @@ boxframe/
 │   └── bump.sh                 # Релиз: bump минора, тег vX.Y.Z, push
 ├── pyproject.toml
 ├── requirements.txt
-└── README.md
+├── README.md
+└── GLOSSARY.md               # Глоссарий терминов проекта
 ```
 
 ## Ключевые концепции
