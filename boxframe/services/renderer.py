@@ -47,6 +47,11 @@ class RenderBlock:
     # Free-form block metadata (extended properties — fill, text/vertical
     # alignment, line arrows — tasks/0051). Absent keys inherit defaults.
     meta: dict = field(default_factory=dict)
+    # A header attached to the top of its box parent (todo-0007): no
+    # top/left/right border, only the bottom line across the box's inner
+    # width. Set by _render_children_in_container (render-time, the stored
+    # geometry is not touched).
+    attached: bool = False
 
     # ── HTML preview generation ─────────────────────────────
 
@@ -484,12 +489,28 @@ def _divider_segments_html(
     return "".join(parts)
 
 
+def _attached_header_line_html(
+    height: int, char_height_px: float, style: str
+) -> str:
+    """HTML overlay of an attached header's bottom line (todo-0007): a
+    zero-height div with a border-top at the last row's vertical center
+    (the same alignment as .block-line--h top:50%)."""
+    top = round((height - 0.5) * char_height_px, 1)
+    return (
+        f'<div class="block-line block-line--h block-line--seg block-line--{style}"'
+        f' style="top:{_fmt_px(top)}px;left:0;width:100%;">'
+        f"</div>"
+    )
+
+
 def _block_preview_html(
     bd: dict,
     char_width_px: float,
     char_height_px: float,
     padding_offset: float,
     is_root: bool,
+    effective: tuple[int, int, int, int] | None = None,
+    attached: bool = False,
 ) -> str:
     """Build the HTML for a block and its nested children.
 
@@ -500,6 +521,11 @@ def _block_preview_html(
     clips them at the container border — mirroring the ASCII clip. The
     clip lives on the wrapper, not on ``.block-preview`` itself, so the
     container's own outline (drawn OUTSIDE its border box) is not clipped.
+
+    effective/attached (todo-0007): a header at the top of a box (relative
+    y <= 0) is attached — the caller passes its effective geometry
+    (flush with the top of the inner area, full inner width) and the
+    bottom line is drawn instead of the full outline.
     """
     x = bd.get("x", 0)
     y = bd.get("y", 0)
@@ -508,6 +534,8 @@ def _block_preview_html(
     order = bd.get("order", 0)
     block_type = bd.get("block_type", "box")
     border_style = bd.get("border_style", "solid")
+    if effective is not None:
+        x, y, width, height = effective
 
     if is_root:
         left = round(padding_offset + x * char_width_px, 1)
@@ -538,13 +566,30 @@ def _block_preview_html(
         border_html = f'<div class="block-line block-line--{direction} block-line--{bs}"></div>'
     elif block_type == "divider":
         border_html = _divider_segments_html(bd, char_width_px, char_height_px, bs)
+    elif attached:
+        border_html = _attached_header_line_html(height, char_height_px, bs)
     else:
         border_html = f'<div class="block-border block-border--{bs}" style="width:100%;height:100%;"></div>'
 
-    children_html = "".join(
-        _block_preview_html(c, char_width_px, char_height_px, padding_offset, False)
-        for c in children
-    )
+    children_html = []
+    for c in children:
+        # A header at the top of a box (relative y <= 0) is attached
+        # (todo-0007): effective geometry — flush with the top of the
+        # inner area at the full inner width, the bottom line instead of
+        # the full outline.
+        eff = None
+        att = False
+        if (
+            block_type == "box"
+            and c.get("block_type", "box") == "header"
+            and c.get("y", 0) <= 0
+        ):
+            att = True
+            eff = (0, 0, max(0, width - 2), c.get("height", 3))
+        children_html.append(
+            _block_preview_html(c, char_width_px, char_height_px, padding_offset, False, eff, att)
+        )
+    children_html = "".join(children_html)
     if children:
         # Clip wrapper: children are clipped at the container border here,
         # while the container's own outline (outside its border box) stays
@@ -662,6 +707,17 @@ class PseudoGraphicRenderer:
             self._draw_divider(block, style_map)
             return
 
+        # A header attached to the top of its box parent (todo-0007): no
+        # top/left/right border — only the bottom line across the box's
+        # inner width, the content above it. The junctions with the box's
+        # border are drawn by the parent (the child is clipped to the
+        # inner area).
+        if block.block_type == "header" and block.attached:
+            self._draw_attached_header(block, style_map)
+            if block.children:
+                self._render_children_in_container(block, style_map)
+            return
+
         # A grid with explicit structure in meta (a valid cols or rows)
         # renders the partitions; a legacy grid (no cols/rows — created
         # before partitions existed) falls through to the plain box path
@@ -676,6 +732,11 @@ class PseudoGraphicRenderer:
 
         if has_border:
             self._draw_border(block, style_map)
+            # Junctions where attached headers' bottom lines meet the
+            # border (todo-0007) — the children are clipped to the inner
+            # area and cannot write to the border cells themselves.
+            if block.block_type == "box":
+                self._draw_attached_header_junctions(block, style_map)
         self._draw_content(block)
         # Children are rendered regardless of the parent's border: a
         # borderless container keeps the same 1-cell padding and inner
@@ -898,6 +959,118 @@ class PseudoGraphicRenderer:
                 off = h_align_offset(len(line), w, align)
                 for col, ch in enumerate(line):
                     self._set(x + off + col, row, ch)
+
+    def _draw_attached_header(self, block: RenderBlock, style: dict[str, str]) -> None:
+        """Draw a header attached to the top of its box parent (todo-0007).
+
+        The effective geometry (set by _render_children_in_container) is
+        flush with the top of the box's inner area at the full inner
+        width. No top/left/right border — only the bottom line across the
+        full effective width (the header's own border_style) on the last
+        row of the effective rectangle; the content area is the full
+        width × h−1 rows above the line (× h rows when the border style
+        is none — there is no line). The line and the content are clipped
+        by the container's inner area when the header is taller than it
+        (the box's bottom border stands in for the line). The junctions
+        with the box's border (├/┤) are drawn by the parent — the child
+        is clipped to the inner area and cannot write to the border cells
+        (the frame-node pattern of the grid, 0063).
+        """
+        # Clamp to grid (same logic as _draw_border)
+        x = max(0, min(block.x, self.grid_width - 2))
+        y = max(0, min(block.y, self.grid_height - 2))
+        w = min(block.width, self.grid_width - x)
+        h = min(block.height, self.grid_height - y)
+
+        if w < 1 or h < 1:
+            return
+
+        has_line = block.border_style != "none"
+        if has_line:
+            # Bottom line: the last row of the effective rectangle, full
+            # effective width (clipped to the container's inner area)
+            for i in range(w):
+                self._set(x + i, y + h - 1, style["h"])
+
+        # Content area: full width × h−1 rows above the line (× h rows
+        # when there is no line)
+        content_x, content_y = x, y
+        content_w = w
+        content_h = h - (1 if has_line else 0)
+
+        # Fill (meta.fill) paints the content area first; the content is
+        # drawn on top (content wins) and the [type] hint is suppressed.
+        fill = fill_char(block.block_type, block.meta)
+        if fill and content_w > 0 and content_h > 0:
+            for j in range(content_h):
+                row = content_y + j
+                if row >= self.grid_height:
+                    break
+                for i in range(content_w):
+                    self._set(content_x + i, row, fill)
+
+        # Hide text (meta.hide_text): the content and the [type] hint are
+        # not drawn — the fill (above) and the line remain.
+        if (block.meta or {}).get("hide_text"):
+            return
+
+        if not block.content:
+            if has_line and content_w >= 4 and content_h > 0 and not fill:
+                hint = f"[{block.block_type}]"
+                for i, ch in enumerate(hint):
+                    if content_x + i < content_x + content_w and content_y < self.grid_height:
+                        self._set(content_x + i, content_y, ch)
+            return
+
+        if content_w <= 0 or content_h <= 0:
+            return
+
+        # Wrap content by words to fit the content area, then align (the
+        # same rules as _draw_content: meta.text_align / vertical_align).
+        lines = self._wrap_text(block.content, content_w)
+        v_off = v_align_offset(len(lines), content_h, (block.meta or {}).get("vertical_align"))
+        h_align = (block.meta or {}).get("text_align")
+        for line_idx, line in enumerate(lines):
+            if line_idx + v_off >= content_h:
+                break
+            row = content_y + line_idx + v_off
+            if row >= self.grid_height:
+                break
+            off = h_align_offset(len(line), content_w, h_align)
+            for col_idx, ch in enumerate(line):
+                self._set(content_x + off + col_idx, row, ch)
+
+    def _draw_attached_header_junctions(self, block: RenderBlock, style: dict[str, str]) -> None:
+        """Draw the junctions where attached headers' bottom lines meet
+        the box's border (todo-0007): ├/┤ (the box's style map) on the
+        left and right border at each line's row. Only for headers whose
+        line is actually drawn (border style != none, the line row inside
+        the inner area) — the child is clipped to the inner area and
+        cannot write to the border cells itself (the frame-node pattern
+        of the grid, 0063).
+        """
+        # Clamp to grid (same logic as _draw_border)
+        x = max(0, min(block.x, self.grid_width - 2))
+        y = max(0, min(block.y, self.grid_height - 2))
+        w = min(block.width, self.grid_width - x)
+        h = min(block.height, self.grid_height - y)
+
+        if w < 2 or h < 2:
+            return
+
+        inner_h = h - 2
+        for child in block.children:
+            if (
+                child.block_type != "header"
+                or child.y > 0
+                or child.border_style == "none"
+                or child.height < 1
+                or child.height > inner_h
+            ):
+                continue
+            row = y + child.height
+            self._set(x, row, style["t_l"])
+            self._set(x + w - 1, row, style["t_r"])
 
     def _draw_grid(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw a grid (todo-0005): the outer border (per border_style)
@@ -1287,8 +1460,24 @@ class PseudoGraphicRenderer:
             # Sort by order (ascending) — higher order renders on top,
             # same z-index rule as root blocks in render().
             for child in sorted(parent.children, key=lambda c: c.order):
-                child.x = parent.x + pad_x + child.x
-                child.y = parent.y + pad_y + child.y
+                # A header at the top of a box (relative y <= 0) is
+                # attached (todo-0007): effective geometry — flush with
+                # the top of the inner area at the full inner width (the
+                # stored x/width are ignored while attached, applied
+                # again once the header is detached, y > 0).
+                if (
+                    parent.block_type == "box"
+                    and child.block_type == "header"
+                    and child.y <= 0
+                ):
+                    child.x = parent.x + pad_x
+                    child.y = parent.y + pad_y
+                    child.width = parent.width - 2 * pad_x
+                    child.attached = True
+                else:
+                    child.x = parent.x + pad_x + child.x
+                    child.y = parent.y + pad_y + child.y
+                    child.attached = False
                 self._render_block(child)
         finally:
             self._clip = prev_clip

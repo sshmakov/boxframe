@@ -654,6 +654,116 @@
         }
     }
 
+    // Port of PseudoGraphicRenderer._draw_attached_header: a header
+    // attached to the top of its box parent (todo-0007). The effective
+    // geometry (set by renderChildrenInContainer) is flush with the top
+    // of the box's inner area at the full inner width. No top/left/right
+    // border — only the bottom line across the full effective width (the
+    // header's own border_style) on the last row of the effective
+    // rectangle; the content area is the full width × h−1 rows above the
+    // line (× h rows when the border style is none — there is no line).
+    // The line and the content are clipped by the container's inner area
+    // when the header is taller than it. The junctions with the box's
+    // border (├/┤) are drawn by the parent (drawGrid's frame-node
+    // pattern, 0063).
+    function drawAttachedHeader(block, style, grid, gw, gh, clip) {
+        var x = Math.max(0, Math.min(block.x, gw - 2));
+        var y = Math.max(0, Math.min(block.y, gh - 2));
+        var w = Math.min(block.width, gw - x);
+        var h = Math.min(block.height, gh - y);
+
+        if (w < 1 || h < 1) return;
+
+        var hasLine = block.border_style !== "none";
+        if (hasLine) {
+            // Bottom line: the last row of the effective rectangle, full
+            // effective width (clipped to the container's inner area)
+            for (var i = 0; i < w; i++) {
+                setCell(grid, gw, gh, clip, x + i, y + h - 1, style.h);
+            }
+        }
+
+        // Content area: full width × h−1 rows above the line (× h rows
+        // when there is no line)
+        var contentX = x, contentY = y;
+        var contentW = w;
+        var contentH = h - (hasLine ? 1 : 0);
+
+        // Fill (meta.fill) paints the content area first; the content is
+        // drawn on top (content wins) and the [type] hint is suppressed.
+        var fill = fillChar(block.block_type, block.meta);
+        if (fill && contentW > 0 && contentH > 0) {
+            for (var fj = 0; fj < contentH; fj++) {
+                var frow = contentY + fj;
+                if (frow >= gh) break;
+                for (var fi = 0; fi < contentW; fi++) {
+                    setCell(grid, gw, gh, clip, contentX + fi, frow, fill);
+                }
+            }
+        }
+
+        // Hide text (meta.hide_text): the content and the [type] hint are
+        // not drawn — the fill (above) and the line remain.
+        if ((block.meta || {}).hide_text) return;
+
+        if (!block.content) {
+            if (hasLine && contentW >= 4 && contentH > 0 && !fill) {
+                var hint = "[" + block.block_type + "]";
+                for (var hi = 0; hi < hint.length; hi++) {
+                    if (contentX + hi < contentX + contentW && contentY < gh) {
+                        setCell(grid, gw, gh, clip, contentX + hi, contentY, hint[hi]);
+                    }
+                }
+            }
+            return;
+        }
+
+        if (contentW <= 0 || contentH <= 0) return;
+
+        // Wrap content by words to fit the content area, then align (the
+        // same rules as drawContent: meta.text_align / vertical_align).
+        var lines = wrapText(block.content, contentW);
+        var vOff = vAlignOffset(lines.length, contentH, (block.meta || {}).vertical_align);
+        var hAlign = (block.meta || {}).text_align;
+        for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            if (lineIdx + vOff >= contentH) break;
+            var row = contentY + lineIdx + vOff;
+            if (row >= gh) break;
+            var line = lines[lineIdx];
+            var off = hAlignOffset(line.length, contentW, hAlign);
+            for (var colIdx = 0; colIdx < line.length; colIdx++) {
+                setCell(grid, gw, gh, clip, contentX + off + colIdx, row, line[colIdx]);
+            }
+        }
+    }
+
+    // Port of PseudoGraphicRenderer._draw_attached_header_junctions: the
+    // junctions where attached headers' bottom lines meet the box's
+    // border (todo-0007) — ├/┤ (the box's style map) on the left and
+    // right border at each line's row. Only for headers whose line is
+    // actually drawn (border style != none, the line row inside the
+    // inner area) — the child is clipped to the inner area and cannot
+    // write to the border cells itself.
+    function drawAttachedHeaderJunctions(block, style, grid, gw, gh, clip, allBlocks) {
+        var x = Math.max(0, Math.min(block.x, gw - 2));
+        var y = Math.max(0, Math.min(block.y, gh - 2));
+        var w = Math.min(block.width, gw - x);
+        var h = Math.min(block.height, gh - y);
+
+        if (w < 2 || h < 2) return;
+
+        var innerH = h - 2;
+        var children = allBlocks.filter(function (b) { return b.parent_id === block.id; });
+        for (var i = 0; i < children.length; i++) {
+            var c = children[i];
+            if (c.block_type !== "header" || c.y > 0
+                || c.border_style === "none" || c.height < 1 || c.height > innerH) continue;
+            var row = y + c.height;
+            setCell(grid, gw, gh, clip, x, row, style.t_l);
+            setCell(grid, gw, gh, clip, x + w - 1, row, style.t_r);
+        }
+    }
+
     // Port of PseudoGraphicRenderer._draw_grid: the outer border (per
     // border_style) plus inner partitions — vertical (eff_cols − 1) and
     // horizontal (eff_rows − 1) — with junction nodes from the style map.
@@ -980,12 +1090,20 @@
 
         for (var i = 0; i < children.length; i++) {
             var child = children[i];
+            // A header at the top of a box (relative y <= 0) is attached
+            // (todo-0007): effective geometry — flush with the top of the
+            // inner area at the full inner width (the stored x/width are
+            // ignored while attached, applied again once the header is
+            // detached, y > 0).
+            var attached = parent.block_type === "box"
+                && child.block_type === "header"
+                && child.y <= 0;
             // Adjusted copy — never mutate the store's blocks
             var c = {
                 id: child.id,
-                x: parent.x + padX + child.x,
-                y: parent.y + padY + child.y,
-                width: child.width,
+                x: attached ? parent.x + padX : parent.x + padX + child.x,
+                y: attached ? parent.y + padY : parent.y + padY + child.y,
+                width: attached ? parent.width - 2 * padX : child.width,
                 height: child.height,
                 block_type: child.block_type,
                 content: child.content,
@@ -993,6 +1111,7 @@
                 meta: child.meta,
                 order: child.order,
                 parent_id: child.parent_id,
+                attached: attached,
             };
             renderBlock(c, grid, gw, gh, allBlocks, inner);
         }
@@ -1018,6 +1137,20 @@
             return;
         }
 
+        // A header attached to the top of its box parent (todo-0007): no
+        // top/left/right border — only the bottom line across the box's
+        // inner width, the content above it. The junctions with the box's
+        // border are drawn by the parent (the child is clipped to the
+        // inner area).
+        if (block.block_type === "header" && block.attached) {
+            drawAttachedHeader(block, style, grid, gw, gh, clip);
+            var hasHeaderChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
+            if (hasHeaderChildren) {
+                renderChildrenInContainer(block, style, grid, gw, gh, allBlocks, clip);
+            }
+            return;
+        }
+
         // A grid with explicit structure in meta (a valid cols or rows)
         // renders the partitions; a legacy grid (no cols/rows — created
         // before partitions existed) falls through to the plain box path
@@ -1036,6 +1169,12 @@
 
         if (hasBorder) {
             drawBorder(block, style, grid, gw, gh, clip);
+            // Junctions where attached headers' bottom lines meet the
+            // border (todo-0007) — the children are clipped to the inner
+            // area and cannot write to the border cells themselves.
+            if (block.block_type === "box") {
+                drawAttachedHeaderJunctions(block, style, grid, gw, gh, clip, allBlocks);
+            }
         }
         drawContent(block, grid, gw, gh, clip);
         // Children are rendered regardless of the parent's border: a
@@ -1184,6 +1323,16 @@
         return parts.join("");
     }
 
+    // Port of _attached_header_line_html: the HTML overlay of an attached
+    // header's bottom line (todo-0007) — a zero-height div with a
+    // border-top at the last row's vertical center (the same alignment as
+    // .block-line--h top:50%).
+    function attachedHeaderLineHtml(height, charHeightPx, style) {
+        var top = round1((height - 0.5) * charHeightPx);
+        return '<div class="block-line block-line--h block-line--seg block-line--' + style +
+            '" style="top:' + fmtPx(top) + ";left:0;width:100%;\"></div>";
+    }
+
     // Build the HTML for a block and its nested children (recursive).
     // A root block is positioned relative to the canvas (paddingOffset +
     // grid * charSize). A child is positioned relative to its parent's div
@@ -1192,8 +1341,12 @@
     // them at the container border — mirroring the ASCII clip. The clip
     // lives on the wrapper, not on .block-preview itself, so the
     // container's own outline (drawn OUTSIDE its border box) is not
-    // clipped. Must stay in sync with Python's _block_preview_html.
-    function _blockPreviewHtml(bd, opts, isRoot) {
+    // clipped. effective/attached (todo-0007): a header at the top of a
+    // box (relative y <= 0) is attached — the caller passes its effective
+    // geometry (flush with the top of the inner area, full inner width)
+    // and the bottom line is drawn instead of the full outline. Must stay
+    // in sync with Python's _block_preview_html.
+    function _blockPreviewHtml(bd, opts, isRoot, effective, attached) {
         var x = bd.x || 0;
         var y = bd.y || 0;
         var width = bd.width != null ? bd.width : 20;
@@ -1201,6 +1354,10 @@
         var order = bd.order || 0;
         var blockType = bd.block_type || "box";
         var borderStyle = bd.border_style || "solid";
+        if (effective) {
+            x = effective[0]; y = effective[1];
+            width = effective[2]; height = effective[3];
+        }
 
         var left, top;
         if (isRoot) {
@@ -1225,6 +1382,8 @@
             borderHtml = '<div class="block-line block-line--' + direction + ' block-line--' + bs + '"></div>';
         } else if (blockType === "divider") {
             borderHtml = dividerSegmentsHtml(bd, opts, bs);
+        } else if (attached) {
+            borderHtml = attachedHeaderLineHtml(height, opts.charHeightPx, bs);
         } else {
             borderHtml = '<div class="block-border block-border--' + bs +
                 '" style="width:100%;height:100%;"></div>';
@@ -1232,7 +1391,16 @@
 
         var childrenHtml = "";
         children.forEach(function (c) {
-            childrenHtml += _blockPreviewHtml(c, opts, false);
+            // A header at the top of a box (relative y <= 0) is attached
+            // (todo-0007): effective geometry — flush with the top of the
+            // inner area at the full inner width, the bottom line instead
+            // of the full outline.
+            var eff = null, att = false;
+            if (blockType === "box" && (c.block_type || "box") === "header" && (c.y || 0) <= 0) {
+                att = true;
+                eff = [0, 0, Math.max(0, width - 2), c.height != null ? c.height : 3];
+            }
+            childrenHtml += _blockPreviewHtml(c, opts, false, eff, att);
         });
         if (children.length) {
             // Clip wrapper: children are clipped at the container border here,

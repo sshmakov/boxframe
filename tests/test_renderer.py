@@ -3551,3 +3551,243 @@ def test_grid_span_with_uneven_split():
     # The junction at (5,4) keeps only the drawn arms (0063)
     assert lines[4][5] == "┬"
     assert lines[4][15] == "┼"
+
+
+# ── Header attach (todo-0007) ─────────────────────────────
+
+def _box_with_header(header=None, box_w=20, box_h=8, box_border="solid"):
+    """A box with a single header child (the attach test fixture)."""
+    if header is None:
+        header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+                  "content": "Title", "border_style": "solid"}
+    return [{
+        "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+        "content": "", "border_style": box_border, "children": [header],
+    }]
+
+
+def test_attached_header_basic():
+    """Attached (y=0): no top/left/right border, the bottom line across
+    the full inner width, ├/┤ junctions on the box's border, the content
+    area is the full width × h−1 rows above the line."""
+    lines = _render(_box_with_header()).split("\n")
+    # The box's top border is untouched
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # Content (default left/top) in the first content row
+    assert lines[1][1:6] == "Title"
+    assert lines[1][6:19] == " " * 13
+    # The second content row is empty (no line yet)
+    assert lines[2][1:19] == " " * 18
+    # The bottom line with junctions (row py+ch = 3)
+    assert lines[3] == "├" + "─" * 18 + "┤"
+    # The rest of the box is empty
+    assert lines[4] == "│" + " " * 18 + "│"
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_header_h1():
+    """ch == 1: the content area is 0 rows — the header is the line only
+    (a divider attached to the top)."""
+    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 1,
+              "content": "x", "border_style": "solid"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[1] == "├" + "─" * 18 + "┤"
+    # The content is not drawn (0 content rows)
+    assert lines[2] == "│" + " " * 18 + "│"
+
+
+def test_attached_header_taller_than_inner():
+    """ch > inner_h: the line is clipped (the box's bottom border stands
+    in for it) and the junctions are not drawn."""
+    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid"}
+    lines = _render(_box_with_header(header, box_w=20, box_h=4)).split("\n")
+    # Content is clipped to the inner area (rows 1–2)
+    assert lines[1][1:6] == "Title"
+    # Row 3 is the box's bottom border — no line, no junctions
+    assert lines[3] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_header_borderless_parent():
+    """A borderless box (border_style=none): the line is drawn across the
+    inner width, but there is no border to join — no junctions."""
+    lines = _render(_box_with_header(box_border="none")).split("\n")
+    # No box border at all (row 0 is empty)
+    assert lines[0] == ""
+    assert lines[1][:6] == " Title"
+    # The line ends in plain ─ (no ├/┤); the empty rows below it are
+    # stripped from the art
+    assert lines[3] == " " + "─" * 18
+    assert len(lines) == 4
+
+
+def test_attached_header_dashed_line():
+    """The line uses the header's own border_style (dashed in a solid
+    box); the junctions use the box's style map."""
+    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "", "border_style": "dashed"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[3] == "├" + "┄" * 18 + "┤"
+    # The box's border stays solid
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_header_none_border():
+    """border_style=none on the header: no line, the content area is the
+    full height (no line row), no junctions."""
+    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "Title", "border_style": "none"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[1][1:6] == "Title"
+    # Row 3 (the would-be line row) is empty — the box's border is intact
+    assert lines[3] == "│" + " " * 18 + "│"
+
+
+def test_attached_header_detached():
+    """y > 0: the header is detached — a plain box at its stored
+    position/width, no junctions."""
+    header = {"block_type": "header", "x": 0, "y": 2, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid"}
+    lines = _render(_box_with_header(header)).split("\n")
+    # The full border at the stored position (absolute row 3)
+    assert lines[3] == "│" + "┌" + "─" * 16 + "┐" + "│"
+    assert lines[4] == "│" + "│" + "Title" + " " * 11 + "│" + "│"
+    assert lines[5] == "│" + "└" + "─" * 16 + "┘" + "│"
+    # No junctions on the box's border
+    assert lines[3][0] == "│"
+    assert lines[3][19] == "│"
+
+
+def test_attached_header_follows_box_width():
+    """The stored x/width are ignored while attached — the header spans
+    the box's inner width, so a box resize stretches it (render-time)."""
+    narrow = _render(_box_with_header(box_w=20)).split("\n")
+    wide = _render(_box_with_header(box_w=30)).split("\n")
+    assert narrow[3] == "├" + "─" * 18 + "┤"
+    assert wide[3] == "├" + "─" * 28 + "┤"
+
+
+def test_attached_header_empty_content_hint():
+    """Empty content: the [header] hint at the top-left of the content
+    area (the box's rules)."""
+    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "", "border_style": "solid"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[1][1:9] == "[header]"
+    assert lines[3] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_header_fill_and_hide_text():
+    """fill paints the content area (the content on top); hide_text
+    suppresses the content and the hint — the line remains."""
+    filled = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid", "meta": {"fill": "░"}}
+    lines = _render(_box_with_header(filled)).split("\n")
+    assert lines[1][1:6] == "Title"
+    assert lines[1][6:19] == "░" * 13
+    assert lines[2][1:19] == "░" * 18
+    assert lines[3] == "├" + "─" * 18 + "┤"
+
+    hidden = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid", "meta": {"hide_text": True}}
+    out = _render(_box_with_header(hidden))
+    lines = out.split("\n")
+    # The header's content and hint are suppressed (the box's own [box]
+    # hint is unrelated and may show through the empty header area)
+    assert "Title" not in out
+    assert "[header]" not in out
+    # The line remains
+    assert lines[3] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_header_in_grid_unchanged():
+    """A grid parent is out of scope — the header renders as a plain box
+    (full border), no junctions on the grid's frame."""
+    blocks = [{
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2},
+        "children": [{
+            "block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+            "content": "Title", "border_style": "solid",
+        }],
+    }]
+    lines = _render(blocks).split("\n")
+    # The header's full border at the stored position (absolute 1..18 × 1..3)
+    assert lines[1][1] == "┌"
+    assert lines[1][18] == "┐"
+    assert lines[2][2:7] == "Title"
+    assert lines[3][1] == "└"
+    assert lines[3][18] == "┘"
+    # No junctions on the grid's frame (row 3)
+    assert lines[3][0] == "│"
+    assert lines[3][23] == "│"
+    # The vertical partition under the header's span is suppressed...
+    assert lines[1][8] != "│"
+    # ...and drawn again below the span
+    assert lines[5][8] == "│"
+
+
+def test_render_html_preview_attached_header():
+    """The attached header's overlay: the effective geometry (flush with
+    the inner top, full inner width) and the bottom line instead of the
+    full outline."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "head", "x": 1, "y": 0, "width": 10, "height": 2,
+            "block_type": "header", "content": "Title", "border_style": "solid",
+        }],
+    }])
+    tag = _opening_tag(html, "head")
+    # Effective geometry: 1-cell padding + (0, 0), width 30−2 = 28
+    assert "left:12px" in tag
+    assert "top:14.4px" in tag
+    assert "width:336px" in tag
+    assert "height:28.8px" in tag
+    # The bottom line at the last row's vertical center: (2−0.5)×14.4
+    assert 'class="block-line block-line--h block-line--seg block-line--solid"' in html
+    assert "top:21.6px;left:0;width:100%" in html
+    # No full outline for the header (the parent keeps its own)
+    head_start = html.index('data-block-id="head"')
+    assert "block-border" not in html[head_start:]
+    assert 'class="block-border block-border--solid"' in html
+
+
+def test_render_html_preview_attached_header_dashed():
+    """The line overlay uses the header's own border_style."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "head", "x": 1, "y": 0, "width": 10, "height": 2,
+            "block_type": "header", "content": "", "border_style": "dashed",
+        }],
+    }])
+    assert "block-line--dashed" in html
+    head_start = html.index('data-block-id="head"')
+    assert "block-border" not in html[head_start:]
+
+
+def test_render_html_preview_detached_header_full_border():
+    """y > 0: the header overlay is a plain block at its stored
+    position/size with the full outline."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "head", "x": 1, "y": 2, "width": 10, "height": 2,
+            "block_type": "header", "content": "Title", "border_style": "solid",
+        }],
+    }])
+    tag = _opening_tag(html, "head")
+    # Stored geometry: 1-cell padding + (1, 2)
+    assert "left:24px" in tag
+    assert "top:43.2px" in tag
+    assert "width:120px" in tag
+    assert "height:28.8px" in tag
+    head_start = html.index('data-block-id="head"')
+    assert "block-border--solid" in html[head_start:]
+    assert "block-line--seg" not in html[head_start:]

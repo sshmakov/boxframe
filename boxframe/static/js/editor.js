@@ -464,10 +464,29 @@ function editorApp() {
         // absolute (canvas) coordinates.
 
         // Absolute (canvas) rectangle of a block — walks up the parent
-        // chain, adding the 1-cell container padding at each level.
+        // chain, adding the 1-cell container padding at each level. A
+        // header attached to the top of its box parent (todo-0007:
+        // relative y <= 0) starts from its effective geometry relative
+        // to the direct parent — flush with the top of the inner area at
+        // the full inner width (the stored x/width are ignored while
+        // attached), same rule as the renderer.
         _absoluteRect(block) {
             let x = block.x;
             let y = block.y;
+            let width = block.width;
+            const directParent = block.parent_id
+                ? this.blocks.find(b => b.id === block.parent_id)
+                : null;
+            if (
+                directParent &&
+                directParent.block_type === 'box' &&
+                block.block_type === 'header' &&
+                block.y <= 0
+            ) {
+                x = 0;
+                y = 0;
+                width = directParent.width - 2;
+            }
             let pid = block.parent_id;
             while (pid) {
                 const parent = this.blocks.find(b => b.id === pid);
@@ -476,7 +495,7 @@ function editorApp() {
                 y = parent.y + 1 + y;
                 pid = parent.parent_id;
             }
-            return { x, y, width: block.width, height: block.height };
+            return { x, y, width, height: block.height };
         },
 
         // Convert an absolute (canvas) position to the relative position
@@ -1109,11 +1128,13 @@ function editorApp() {
                 this.resizeStartW = Math.max(...rects.map(r => r.x + r.width)) - minX;
                 this.resizeStartH = Math.max(...rects.map(r => r.y + r.height)) - minY;
             } else {
+                // The absolute rect — an attached header (todo-0007)
+                // resizes from its effective geometry (full inner width).
                 const r = this._absoluteRect(block);
                 this.resizePreviewX = r.x;
                 this.resizePreviewY = r.y;
-                this.resizeStartW = block.width;
-                this.resizeStartH = block.height;
+                this.resizeStartW = r.width;
+                this.resizeStartH = r.height;
             }
             this.resizeStartX = this.resizePreviewX;
             this.resizeStartY = this.resizePreviewY;
@@ -1220,9 +1241,19 @@ function editorApp() {
                 order: maxOrder + 1,
             };
             if (container) {
-                const rel = this._absToRel(pos.x, pos.y, container);
-                payload.x = rel.x;
-                payload.y = rel.y;
+                if (this.dragType === 'header' && container.block_type === 'box') {
+                    // Attached header (todo-0007): snap to the top of the
+                    // box — y=0 at the full inner width (the renderer
+                    // stretches it anyway; the stored width applies once
+                    // the header is detached).
+                    payload.x = 0;
+                    payload.y = 0;
+                    payload.width = container.width - 2;
+                } else {
+                    const rel = this._absToRel(pos.x, pos.y, container);
+                    payload.x = rel.x;
+                    payload.y = rel.y;
+                }
                 payload.parent_id = container.id;
             } else {
                 payload.x = pos.x;
@@ -1355,13 +1386,15 @@ function editorApp() {
                     } else {
                         // A plain drag does not select the block — the
                         // selection (and the properties panel) only changes
-                        // on a click.
+                        // on a click. The preview tracks the block's
+                        // absolute rect (an attached header's effective
+                        // geometry, todo-0007).
                         const preview = this._ensurePreviewEl();
                         if (preview) {
-                            preview.style.width = (this.dragBlock.width * this.charWidth) + 'px';
-                            preview.style.height = (this.dragBlock.height * this.charHeight) + 'px';
-                            preview.style.display = 'block';
                             const r = this._absoluteRect(this.dragBlock);
+                            preview.style.width = (r.width * this.charWidth) + 'px';
+                            preview.style.height = (r.height * this.charHeight) + 'px';
+                            preview.style.display = 'block';
                             this._showPreview(r.x, r.y);
                         }
                     }

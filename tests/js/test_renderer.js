@@ -3214,6 +3214,155 @@ test("grid span with uneven split", () => {
     assert.equal(ls[4][15], "┼");
 });
 
+// ── Header attach (todo-0007) ─────────────────────────────
+
+function boxWithHeader(header, boxW = 20, boxH = 8, boxBorder = "solid") {
+    const h = header || {
+        id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+        content: "Title", border_style: "solid", parent_id: "b",
+    };
+    return [
+        { id: "b", block_type: "box", x: 0, y: 0, width: boxW, height: boxH,
+          content: "", border_style: boxBorder },
+        h,
+    ];
+}
+
+test("attached header basic", () => {
+    // Attached (y=0): no top/left/right border, the bottom line across the
+    // full inner width, ├/┤ junctions, content area full width × h−1 rows
+    const ls = lines(render(boxWithHeader()));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[1].slice(1, 6), "Title");
+    assert.equal(ls[1].slice(6, 19), " ".repeat(13));
+    assert.equal(ls[2].slice(1, 19), " ".repeat(18));
+    assert.equal(ls[3], "├" + "─".repeat(18) + "┤");
+    assert.equal(ls[4], "│" + " ".repeat(18) + "│");
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached header h=1", () => {
+    // ch == 1: the content area is 0 rows — the header is the line only
+    const h = { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 1,
+                content: "x", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[1], "├" + "─".repeat(18) + "┤");
+    assert.equal(ls[2], "│" + " ".repeat(18) + "│");
+});
+
+test("attached header taller than inner", () => {
+    // ch > inner_h: the line is clipped, no junctions
+    const h = { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+                content: "Title", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h, 20, 4)));
+    assert.equal(ls[1].slice(1, 6), "Title");
+    assert.equal(ls[3], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached header borderless parent", () => {
+    // A borderless box: the line is drawn, but there is no border to join
+    const ls = lines(render(boxWithHeader(null, 20, 8, "none")));
+    assert.equal(ls[0], "");
+    assert.equal(ls[1].slice(0, 6), " Title");
+    assert.equal(ls[3], " " + "─".repeat(18));
+    assert.equal(ls.length, 4);
+});
+
+test("attached header dashed line", () => {
+    // The line uses the header's own border_style; junctions use the box's
+    const h = { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+                content: "", border_style: "dashed", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[3], "├" + "┄".repeat(18) + "┤");
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached header none border", () => {
+    // border_style=none on the header: no line, content area full height
+    const h = { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+                content: "Title", border_style: "none", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[1].slice(1, 6), "Title");
+    assert.equal(ls[3], "│" + " ".repeat(18) + "│");
+});
+
+test("attached header detached", () => {
+    // y > 0: a plain box at the stored position/width, no junctions
+    const h = { id: "h", block_type: "header", x: 0, y: 2, width: 18, height: 3,
+                content: "Title", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[3], "│" + "┌" + "─".repeat(16) + "┐" + "│");
+    assert.equal(ls[4], "│" + "│" + "Title" + " ".repeat(11) + "│" + "│");
+    assert.equal(ls[5], "│" + "└" + "─".repeat(16) + "┘" + "│");
+    assert.equal(ls[3][0], "│");
+    assert.equal(ls[3][19], "│");
+});
+
+test("attached header follows box width", () => {
+    // The stored x/width are ignored while attached — a box resize
+    // stretches the header (render-time)
+    const narrow = lines(render(boxWithHeader(null, 20)));
+    const wide = lines(render(boxWithHeader(null, 30)));
+    assert.equal(narrow[3], "├" + "─".repeat(18) + "┤");
+    assert.equal(wide[3], "├" + "─".repeat(28) + "┤");
+});
+
+test("attached header empty content hint", () => {
+    // Empty content: the [header] hint at the top-left of the content area
+    const h = { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+                content: "", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[1].slice(1, 9), "[header]");
+    assert.equal(ls[3], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached header fill and hide_text", () => {
+    // fill paints the content area (content on top); hide_text suppresses
+    // the content and the hint — the line remains
+    const filled = { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+                     content: "Title", border_style: "solid",
+                     meta: { fill: "░" }, parent_id: "b" };
+    const ls = lines(render(boxWithHeader(filled)));
+    assert.equal(ls[1].slice(1, 6), "Title");
+    assert.equal(ls[1].slice(6, 19), "░".repeat(13));
+    assert.equal(ls[2].slice(1, 19), "░".repeat(18));
+    assert.equal(ls[3], "├" + "─".repeat(18) + "┤");
+
+    const hidden = { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+                     content: "Title", border_style: "solid",
+                     meta: { hide_text: true }, parent_id: "b" };
+    const out = render(boxWithHeader(hidden));
+    const hls = lines(out);
+    assert.ok(!out.includes("Title"));
+    assert.ok(!out.includes("[header]"));
+    assert.equal(hls[3], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached header in grid unchanged", () => {
+    // A grid parent is out of scope — the header renders as a plain box
+    const blocks = [
+        { id: "g", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+          content: "Title", border_style: "solid", parent_id: "g" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[1][1], "┌");
+    assert.equal(ls[1][18], "┐");
+    assert.equal(ls[2].slice(2, 7), "Title");
+    assert.equal(ls[3][1], "└");
+    assert.equal(ls[3][18], "┘");
+    // No junctions on the grid's frame (row 3)
+    assert.equal(ls[3][0], "│");
+    assert.equal(ls[3][23], "│");
+    // The vertical partition under the header's span is suppressed...
+    assert.notEqual(ls[1][8], "│");
+    // ...and drawn again below the span
+    assert.equal(ls[5][8], "│");
+});
+
 test("gridReshapeWidths: split/merge the last", () => {
     const r = PG.gridReshapeWidths;
     // No custom widths (or a stale array) → null (the even split)

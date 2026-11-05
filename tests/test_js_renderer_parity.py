@@ -909,3 +909,89 @@ def test_parity_html_preview_child_bigger_than_parent():
          "content": "", "border_style": "dashed", "parent_id": "parent", "order": 0},
     ]
     assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(to_nested(blocks))
+
+
+def _box_with_header_blocks(header: dict, box_w: int = 20, box_h: int = 8,
+                            box_border: str = "solid") -> list[dict]:
+    """A flat box + header-child pair (the attach parity fixture)."""
+    h = dict(header)
+    h.setdefault("id", "h")
+    h["parent_id"] = "b"
+    return [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+         "content": "", "border_style": box_border, "order": 0},
+        h,
+    ]
+
+
+def test_parity_attached_header():
+    """The attached-header render (todo-0007) matches byte-for-byte."""
+    cases = [
+        # (header, box_w, box_h, box_border)
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 8, "solid"),
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 1,
+          "content": "x", "border_style": "solid"}, 20, 8, "solid"),          # h=1: line only
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 4, "solid"),      # ch > inner_h
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 8, "none"),       # borderless parent
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "", "border_style": "dashed"}, 20, 8, "solid"),          # dashed line
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Title", "border_style": "none"}, 20, 8, "solid"),       # no line
+        ({"block_type": "header", "x": 0, "y": 2, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 8, "solid"),      # detached
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "", "border_style": "solid"}, 20, 8, "solid"),           # [header] hint
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid",
+          "meta": {"fill": "░"}}, 20, 8, "solid"),                            # fill
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid",
+          "meta": {"hide_text": True}}, 20, 8, "solid"),                      # hide_text
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid",
+          "meta": {"text_align": "center", "vertical_align": "middle"}}, 20, 8, "solid"),
+    ]
+    for header, bw, bh, bb in cases:
+        blocks = _box_with_header_blocks(header, bw, bh, bb)
+        assert render_js(blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 12
+        ), (header, bw, bh, bb)
+
+
+def test_parity_attached_header_in_grid():
+    """A header in a grid is out of scope — a plain box, identical output."""
+    blocks = [
+        {"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+         "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+        {"id": "h", "block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+         "content": "Title", "border_style": "solid", "parent_id": "g", "order": 0},
+    ]
+    assert render_js(blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+        to_nested(blocks), 40, 12
+    )
+
+
+def test_parity_attached_header_html():
+    """The attached-header HTML overlay (effective geometry + bottom line)
+    matches byte-for-byte."""
+    cases = [
+        # (header, box_w, box_h, box_border)
+        ({"block_type": "header", "x": 1, "y": 0, "width": 10, "height": 2,
+          "content": "Title", "border_style": "solid"}, 30, 10, "solid"),
+        ({"block_type": "header", "x": 1, "y": 0, "width": 10, "height": 2,
+          "content": "", "border_style": "dashed"}, 30, 10, "solid"),
+        ({"block_type": "header", "x": 1, "y": 0, "width": 10, "height": 2,
+          "content": "", "border_style": "none"}, 30, 10, "solid"),
+        ({"block_type": "header", "x": 1, "y": 2, "width": 10, "height": 2,
+          "content": "Title", "border_style": "solid"}, 30, 10, "solid"),  # detached
+        ({"block_type": "header", "x": 1, "y": 0, "width": 10, "height": 2,
+          "content": "Title", "border_style": "solid"}, 30, 10, "none"),   # borderless parent
+    ]
+    for header, bw, bh, bb in cases:
+        blocks = _box_with_header_blocks(header, bw, bh, bb)
+        assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(
+            to_nested(blocks)
+        ), (header, bw, bh, bb)
