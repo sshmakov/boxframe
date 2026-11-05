@@ -76,10 +76,15 @@ test("schema: the current properties are described (phase 3 set)", () => {
     assert.equal(fill.group, "Fill");
     assert.equal(fill.default, "none");
     assert.equal(fill.noneValue, null);
+    // Every framed type is fillable (task 0073); lines stay out
     assert.ok(fill.types.includes("image"));
-    assert.ok(!fill.types.includes("button"));
-    assert.ok(!fill.types.includes("text"));
+    assert.ok(fill.types.includes("button"));
+    assert.ok(fill.types.includes("input"));
+    assert.ok(fill.types.includes("textarea"));
+    assert.ok(fill.types.includes("text"));
+    assert.ok(!fill.types.includes("divider"));
     assert.ok(!fill.types.includes("hline"));
+    assert.ok(!fill.types.includes("vline"));
     // Alignment (phase 3 of tasks/0051): meta keys, segmented; picking
     // the default clears the meta key (clearDefault — the default is
     // implicit). Not applicable to lines. row: "text" — the properties
@@ -280,10 +285,11 @@ test("sectionsForType: the panel filter keeps the primary properties (task 0054)
     assert.deepEqual(
         PGProperties.sectionsForType("hline", "primary").map(s => s.name),
         ["Style", "Arrows"]);
-    // A type with no primary property at all (text: no fill, no arrows —
-    // but it has alignment) — the primary filter still keeps Text
+    // A line with alignment but no fill/arrows (divider) — the primary
+    // filter still keeps Text (task 0073: every framed type has Fill, so
+    // text is no longer the fill-less example)
     assert.deepEqual(
-        PGProperties.sectionsForType("text", "primary").map(s => s.name),
+        PGProperties.sectionsForType("divider", "primary").map(s => s.name),
         ["Style", "Text"]);
     // The default ("all") is unchanged — the modal shows everything
     assert.deepEqual(
@@ -329,10 +335,15 @@ test("rowsForProps: a lone row property keeps its own label", () => {
     assert.deepEqual(rows[0].props.map(p => p.key), ["text_align"]);
 });
 
-test("sectionsForType: Fill is not applicable to button and lines", () => {
-    for (const type of ["button", "hline", "vline"]) {
-        const sections = PGProperties.sectionsForType(type);
-        assert.ok(!sections.some(s => s.name === "Fill"), type);
+test("sectionsForType: Fill applies to every framed type, not to lines (task 0073)", () => {
+    // Every framed block type has a Fill section
+    for (const type of ["box", "header", "footer", "sidebar", "content",
+                        "grid", "image", "button", "input", "textarea", "text"]) {
+        assert.ok(PGProperties.sectionsForType(type).some(s => s.name === "Fill"), type);
+    }
+    // Lines are not frames — no Fill section
+    for (const type of ["divider", "hline", "vline"]) {
+        assert.ok(!PGProperties.sectionsForType(type).some(s => s.name === "Fill"), type);
     }
     // Text (alignment + hide_text) applies to all content types
     // (including button — text_align aligns the label) but not to lines

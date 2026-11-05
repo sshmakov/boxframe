@@ -153,9 +153,12 @@ BORDERS: dict[str, dict[str, str]] = {
 
 
 # Block types whose content area can be painted with a fill character
-# (meta.fill, tasks/0051 phase 2).
+# (meta.fill, tasks/0051 phase 2; extended to every framed block type in
+# task 0073 — button, input, textarea, text). Lines (divider, hline,
+# vline) are not frames and stay out of the matrix.
 FILL_TYPES = frozenset(
-    {"box", "header", "footer", "sidebar", "content", "grid", "image"}
+    {"box", "header", "footer", "sidebar", "content", "grid", "image",
+     "button", "input", "textarea", "text"}
 )
 
 
@@ -760,7 +763,8 @@ class PseudoGraphicRenderer:
         is top) and each line is horizontally aligned
         (meta.text_align, default center — unlike box, whose default is
         left). Lines past the inner height are not drawn (the border is
-        drawn first and is not overwritten).
+        drawn first and is not overwritten). Fill (meta.fill) paints the
+        inner area (task 0073); the label is drawn on top.
         """
         # Clamp to grid (same logic as _draw_border)
         x = max(0, min(block.x, self.grid_width - 2))
@@ -794,21 +798,34 @@ class PseudoGraphicRenderer:
                     for i in range(1, w - 1):
                         self._set(x + i, y, style["h"])
 
+        # The inner area: h=1/h=2 — one row (row y), h>=3 — the rows
+        # between the borders, none — the whole block.
+        if framed:
+            inner_x, inner_w = x + 1, w - 2
+            if h >= 3:
+                inner_y, inner_h = y + 1, h - 2
+            else:
+                inner_y, inner_h = y, 1
+        else:
+            inner_x, inner_y, inner_w, inner_h = x, y, w, h
+
+        # Fill (meta.fill) paints the inner area; the label is drawn on
+        # top (label wins).
+        fill = fill_char(block.block_type, block.meta)
+        if fill and inner_w > 0 and inner_h > 0:
+            for j in range(inner_h):
+                row = inner_y + j
+                if row >= self.grid_height:
+                    break
+                for i in range(inner_w):
+                    self._set(inner_x + i, row, fill)
+
         # Label — word-wrapped to the inner width, the line block
         # vertically aligned (meta.vertical_align, default middle) and
         # each line horizontally aligned (meta.text_align, default
-        # center). The inner area: h=1/h=2 — one row (row y), h>=3 —
-        # the rows between the borders, none — the whole block.
-        # meta.hide_text suppresses the label (the frame stays).
+        # center). meta.hide_text suppresses the label (the frame and
+        # the fill stay).
         if block.content and not (block.meta or {}).get("hide_text"):
-            if framed:
-                inner_x, inner_w = x + 1, w - 2
-                if h >= 3:
-                    inner_y, inner_h = y + 1, h - 2
-                else:
-                    inner_y, inner_h = y, 1
-            else:
-                inner_x, inner_y, inner_w, inner_h = x, y, w, h
             if inner_w > 0 and inner_h > 0:
                 meta = block.meta or {}
                 align = meta.get("text_align")

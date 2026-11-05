@@ -167,9 +167,14 @@ def test_parity_fill():
         ("box", {"fill": "ab"}, "x", "solid"),  # invalid: more than one cell
         ("box", {"fill": ""}, "", "solid"),     # invalid: empty
         ("box", {"fill": 5}, "", "solid"),      # invalid: not a string
-        ("button", {"fill": "░"}, "Btn", "solid"),   # not in the matrix
-        ("text", {"fill": "░"}, "t", "none"),        # not in the matrix
-        ("input", {"fill": "░"}, "", "solid"),       # not in the matrix
+        # Framed types added to the matrix (task 0073)
+        ("button", {"fill": "░"}, "Btn", "solid"),
+        ("button", {"fill": "░"}, "Btn", "none"),
+        ("text", {"fill": "░"}, "t", "none"),
+        ("text", {"fill": "░"}, "Hello", "solid"),
+        ("input", {"fill": "░"}, "", "solid"),
+        ("textarea", {"fill": "▒"}, "", "solid"),
+        ("textarea", {"fill": "▒"}, "Some text", "dashed"),
         ("divider", {"fill": "░"}, "", "solid"),     # not in the matrix
         ("hline", {"fill": "░"}, "", "solid"),       # not in the matrix
         ("vline", {"fill": "░"}, "", "solid"),       # not in the matrix

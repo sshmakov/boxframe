@@ -89,8 +89,10 @@
             options: ["░", "▒", "▓", "█", "·", "×", " ", "none"],
             icons: { none: "∅", " ": "␣" },
             group: "Fill",
+            // Every framed block type (task 0073): lines (divider,
+            // hline, vline) are not frames and stay out.
             types: ["box", "header", "footer", "sidebar", "content", "grid",
-                    "image"],
+                    "image", "button", "input", "textarea", "text"],
             default: "none",
             noneValue: null,
             panel: "primary",

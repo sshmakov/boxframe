@@ -360,8 +360,12 @@ test("fillChar: single-cell values for applicable types only", () => {
     assert.equal(PG.fillChar("box", { fill: "" }), "");
     assert.equal(PG.fillChar("box", { fill: "ab" }), ""); // more than one cell
     assert.equal(PG.fillChar("box", { fill: 5 }), "");    // not a string
-    // Not in the fill matrix
-    for (const t of ["button", "input", "textarea", "text", "divider", "hline", "vline"]) {
+    // Every framed type is in the matrix (task 0073)
+    for (const t of ["button", "input", "textarea", "text"]) {
+        assert.equal(PG.fillChar(t, { fill: "░" }), "░");
+    }
+    // Lines are not frames — not in the fill matrix
+    for (const t of ["divider", "hline", "vline"]) {
         assert.equal(PG.fillChar(t, { fill: "░" }), "");
     }
 });
@@ -404,11 +408,8 @@ test("fill no border: the whole area is filled", () => {
     assert.equal(ls[2], "▒▒▒▒▒▒");
 });
 
-test("fill ignored for other types (matrix)", () => {
+test("fill ignored for lines (matrix, task 0073)", () => {
     const cases = [
-        { block_type: "button", width: 12, height: 3, content: "Btn" },
-        { block_type: "text", width: 10, height: 2, content: "t", border_style: "none" },
-        { block_type: "input", width: 10, height: 2, content: "" },
         { block_type: "divider", width: 10, height: 1, content: "" },
         { block_type: "hline", width: 10, height: 1, content: "" },
         { block_type: "vline", width: 1, height: 5, content: "" },
@@ -440,6 +441,115 @@ test("fill image block: hint suppressed, area filled", () => {
     assert.equal(ls[1], "│████████│");
     assert.equal(ls[2], "│████████│");
     assert.equal(ls[3], "└────────┘");
+});
+
+test("fill input block: hint suppressed, area filled (task 0073)", () => {
+    const result = render([{
+        id: "b1", block_type: "input",
+        x: 0, y: 0, width: 10, height: 3,
+        content: "", border_style: "solid",
+        meta: { fill: "░" },
+    }]);
+    const ls = lines(result);
+    assert.equal(ls[0], "┌────────┐");
+    assert.equal(ls[1], "│░░░░░░░░│");
+    assert.equal(ls[2], "└────────┘");
+    assert.ok(!result.includes("[input]"));
+});
+
+test("fill textarea block: hint suppressed, area filled (task 0073)", () => {
+    const result = render([{
+        id: "b1", block_type: "textarea",
+        x: 0, y: 0, width: 10, height: 4,
+        content: "", border_style: "solid",
+        meta: { fill: "▒" },
+    }]);
+    const ls = lines(result);
+    assert.equal(ls[0], "┌────────┐");
+    assert.equal(ls[1], "│▒▒▒▒▒▒▒▒│");
+    assert.equal(ls[2], "│▒▒▒▒▒▒▒▒│");
+    assert.equal(ls[3], "└────────┘");
+    assert.ok(!result.includes("[textarea]"));
+});
+
+test("fill text block: content over the fill, borderless fills all (task 0073)", () => {
+    const result = render([{
+        id: "b1", block_type: "text",
+        x: 0, y: 0, width: 8, height: 3,
+        content: "Hi", border_style: "solid",
+        meta: { fill: "░" },
+    }]);
+    const ls = lines(result);
+    assert.equal(ls[0], "┌──────┐");
+    assert.equal(ls[1], "│Hi░░░░│");
+    assert.equal(ls[2], "└──────┘");
+    const borderless = render([{
+        id: "b1", block_type: "text",
+        x: 0, y: 0, width: 6, height: 2,
+        content: "", border_style: "none",
+        meta: { fill: "▓" },
+    }]);
+    const bls = lines(borderless);
+    assert.equal(bls[0], "▓▓▓▓▓▓");
+    assert.equal(bls[1], "▓▓▓▓▓▓");
+});
+
+test("fill button block: inner area per height form, label on top (task 0073)", () => {
+    // h=1: [label] — the row between the brackets fills (label centered:
+    // 3 fill cells left, 4 right)
+    let result = render([{
+        id: "b1", block_type: "button",
+        x: 0, y: 0, width: 12, height: 1,
+        content: "Btn", border_style: "solid",
+        meta: { fill: "░" },
+    }]);
+    assert.equal(result, "[░░░Btn░░░░]");
+    // h=2: no top border — the single inner row fills, the bottom border stays
+    result = render([{
+        id: "b1", block_type: "button",
+        x: 0, y: 0, width: 12, height: 2,
+        content: "Btn", border_style: "solid",
+        meta: { fill: "░" },
+    }]);
+    let ls = lines(result);
+    assert.equal(ls[0], "│░░░Btn░░░░│");
+    assert.equal(ls[1], "└──────────┘");
+    // h>=3: full box — the area between the borders fills
+    result = render([{
+        id: "b1", block_type: "button",
+        x: 0, y: 0, width: 12, height: 4,
+        content: "Btn", border_style: "solid",
+        meta: { fill: "░" },
+    }]);
+    ls = lines(result);
+    assert.equal(ls[0], "┌──────────┐");
+    assert.equal(ls[1], "│░░░Btn░░░░│");
+    assert.equal(ls[2], "│░░░░░░░░░░│");
+    assert.equal(ls[3], "└──────────┘");
+    // border none: the whole block fills
+    result = render([{
+        id: "b1", block_type: "button",
+        x: 0, y: 0, width: 6, height: 2,
+        content: "Hi", border_style: "none",
+        meta: { fill: "▒" },
+    }]);
+    ls = lines(result);
+    assert.equal(ls[0], "▒▒Hi▒▒");
+    assert.equal(ls[1], "▒▒▒▒▒▒");
+});
+
+test("fill button: hide_text suppresses the label, the fill stays (task 0073)", () => {
+    const result = render([{
+        id: "b1", block_type: "button",
+        x: 0, y: 0, width: 10, height: 3,
+        content: "Btn", border_style: "solid",
+        meta: { fill: "░", hide_text: true },
+    }]);
+    const ls = lines(result);
+    assert.equal(ls[0], "┌────────┐");
+    assert.equal(ls[1], "│░░░░░░░░│");
+    assert.equal(ls[2], "└────────┘");
+    assert.ok(!result.includes("Btn"));
 });
 
 test("fill children container: children drawn over the fill", () => {

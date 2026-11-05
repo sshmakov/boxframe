@@ -61,11 +61,14 @@
     var DEFAULT_CANVAS_HEIGHT = 24;
 
     // Block types whose content area can be painted with a fill character
-    // (meta.fill, tasks/0051 phase 2). Mirrors FILL_TYPES in
-    // services/renderer.py.
+    // (meta.fill, tasks/0051 phase 2; extended to every framed block type
+    // in task 0073 — button, input, textarea, text). Lines (divider,
+    // hline, vline) are not frames and stay out of the matrix. Mirrors
+    // FILL_TYPES in services/renderer.py.
     var FILL_TYPES = {
         box: true, header: true, footer: true, sidebar: true,
         content: true, grid: true, image: true,
+        button: true, input: true, textarea: true, text: true,
     };
 
     // Fixed lorem source for the content-block placeholder (todo-0004).
@@ -500,6 +503,8 @@
     // is horizontally aligned (meta.text_align, default center — unlike
     // box, whose default is left). Lines past the inner height are not
     // drawn (the border is drawn first and is not overwritten).
+    // Fill (meta.fill) paints the inner area (task 0073); the label is
+    // drawn on top.
     function drawButton(block, style, grid, gw, gh, clip) {
         var x = Math.max(0, Math.min(block.x, gw - 2));
         var y = Math.max(0, Math.min(block.y, gh - 2));
@@ -537,30 +542,45 @@
             }
         }
 
+        // The inner area: h=1/h=2 — one row (row y), h>=3 — the rows
+        // between the borders, none — the whole block.
+        var innerX, innerY, innerW, innerH;
+        if (framed) {
+            innerX = x + 1;
+            innerW = w - 2;
+            if (h >= 3) {
+                innerY = y + 1;
+                innerH = h - 2;
+            } else {
+                innerY = y;
+                innerH = 1;
+            }
+        } else {
+            innerX = x;
+            innerY = y;
+            innerW = w;
+            innerH = h;
+        }
+
+        // Fill (meta.fill) paints the inner area; the label is drawn on
+        // top (label wins).
+        var fill = fillChar(block.block_type, block.meta);
+        if (fill && innerW > 0 && innerH > 0) {
+            for (var fj = 0; fj < innerH; fj++) {
+                var frow = innerY + fj;
+                if (frow >= gh) break;
+                for (var fi = 0; fi < innerW; fi++) {
+                    setCell(grid, gw, gh, clip, innerX + fi, frow, fill);
+                }
+            }
+        }
+
         // Label — word-wrapped to the inner width, the line block
         // vertically aligned (meta.vertical_align, default middle) and
         // each line horizontally aligned (meta.text_align, default
-        // center). The inner area: h=1/h=2 — one row (row y), h>=3 —
-        // the rows between the borders, none — the whole block.
-        // meta.hide_text suppresses the label (the frame stays).
+        // center). meta.hide_text suppresses the label (the frame and
+        // the fill stay).
         if (block.content && !(block.meta || {}).hide_text) {
-            var innerX, innerY, innerW, innerH;
-            if (framed) {
-                innerX = x + 1;
-                innerW = w - 2;
-                if (h >= 3) {
-                    innerY = y + 1;
-                    innerH = h - 2;
-                } else {
-                    innerY = y;
-                    innerH = 1;
-                }
-            } else {
-                innerX = x;
-                innerY = y;
-                innerW = w;
-                innerH = h;
-            }
             if (innerW > 0 && innerH > 0) {
                 var meta = block.meta || {};
                 var align = meta.text_align;

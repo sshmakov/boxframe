@@ -1138,20 +1138,20 @@ def test_props_modal_updates_on_selection_change(page: Page):
     follow the new block's type)."""
     layout_id, block_id = _create_project_with_block(page)
 
-    # A second block of another type (button — no Fill section), far
-    # from the dialog so the click isn't covered by it
+    # A second block of another type (hline — a line, no Fill section),
+    # far from the dialog so the click isn't covered by it
     r = requests.post(
         f"{BASE_URL}/api/layouts/{layout_id}/blocks",
         json={
-            "block_type": "button",
+            "block_type": "hline",
             "x": 30, "y": 1, "width": 10, "height": 1,
-            "content": "Go",
+            "content": "",
             "border_style": "solid",
         },
         timeout=5,
     )
     assert r.status_code == 200
-    btn_id = r.json()["id"]
+    line_id = r.json()["id"]
     page.reload()
 
     page.locator(f'.block-preview[data-block-id="{block_id}"]').click()
@@ -1161,11 +1161,11 @@ def test_props_modal_updates_on_selection_change(page: Page):
     expect(modal.locator(".props-modal__type")).to_have_text("box")
     expect(modal.locator('.props-section[data-section="Fill"]')).to_have_count(1)
 
-    # Click the button block THROUGH the dimming overlay: the modal
-    # stays open and shows the button's sections (no Fill)
-    page.locator(f'.block-preview[data-block-id="{btn_id}"]').click()
+    # Click the line block THROUGH the dimming overlay: the modal
+    # stays open and shows the line's sections (no Fill)
+    page.locator(f'.block-preview[data-block-id="{line_id}"]').click()
     expect(modal).to_be_visible()
-    expect(modal.locator(".props-modal__type")).to_have_text("button")
+    expect(modal.locator(".props-modal__type")).to_have_text("hline")
     expect(modal.locator('.props-section[data-section="Fill"]')).to_have_count(0)
     expect(modal.locator('.props-section[data-section="Style"]')).to_have_count(1)
     expect(modal.locator('.props-section[data-section="Geometry"]')).to_have_count(1)

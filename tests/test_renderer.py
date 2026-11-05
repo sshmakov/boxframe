@@ -387,8 +387,11 @@ def test_fill_char():
     assert fill_char("box", {"fill": ""}) == ""
     assert fill_char("box", {"fill": "ab"}) == ""  # more than one cell
     assert fill_char("box", {"fill": 5}) == ""     # not a string
-    # Not in the fill matrix
-    for t in ["button", "input", "textarea", "text", "divider", "hline", "vline"]:
+    # Every framed type is in the matrix (task 0073)
+    for t in ["button", "input", "textarea", "text"]:
+        assert fill_char(t, {"fill": "░"}) == "░"
+    # Lines are not frames — not in the fill matrix
+    for t in ["divider", "hline", "vline"]:
         assert fill_char(t, {"fill": "░"}) == ""
 
 
@@ -434,14 +437,10 @@ def test_fill_no_border_fills_whole_area():
     assert lines[2] == "▒▒▒▒▒▒"
 
 
-def test_fill_ignored_for_other_types():
-    """fill applies only to the spec's types (matrix): button/text/input/
-    divider/lines render identically with and without meta.fill."""
+def test_fill_ignored_for_lines():
+    """fill applies only to framed types (matrix, task 0073): lines
+    (divider/hline/vline) render identically with and without meta.fill."""
     cases = [
-        {"block_type": "button", "width": 12, "height": 3, "content": "Btn"},
-        {"block_type": "text", "width": 10, "height": 2, "content": "t",
-         "border_style": "none"},
-        {"block_type": "input", "width": 10, "height": 2, "content": ""},
         {"block_type": "divider", "width": 10, "height": 1, "content": ""},
         {"block_type": "hline", "width": 10, "height": 1, "content": ""},
         {"block_type": "vline", "width": 1, "height": 5, "content": ""},
@@ -475,6 +474,145 @@ def test_fill_image_block():
     assert lines[1] == "│████████│"
     assert lines[2] == "│████████│"
     assert lines[3] == "└────────┘"
+
+
+def test_fill_input_block():
+    """input is in the fill matrix (task 0073): the hint is suppressed,
+    the content area filled."""
+    result = _render([{
+        "block_type": "input",
+        "x": 0, "y": 0,
+        "width": 10, "height": 3,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"fill": "░"},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "┌────────┐"
+    assert lines[1] == "│░░░░░░░░│"
+    assert lines[2] == "└────────┘"
+    assert "[input]" not in result
+
+
+def test_fill_textarea_block():
+    """textarea is in the fill matrix (task 0073): the hint is
+    suppressed, the content area filled."""
+    result = _render([{
+        "block_type": "textarea",
+        "x": 0, "y": 0,
+        "width": 10, "height": 4,
+        "content": "",
+        "border_style": "solid",
+        "meta": {"fill": "▒"},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "┌────────┐"
+    assert lines[1] == "│▒▒▒▒▒▒▒▒│"
+    assert lines[2] == "│▒▒▒▒▒▒▒▒│"
+    assert lines[3] == "└────────┘"
+    assert "[textarea]" not in result
+
+
+def test_fill_text_block():
+    """text is in the fill matrix (task 0073): with a border the content
+    area fills and the content is drawn on top; without a border the
+    whole block fills."""
+    result = _render([{
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "width": 8, "height": 3,
+        "content": "Hi",
+        "border_style": "solid",
+        "meta": {"fill": "░"},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "┌──────┐"
+    assert lines[1] == "│Hi░░░░│"
+    assert lines[2] == "└──────┘"
+    result = _render([{
+        "block_type": "text",
+        "x": 0, "y": 0,
+        "width": 6, "height": 2,
+        "content": "",
+        "border_style": "none",
+        "meta": {"fill": "▓"},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "▓▓▓▓▓▓"
+    assert lines[1] == "▓▓▓▓▓▓"
+
+
+def test_fill_button_block():
+    """button is in the fill matrix (task 0073): the fill paints the
+    inner area for every height form, the label is drawn on top
+    (center/middle by default)."""
+    # h=1: [label] — the row between the brackets fills (label centered:
+    # 3 fill cells left, 4 right)
+    result = _render([{
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "width": 12, "height": 1,
+        "content": "Btn",
+        "border_style": "solid",
+        "meta": {"fill": "░"},
+    }])
+    assert result == "[░░░Btn░░░░]"
+    # h=2: no top border — the single inner row fills, the bottom border
+    # stays
+    result = _render([{
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "width": 12, "height": 2,
+        "content": "Btn",
+        "border_style": "solid",
+        "meta": {"fill": "░"},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "│░░░Btn░░░░│"
+    assert lines[1] == "└──────────┘"
+    # h>=3: full box — the area between the borders fills
+    result = _render([{
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "width": 12, "height": 4,
+        "content": "Btn",
+        "border_style": "solid",
+        "meta": {"fill": "░"},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "┌──────────┐"
+    assert lines[1] == "│░░░Btn░░░░│"
+    assert lines[2] == "│░░░░░░░░░░│"
+    assert lines[3] == "└──────────┘"
+    # border none: the whole block fills
+    result = _render([{
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "width": 6, "height": 2,
+        "content": "Hi",
+        "border_style": "none",
+        "meta": {"fill": "▒"},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "▒▒Hi▒▒"
+    assert lines[1] == "▒▒▒▒▒▒"
+
+
+def test_fill_button_hide_text_keeps_fill():
+    """meta.hide_text suppresses the button label but the fill stays."""
+    result = _render([{
+        "block_type": "button",
+        "x": 0, "y": 0,
+        "width": 10, "height": 3,
+        "content": "Btn",
+        "border_style": "solid",
+        "meta": {"fill": "░", "hide_text": True},
+    }])
+    lines = result.split("\n")
+    assert lines[0] == "┌────────┐"
+    assert lines[1] == "│░░░░░░░░│"
+    assert lines[2] == "└────────┘"
+    assert "Btn" not in result
 
 
 def test_fill_children_container():
