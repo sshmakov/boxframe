@@ -767,10 +767,12 @@
             if (c.border_style === "none" || c.height < 1 || c.height > innerH) continue;
             var row = null;
             if (c.block_type === "header") {
-                if (c.y > 0) continue;
+                // Attached only when the top border is clipped (y < 0)
+                if (c.y >= 0) continue;
                 row = y + c.height;
             } else if (c.block_type === "footer") {
-                if (c.y + c.height < innerH) continue;
+                // Attached only when the bottom border is clipped (y + h > innerH)
+                if (c.y + c.height <= innerH) continue;
                 row = y + 1 + innerH - c.height;
             } else {
                 continue;
@@ -1107,15 +1109,18 @@
         var innerH = parent.height - 2 * padY;
         for (var i = 0; i < children.length; i++) {
             var child = children[i];
-            // A header at the top of a box (relative y <= 0) or a footer
-            // at the bottom (relative y + h >= innerH) is attached
-            // (todo-0007/0008): effective geometry — flush with the
-            // top/bottom of the inner area at the full inner width (the
-            // stored x/y/width are ignored while attached, applied again
-            // once the block is detached).
+            // A header whose top border is clipped by the box's top edge
+            // (relative y < 0) or a footer whose bottom border is clipped
+            // by the box's bottom edge (relative y + h > innerH) is
+            // attached (todo-0007/0008): effective geometry — flush with
+            // the top/bottom of the inner area at the full inner width
+            // (the stored x/y/width are ignored while attached, applied
+            // again once the block is detached). A block merely touching
+            // the edge (y == 0 / y + h == innerH) is not clipped and
+            // stays detached.
             var attached = parent.block_type === "box"
-                && ((child.block_type === "header" && child.y <= 0)
-                    || (child.block_type === "footer" && child.y + child.height >= innerH));
+                && ((child.block_type === "header" && child.y < 0)
+                    || (child.block_type === "footer" && child.y + child.height > innerH));
             // Adjusted copy — never mutate the store's blocks
             var c = {
                 id: child.id,
@@ -1365,13 +1370,14 @@
     // them at the container border — mirroring the ASCII clip. The clip
     // lives on the wrapper, not on .block-preview itself, so the
     // container's own outline (drawn OUTSIDE its border box) is not
-    // clipped. effective/attached (todo-0007/0008): a header at the top
-    // of a box (relative y <= 0) or a footer at the bottom (relative
-    // y + h >= inner_h) is attached — the caller passes its effective
-    // geometry (flush with the top/bottom of the inner area, full inner
-    // width) and the line (bottom for a header, top for a footer) is
-    // drawn instead of the full outline. Must stay in sync with Python's
-    // _block_preview_html.
+    // clipped. effective/attached (todo-0007/0008): a header whose top
+    // border is clipped by the box's top edge (relative y < 0) or a
+    // footer whose bottom border is clipped by the box's bottom edge
+    // (relative y + h > inner_h) is attached — the caller passes its
+    // effective geometry (flush with the top/bottom of the inner area,
+    // full inner width) and the line (bottom for a header, top for a
+    // footer) is drawn instead of the full outline. Must stay in sync
+    // with Python's _block_preview_html.
     function _blockPreviewHtml(bd, opts, isRoot, effective, attached) {
         var x = bd.x || 0;
         var y = bd.y || 0;
@@ -1418,20 +1424,23 @@
 
         var childrenHtml = "";
         children.forEach(function (c) {
-            // A header at the top of a box (relative y <= 0) or a footer
-            // at the bottom (relative y + h >= inner_h) is attached
-            // (todo-0007/0008): effective geometry — flush with the
-            // top/bottom of the inner area at the full inner width, the
-            // line instead of the full outline.
+            // A header whose top border is clipped by the box's top edge
+            // (relative y < 0) or a footer whose bottom border is clipped
+            // by the box's bottom edge (relative y + h > inner_h) is
+            // attached (todo-0007/0008): effective geometry — flush with
+            // the top/bottom of the inner area at the full inner width,
+            // the line instead of the full outline. A block merely
+            // touching the edge (y == 0 / y + h == inner_h) is not
+            // clipped and stays detached.
             var eff = null, att = false;
             var cType = c.block_type || "box";
             var cY = c.y || 0;
             var cH = c.height != null ? c.height : 3;
             var innerH = Math.max(0, height - 2);
-            if (blockType === "box" && cType === "header" && cY <= 0) {
+            if (blockType === "box" && cType === "header" && cY < 0) {
                 att = true;
                 eff = [0, 0, Math.max(0, width - 2), cH];
-            } else if (blockType === "box" && cType === "footer" && cY + cH >= innerH) {
+            } else if (blockType === "box" && cType === "footer" && cY + cH > innerH) {
                 att = true;
                 eff = [0, innerH - cH, Math.max(0, width - 2), cH];
             }

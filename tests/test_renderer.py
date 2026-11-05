@@ -3556,9 +3556,13 @@ def test_grid_span_with_uneven_split():
 # ── Header attach (todo-0007) ─────────────────────────────
 
 def _box_with_header(header=None, box_w=20, box_h=8, box_border="solid"):
-    """A box with a single header child (the attach test fixture)."""
+    """A box with a single header child (the attach test fixture).
+
+    The default header sits at y=-1 — its top border is clipped by the
+    box's top edge (the attach condition, todo-0007).
+    """
     if header is None:
-        header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+        header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
                   "content": "Title", "border_style": "solid"}
     return [{
         "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
@@ -3588,7 +3592,7 @@ def test_attached_header_basic():
 def test_attached_header_h1():
     """ch == 1: the content area is 0 rows — the header is the line only
     (a divider attached to the top)."""
-    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 1,
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 1,
               "content": "x", "border_style": "solid"}
     lines = _render(_box_with_header(header)).split("\n")
     assert lines[0] == "┌" + "─" * 18 + "┐"
@@ -3600,7 +3604,7 @@ def test_attached_header_h1():
 def test_attached_header_taller_than_inner():
     """ch > inner_h: the line is clipped (the box's bottom border stands
     in for it) and the junctions are not drawn."""
-    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
               "content": "Title", "border_style": "solid"}
     lines = _render(_box_with_header(header, box_w=20, box_h=4)).split("\n")
     # Content is clipped to the inner area (rows 1–2)
@@ -3625,7 +3629,7 @@ def test_attached_header_borderless_parent():
 def test_attached_header_dashed_line():
     """The line uses the header's own border_style (dashed in a solid
     box); the junctions use the box's style map."""
-    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
               "content": "", "border_style": "dashed"}
     lines = _render(_box_with_header(header)).split("\n")
     assert lines[3] == "├" + "┄" * 18 + "┤"
@@ -3637,7 +3641,7 @@ def test_attached_header_dashed_line():
 def test_attached_header_none_border():
     """border_style=none on the header: no line, the content area is the
     full height (no line row), no junctions."""
-    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
               "content": "Title", "border_style": "none"}
     lines = _render(_box_with_header(header)).split("\n")
     assert lines[1][1:6] == "Title"
@@ -3660,6 +3664,22 @@ def test_attached_header_detached():
     assert lines[3][19] == "│"
 
 
+def test_header_exact_touch_not_attached():
+    """y == 0: the header touches the top edge but its top border is not
+    clipped — it is NOT attached (a plain box at the stored position,
+    full border, no junctions)."""
+    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid"}
+    lines = _render(_box_with_header(header)).split("\n")
+    # The full border at the stored position (absolute rows 1–3)
+    assert lines[1] == "│" + "┌" + "─" * 16 + "┐" + "│"
+    assert lines[2] == "│" + "│" + "Title" + " " * 11 + "│" + "│"
+    assert lines[3] == "│" + "└" + "─" * 16 + "┘" + "│"
+    # No junctions on the box's border
+    assert lines[1][0] == "│"
+    assert lines[1][19] == "│"
+
+
 def test_attached_header_follows_box_width():
     """The stored x/width are ignored while attached — the header spans
     the box's inner width, so a box resize stretches it (render-time)."""
@@ -3672,7 +3692,7 @@ def test_attached_header_follows_box_width():
 def test_attached_header_empty_content_hint():
     """Empty content: the [header] hint at the top-left of the content
     area (the box's rules)."""
-    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
               "content": "", "border_style": "solid"}
     lines = _render(_box_with_header(header)).split("\n")
     assert lines[1][1:9] == "[header]"
@@ -3682,7 +3702,7 @@ def test_attached_header_empty_content_hint():
 def test_attached_header_fill_and_hide_text():
     """fill paints the content area (the content on top); hide_text
     suppresses the content and the hint — the line remains."""
-    filled = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+    filled = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
               "content": "Title", "border_style": "solid", "meta": {"fill": "░"}}
     lines = _render(_box_with_header(filled)).split("\n")
     assert lines[1][1:6] == "Title"
@@ -3690,7 +3710,7 @@ def test_attached_header_fill_and_hide_text():
     assert lines[2][1:19] == "░" * 18
     assert lines[3] == "├" + "─" * 18 + "┤"
 
-    hidden = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+    hidden = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
               "content": "Title", "border_style": "solid", "meta": {"hide_text": True}}
     out = _render(_box_with_header(hidden))
     lines = out.split("\n")
@@ -3737,7 +3757,7 @@ def test_render_html_preview_attached_header():
         "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
         "block_type": "box", "content": "", "border_style": "solid",
         "children": [{
-            "id": "head", "x": 1, "y": 0, "width": 10, "height": 2,
+            "id": "head", "x": 1, "y": -1, "width": 10, "height": 2,
             "block_type": "header", "content": "Title", "border_style": "solid",
         }],
     }])
@@ -3762,7 +3782,7 @@ def test_render_html_preview_attached_header_dashed():
         "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
         "block_type": "box", "content": "", "border_style": "solid",
         "children": [{
-            "id": "head", "x": 1, "y": 0, "width": 10, "height": 2,
+            "id": "head", "x": 1, "y": -1, "width": 10, "height": 2,
             "block_type": "header", "content": "", "border_style": "dashed",
         }],
     }])
@@ -3799,11 +3819,12 @@ def test_render_html_preview_detached_header_full_border():
 def _box_with_footer(footer=None, box_w=20, box_h=8, box_border="solid"):
     """A box with a single footer child (the attach test fixture).
 
-    The default footer (h=3) sits at y = inner_h − h = 6 − 3 = 3 —
-    exactly flush with the bottom of the box's inner area (attached).
+    The default footer (h=3) sits at y = inner_h − h + 1 = 6 − 3 + 1 = 4
+    — its bottom border is clipped by the box's bottom edge (the attach
+    condition, todo-0008).
     """
     if footer is None:
-        footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+        footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
                   "content": "Footer", "border_style": "solid"}
     return [{
         "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
@@ -3837,7 +3858,7 @@ def test_attached_footer_basic():
 def test_attached_footer_h1():
     """ch == 1: the content area is 0 rows — the footer is the line only
     (a divider attached to the bottom)."""
-    footer = {"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 1,
+    footer = {"block_type": "footer", "x": 0, "y": 6, "width": 18, "height": 1,
               "content": "x", "border_style": "solid"}
     lines = _render(_box_with_footer(footer)).split("\n")
     assert lines[0] == "┌" + "─" * 18 + "┐"
@@ -3877,7 +3898,7 @@ def test_attached_footer_borderless_parent():
 def test_attached_footer_dashed_line():
     """The line uses the footer's own border_style (dashed in a solid
     box); the junctions use the box's style map."""
-    footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+    footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
               "content": "", "border_style": "dashed"}
     lines = _render(_box_with_footer(footer)).split("\n")
     assert lines[4] == "├" + "┄" * 18 + "┤"
@@ -3889,7 +3910,7 @@ def test_attached_footer_dashed_line():
 def test_attached_footer_none_border():
     """border_style=none on the footer: no line, the content area is the
     full height (no line row), no junctions."""
-    footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+    footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
               "content": "Footer", "border_style": "none"}
     lines = _render(_box_with_footer(footer)).split("\n")
     # The content starts at the effective top (row 4), no line
@@ -3913,15 +3934,20 @@ def test_attached_footer_detached():
     assert lines[2][19] == "│"
 
 
-def test_attached_footer_exact_touch():
-    """y + h == inner_h — the exact touch is attached (the mirror of the
-    header's y == 0)."""
-    footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 2,
+def test_footer_exact_touch_not_attached():
+    """y + h == inner_h — the footer touches the bottom edge but its
+    bottom border is not clipped — it is NOT attached (a plain box at
+    the stored position, full border, no junctions)."""
+    footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
               "content": "Footer", "border_style": "solid"}
     lines = _render(_box_with_footer(footer)).split("\n")
-    # The line at row py+1+inner_h−ch = 1+6−2 = 5
-    assert lines[5] == "├" + "─" * 18 + "┤"
-    assert lines[6][1:7] == "Footer"
+    # The full border at the stored position (absolute rows 4–6)
+    assert lines[4] == "│" + "┌" + "─" * 16 + "┐" + "│"
+    assert lines[5] == "│" + "│" + "Footer" + " " * 10 + "│" + "│"
+    assert lines[6] == "│" + "└" + "─" * 16 + "┘" + "│"
+    # No junctions on the box's border
+    assert lines[4][0] == "│"
+    assert lines[4][19] == "│"
 
 
 def test_attached_footer_follows_box_size():
@@ -3929,7 +3955,7 @@ def test_attached_footer_follows_box_size():
     the box's inner width and follows its bottom edge, so a box resize
     moves it (render-time)."""
     narrow = _render(_box_with_footer(box_w=20, box_h=8)).split("\n")
-    wide_footer = {"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 3,
+    wide_footer = {"block_type": "footer", "x": 0, "y": 6, "width": 18, "height": 3,
                    "content": "Footer", "border_style": "solid"}
     wide = _render(_box_with_footer(wide_footer, box_w=30, box_h=10)).split("\n")
     # box 20×8: inner 18×6, line at row 1+6−3 = 4
@@ -3939,14 +3965,14 @@ def test_attached_footer_follows_box_size():
 
 
 def test_attached_footer_auto_attach_on_shrink():
-    """Shrinking the box so y + h >= inner_h attaches the footer
+    """Shrinking the box so y + h > inner_h attaches the footer
     automatically (decision 11, accepted temporarily)."""
     # Detached in a 20×8 box (2 + 3 = 5 < 6)...
     footer = {"block_type": "footer", "x": 0, "y": 2, "width": 18, "height": 3,
               "content": "Footer", "border_style": "solid"}
     detached = _render(_box_with_footer(footer, box_h=8)).split("\n")
     assert detached[3][1] == "┌"  # the full border at the stored position
-    # ...attached in a 20×6 box (2 + 3 = 5 >= 4)
+    # ...attached in a 20×6 box (2 + 3 = 5 > 4)
     attached = _render(_box_with_footer(footer, box_h=6)).split("\n")
     assert attached[2] == "├" + "─" * 18 + "┤"
     assert attached[3][1:7] == "Footer"
@@ -3955,7 +3981,7 @@ def test_attached_footer_auto_attach_on_shrink():
 def test_attached_footer_empty_content_hint():
     """Empty content: the [footer] hint at the top-left of the content
     area (below the line)."""
-    footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+    footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
               "content": "", "border_style": "solid"}
     lines = _render(_box_with_footer(footer)).split("\n")
     assert lines[5][1:9] == "[footer]"
@@ -3965,7 +3991,7 @@ def test_attached_footer_empty_content_hint():
 def test_attached_footer_fill_and_hide_text():
     """fill paints the content area (the content on top); hide_text
     suppresses the content and the hint — the line remains."""
-    filled = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+    filled = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
               "content": "Footer", "border_style": "solid", "meta": {"fill": "░"}}
     lines = _render(_box_with_footer(filled)).split("\n")
     assert lines[5][1:7] == "Footer"
@@ -3973,7 +3999,7 @@ def test_attached_footer_fill_and_hide_text():
     assert lines[6][1:19] == "░" * 18
     assert lines[4] == "├" + "─" * 18 + "┤"
 
-    hidden = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+    hidden = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
               "content": "Footer", "border_style": "solid", "meta": {"hide_text": True}}
     out = _render(_box_with_footer(hidden))
     lines = out.split("\n")
@@ -4020,7 +4046,7 @@ def test_render_html_preview_attached_footer():
         "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
         "block_type": "box", "content": "", "border_style": "solid",
         "children": [{
-            "id": "foot", "x": 1, "y": 6, "width": 10, "height": 2,
+            "id": "foot", "x": 1, "y": 7, "width": 10, "height": 2,
             "block_type": "footer", "content": "Footer", "border_style": "solid",
         }],
     }])
@@ -4046,7 +4072,7 @@ def test_render_html_preview_attached_footer_dashed():
         "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
         "block_type": "box", "content": "", "border_style": "solid",
         "children": [{
-            "id": "foot", "x": 1, "y": 6, "width": 10, "height": 2,
+            "id": "foot", "x": 1, "y": 7, "width": 10, "height": 2,
             "block_type": "footer", "content": "", "border_style": "dashed",
         }],
     }])

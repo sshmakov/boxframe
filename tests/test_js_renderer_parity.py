@@ -928,29 +928,31 @@ def test_parity_attached_header():
     """The attached-header render (todo-0007) matches byte-for-byte."""
     cases = [
         # (header, box_w, box_h, box_border)
-        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
           "content": "Title", "border_style": "solid"}, 20, 8, "solid"),
-        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 1,
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 1,
           "content": "x", "border_style": "solid"}, 20, 8, "solid"),          # h=1: line only
-        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
           "content": "Title", "border_style": "solid"}, 20, 4, "solid"),      # ch > inner_h
-        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
           "content": "Title", "border_style": "solid"}, 20, 8, "none"),       # borderless parent
-        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
           "content": "", "border_style": "dashed"}, 20, 8, "solid"),          # dashed line
-        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
           "content": "Title", "border_style": "none"}, 20, 8, "solid"),       # no line
         ({"block_type": "header", "x": 0, "y": 2, "width": 18, "height": 3,
           "content": "Title", "border_style": "solid"}, 20, 8, "solid"),      # detached
         ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 8, "solid"),      # exact touch (not attached)
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
           "content": "", "border_style": "solid"}, 20, 8, "solid"),           # [header] hint
-        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
           "content": "Title", "border_style": "solid",
           "meta": {"fill": "░"}}, 20, 8, "solid"),                            # fill
-        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
           "content": "Title", "border_style": "solid",
           "meta": {"hide_text": True}}, 20, 8, "solid"),                      # hide_text
-        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
           "content": "Title", "border_style": "solid",
           "meta": {"text_align": "center", "vertical_align": "middle"}}, 20, 8, "solid"),
     ]
@@ -979,15 +981,17 @@ def test_parity_attached_header_html():
     matches byte-for-byte."""
     cases = [
         # (header, box_w, box_h, box_border)
-        ({"block_type": "header", "x": 1, "y": 0, "width": 10, "height": 2,
+        ({"block_type": "header", "x": 1, "y": -1, "width": 10, "height": 2,
           "content": "Title", "border_style": "solid"}, 30, 10, "solid"),
-        ({"block_type": "header", "x": 1, "y": 0, "width": 10, "height": 2,
+        ({"block_type": "header", "x": 1, "y": -1, "width": 10, "height": 2,
           "content": "", "border_style": "dashed"}, 30, 10, "solid"),
-        ({"block_type": "header", "x": 1, "y": 0, "width": 10, "height": 2,
+        ({"block_type": "header", "x": 1, "y": -1, "width": 10, "height": 2,
           "content": "", "border_style": "none"}, 30, 10, "solid"),
         ({"block_type": "header", "x": 1, "y": 2, "width": 10, "height": 2,
           "content": "Title", "border_style": "solid"}, 30, 10, "solid"),  # detached
         ({"block_type": "header", "x": 1, "y": 0, "width": 10, "height": 2,
+          "content": "Title", "border_style": "solid"}, 30, 10, "solid"),  # exact touch (not attached)
+        ({"block_type": "header", "x": 1, "y": -1, "width": 10, "height": 2,
           "content": "Title", "border_style": "solid"}, 30, 10, "none"),   # borderless parent
     ]
     for header, bw, bh, bb in cases:
@@ -1014,31 +1018,31 @@ def test_parity_attached_footer():
     """The attached-footer render (todo-0008) matches byte-for-byte."""
     cases = [
         # (footer, box_w, box_h, box_border)
-        ({"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
           "content": "Footer", "border_style": "solid"}, 20, 8, "solid"),
-        ({"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 1,
+        ({"block_type": "footer", "x": 0, "y": 6, "width": 18, "height": 1,
           "content": "x", "border_style": "solid"}, 20, 8, "solid"),          # h=1: line only
         ({"block_type": "footer", "x": 0, "y": 0, "width": 18, "height": 3,
           "content": "Footer", "border_style": "solid"}, 20, 4, "solid"),     # ch > inner_h
-        ({"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
           "content": "Footer", "border_style": "solid"}, 20, 8, "none"),      # borderless parent
-        ({"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
           "content": "", "border_style": "dashed"}, 20, 8, "solid"),          # dashed line
-        ({"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
           "content": "Footer", "border_style": "none"}, 20, 8, "solid"),      # no line
         ({"block_type": "footer", "x": 0, "y": 1, "width": 18, "height": 3,
           "content": "Footer", "border_style": "solid"}, 20, 8, "solid"),     # detached
-        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 2,
-          "content": "Footer", "border_style": "solid"}, 20, 8, "solid"),     # exact touch
         ({"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"}, 20, 8, "solid"),     # exact touch (not attached)
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
           "content": "", "border_style": "solid"}, 20, 8, "solid"),           # [footer] hint
-        ({"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
           "content": "Footer", "border_style": "solid",
           "meta": {"fill": "░"}}, 20, 8, "solid"),                            # fill
-        ({"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
           "content": "Footer", "border_style": "solid",
           "meta": {"hide_text": True}}, 20, 8, "solid"),                      # hide_text
-        ({"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
           "content": "Footer", "border_style": "solid",
           "meta": {"text_align": "center", "vertical_align": "middle"}}, 20, 8, "solid"),
         ({"block_type": "footer", "x": 0, "y": 2, "width": 18, "height": 3,
@@ -1069,15 +1073,17 @@ def test_parity_attached_footer_html():
     matches byte-for-byte."""
     cases = [
         # (footer, box_w, box_h, box_border)
-        ({"block_type": "footer", "x": 1, "y": 6, "width": 10, "height": 2,
+        ({"block_type": "footer", "x": 1, "y": 7, "width": 10, "height": 2,
           "content": "Footer", "border_style": "solid"}, 30, 10, "solid"),
-        ({"block_type": "footer", "x": 1, "y": 6, "width": 10, "height": 2,
+        ({"block_type": "footer", "x": 1, "y": 7, "width": 10, "height": 2,
           "content": "", "border_style": "dashed"}, 30, 10, "solid"),
-        ({"block_type": "footer", "x": 1, "y": 6, "width": 10, "height": 2,
+        ({"block_type": "footer", "x": 1, "y": 7, "width": 10, "height": 2,
           "content": "", "border_style": "none"}, 30, 10, "solid"),
         ({"block_type": "footer", "x": 1, "y": 5, "width": 10, "height": 2,
           "content": "Footer", "border_style": "solid"}, 30, 10, "solid"),  # detached
         ({"block_type": "footer", "x": 1, "y": 6, "width": 10, "height": 2,
+          "content": "Footer", "border_style": "solid"}, 30, 10, "solid"),  # exact touch (not attached)
+        ({"block_type": "footer", "x": 1, "y": 7, "width": 10, "height": 2,
           "content": "Footer", "border_style": "solid"}, 30, 10, "none"),   # borderless parent
     ]
     for footer, bw, bh, bb in cases:

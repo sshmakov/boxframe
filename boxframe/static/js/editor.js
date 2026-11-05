@@ -465,11 +465,15 @@ function editorApp() {
 
         // Absolute (canvas) rectangle of a block — walks up the parent
         // chain, adding the 1-cell container padding at each level. A
-        // header attached to the top of its box parent (todo-0007:
-        // relative y <= 0) starts from its effective geometry relative
-        // to the direct parent — flush with the top of the inner area at
+        // header whose top border is clipped by the box's top edge
+        // (todo-0007: relative y < 0) or a footer whose bottom border is
+        // clipped by the box's bottom edge (todo-0008: relative y + h >
+        // inner_h) starts from its effective geometry relative to the
+        // direct parent — flush with the top/bottom of the inner area at
         // the full inner width (the stored x/width are ignored while
-        // attached), same rule as the renderer.
+        // attached), same rule as the renderer. A block merely touching
+        // the edge (y == 0 / y + h == inner_h) is not clipped and uses
+        // its stored geometry.
         _absoluteRect(block) {
             let x = block.x;
             let y = block.y;
@@ -480,13 +484,13 @@ function editorApp() {
             if (directParent && directParent.block_type === 'box') {
                 // Attached header (todo-0007): flush with the top of the
                 // box's inner area at the full inner width.
-                if (block.block_type === 'header' && block.y <= 0) {
+                if (block.block_type === 'header' && block.y < 0) {
                     x = 0;
                     y = 0;
                     width = directParent.width - 2;
                 } else if (
                     block.block_type === 'footer' &&
-                    block.y + block.height >= directParent.height - 2
+                    block.y + block.height > directParent.height - 2
                 ) {
                     // Attached footer (todo-0008): flush with the bottom
                     // of the box's inner area at the full inner width.
@@ -1251,19 +1255,22 @@ function editorApp() {
             if (container) {
                 if (this.dragType === 'header' && container.block_type === 'box') {
                     // Attached header (todo-0007): snap to the top of the
-                    // box — y=0 at the full inner width (the renderer
-                    // stretches it anyway; the stored width applies once
-                    // the header is detached).
+                    // box — y=-1 so the top border is clipped by the box's
+                    // top edge (the attach condition), at the full inner
+                    // width (the renderer stretches it anyway; the stored
+                    // width applies once the header is detached).
                     payload.x = 0;
-                    payload.y = 0;
+                    payload.y = -1;
                     payload.width = container.width - 2;
                 } else if (this.dragType === 'footer' && container.block_type === 'box') {
                     // Attached footer (todo-0008): snap to the bottom of
-                    // the box — y = inner_h − h at the full inner width
-                    // (the renderer stretches it anyway; the stored
-                    // width applies once the footer is detached).
+                    // the box — y = inner_h − h + 1 so the bottom border
+                    // is clipped by the box's bottom edge (the attach
+                    // condition), at the full inner width (the renderer
+                    // stretches it anyway; the stored width applies once
+                    // the footer is detached).
                     payload.x = 0;
-                    payload.y = container.height - 2 - h;
+                    payload.y = container.height - 1 - h;
                     payload.width = container.width - 2;
                 } else {
                     const rel = this._absToRel(pos.x, pos.y, container);

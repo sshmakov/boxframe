@@ -525,8 +525,9 @@ def _block_preview_html(
     clip lives on the wrapper, not on ``.block-preview`` itself, so the
     container's own outline (drawn OUTSIDE its border box) is not clipped.
 
-    effective/attached (todo-0007/0008): a header at the top of a box
-    (relative y <= 0) or a footer at the bottom (relative y + h >=
+    effective/attached (todo-0007/0008): a header whose top border is
+    clipped by the box's top edge (relative y < 0) or a footer whose
+    bottom border is clipped by the box's bottom edge (relative y + h >
     inner_h) is attached — the caller passes its effective geometry
     (flush with the top/bottom of the inner area, full inner width) and
     the line (bottom for a header, top for a footer) is drawn instead of
@@ -579,21 +580,23 @@ def _block_preview_html(
 
     children_html = []
     for c in children:
-        # A header at the top of a box (relative y <= 0) or a footer at
-        # the bottom (relative y + h >= inner_h) is attached
+        # A header whose top border is clipped by the box's top edge
+        # (relative y < 0) or a footer whose bottom border is clipped by
+        # the box's bottom edge (relative y + h > inner_h) is attached
         # (todo-0007/0008): effective geometry — flush with the
         # top/bottom of the inner area at the full inner width, the line
-        # instead of the full outline.
+        # instead of the full outline. A block merely touching the edge
+        # (y == 0 / y + h == inner_h) is not clipped and stays detached.
         eff = None
         att = False
         c_type = c.get("block_type", "box")
         c_y = c.get("y", 0)
         c_h = c.get("height", 3)
         inner_h = max(0, height - 2)
-        if block_type == "box" and c_type == "header" and c_y <= 0:
+        if block_type == "box" and c_type == "header" and c_y < 0:
             att = True
             eff = (0, 0, max(0, width - 2), c_h)
-        elif block_type == "box" and c_type == "footer" and c_y + c_h >= inner_h:
+        elif block_type == "box" and c_type == "footer" and c_y + c_h > inner_h:
             att = True
             eff = (0, inner_h - c_h, max(0, width - 2), c_h)
         children_html.append(
@@ -1084,11 +1087,13 @@ class PseudoGraphicRenderer:
             if child.border_style == "none" or child.height < 1 or child.height > inner_h:
                 continue
             if child.block_type == "header":
-                if child.y > 0:
+                # Attached only when the top border is clipped (y < 0)
+                if child.y >= 0:
                     continue
                 row = y + child.height
             elif child.block_type == "footer":
-                if child.y + child.height < inner_h:
+                # Attached only when the bottom border is clipped (y + h > inner_h)
+                if child.y + child.height <= inner_h:
                     continue
                 row = y + 1 + inner_h - child.height
             else:
@@ -1484,17 +1489,20 @@ class PseudoGraphicRenderer:
             # Sort by order (ascending) — higher order renders on top,
             # same z-index rule as root blocks in render().
             for child in sorted(parent.children, key=lambda c: c.order):
-                # A header at the top of a box (relative y <= 0) or a
-                # footer at the bottom (relative y + h >= inner_h) is
-                # attached (todo-0007/0008): effective geometry — flush
-                # with the top/bottom of the inner area at the full inner
-                # width (the stored x/y/width are ignored while attached,
-                # applied again once the block is detached).
+                # A header whose top border is clipped by the box's top
+                # edge (relative y < 0) or a footer whose bottom border is
+                # clipped by the box's bottom edge (relative y + h >
+                # inner_h) is attached (todo-0007/0008): effective
+                # geometry — flush with the top/bottom of the inner area
+                # at the full inner width (the stored x/y/width are
+                # ignored while attached, applied again once the block is
+                # detached). A block merely touching the edge (y == 0 /
+                # y + h == inner_h) is not clipped and stays detached.
                 inner_h = parent.height - 2 * pad_y
                 if (
                     parent.block_type == "box"
                     and child.block_type == "header"
-                    and child.y <= 0
+                    and child.y < 0
                 ):
                     child.x = parent.x + pad_x
                     child.y = parent.y + pad_y
@@ -1503,7 +1511,7 @@ class PseudoGraphicRenderer:
                 elif (
                     parent.block_type == "box"
                     and child.block_type == "footer"
-                    and child.y + child.height >= inner_h
+                    and child.y + child.height > inner_h
                 ):
                     child.x = parent.x + pad_x
                     child.y = parent.y + pad_y + inner_h - child.height
