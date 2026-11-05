@@ -477,15 +477,23 @@ function editorApp() {
             const directParent = block.parent_id
                 ? this.blocks.find(b => b.id === block.parent_id)
                 : null;
-            if (
-                directParent &&
-                directParent.block_type === 'box' &&
-                block.block_type === 'header' &&
-                block.y <= 0
-            ) {
-                x = 0;
-                y = 0;
-                width = directParent.width - 2;
+            if (directParent && directParent.block_type === 'box') {
+                // Attached header (todo-0007): flush with the top of the
+                // box's inner area at the full inner width.
+                if (block.block_type === 'header' && block.y <= 0) {
+                    x = 0;
+                    y = 0;
+                    width = directParent.width - 2;
+                } else if (
+                    block.block_type === 'footer' &&
+                    block.y + block.height >= directParent.height - 2
+                ) {
+                    // Attached footer (todo-0008): flush with the bottom
+                    // of the box's inner area at the full inner width.
+                    x = 0;
+                    y = directParent.height - 2 - block.height;
+                    width = directParent.width - 2;
+                }
             }
             let pid = block.parent_id;
             while (pid) {
@@ -1248,6 +1256,14 @@ function editorApp() {
                     // the header is detached).
                     payload.x = 0;
                     payload.y = 0;
+                    payload.width = container.width - 2;
+                } else if (this.dragType === 'footer' && container.block_type === 'box') {
+                    // Attached footer (todo-0008): snap to the bottom of
+                    // the box — y = inner_h − h at the full inner width
+                    // (the renderer stretches it anyway; the stored
+                    // width applies once the footer is detached).
+                    payload.x = 0;
+                    payload.y = container.height - 2 - h;
                     payload.width = container.width - 2;
                 } else {
                     const rel = this._absToRel(pos.x, pos.y, container);

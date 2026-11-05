@@ -3791,3 +3791,287 @@ def test_render_html_preview_detached_header_full_border():
     head_start = html.index('data-block-id="head"')
     assert "block-border--solid" in html[head_start:]
     assert "block-line--seg" not in html[head_start:]
+
+
+# ── Footer attach (todo-0008) ─────────────────────────────
+
+
+def _box_with_footer(footer=None, box_w=20, box_h=8, box_border="solid"):
+    """A box with a single footer child (the attach test fixture).
+
+    The default footer (h=3) sits at y = inner_h − h = 6 − 3 = 3 —
+    exactly flush with the bottom of the box's inner area (attached).
+    """
+    if footer is None:
+        footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+                  "content": "Footer", "border_style": "solid"}
+    return [{
+        "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+        "content": "", "border_style": box_border, "children": [footer],
+    }]
+
+
+def test_attached_footer_basic():
+    """Attached (y+h == inner_h): no bottom/left/right border, the top
+    line across the full inner width, ├/┤ junctions on the box's border,
+    the content area is the full width × h−1 rows below the line."""
+    lines = _render(_box_with_footer()).split("\n")
+    # The box's top border is untouched
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # The rows above the line are empty (the box's own [box] hint shows
+    # through the empty area, as in the header test)
+    assert lines[1][1:6] == "[box]"
+    assert lines[2][1:19] == " " * 18
+    assert lines[3][1:19] == " " * 18
+    # The top line with junctions (row py+1+inner_h−ch = 1+6−3 = 4)
+    assert lines[4] == "├" + "─" * 18 + "┤"
+    # Content (default left/top) in the first content row (below the line)
+    assert lines[5][1:7] == "Footer"
+    assert lines[5][7:19] == " " * 12
+    # The rest of the content area is empty
+    assert lines[6][1:19] == " " * 18
+    # The box's bottom border is untouched
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_footer_h1():
+    """ch == 1: the content area is 0 rows — the footer is the line only
+    (a divider attached to the bottom)."""
+    footer = {"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 1,
+              "content": "x", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[5] == "│" + " " * 18 + "│"
+    # The line at the last inner row (py+1+inner_h−ch = 1+6−1 = 6)
+    assert lines[6] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_footer_taller_than_inner():
+    """ch > inner_h: the line is clipped (the box's top border stands in
+    for it) and the junctions are not drawn."""
+    footer = {"block_type": "footer", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer, box_w=20, box_h=4)).split("\n")
+    # Row 0 is the box's top border — no line, no junctions
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # Content is clipped to the inner area (rows 1–2)
+    assert lines[1][1:7] == "Footer"
+    assert lines[3] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_footer_borderless_parent():
+    """A borderless box (border_style=none): the line is drawn across the
+    inner width, but there is no border to join — no junctions."""
+    lines = _render(_box_with_footer(box_border="none")).split("\n")
+    # No box border at all (the rows above the line are empty)
+    assert lines[0] == ""
+    assert lines[1] == ""
+    assert lines[2] == ""
+    assert lines[3] == ""
+    # The line ends in plain ─ (no ├/┤)
+    assert lines[4] == " " + "─" * 18
+    assert lines[5][:7] == " Footer"
+    assert len(lines) == 6
+
+
+def test_attached_footer_dashed_line():
+    """The line uses the footer's own border_style (dashed in a solid
+    box); the junctions use the box's style map."""
+    footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+              "content": "", "border_style": "dashed"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    assert lines[4] == "├" + "┄" * 18 + "┤"
+    # The box's border stays solid
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_footer_none_border():
+    """border_style=none on the footer: no line, the content area is the
+    full height (no line row), no junctions."""
+    footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "none"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    # The content starts at the effective top (row 4), no line
+    assert lines[4][1:7] == "Footer"
+    assert lines[4][0] == "│"
+    assert lines[4][19] == "│"
+
+
+def test_attached_footer_detached():
+    """y + h < inner_h: the footer is detached — a plain box at its
+    stored position/width, no junctions."""
+    footer = {"block_type": "footer", "x": 0, "y": 1, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    # The full border at the stored position (absolute rows 2–4)
+    assert lines[2] == "│" + "┌" + "─" * 16 + "┐" + "│"
+    assert lines[3] == "│" + "│" + "Footer" + " " * 10 + "│" + "│"
+    assert lines[4] == "│" + "└" + "─" * 16 + "┘" + "│"
+    # No junctions on the box's border
+    assert lines[2][0] == "│"
+    assert lines[2][19] == "│"
+
+
+def test_attached_footer_exact_touch():
+    """y + h == inner_h — the exact touch is attached (the mirror of the
+    header's y == 0)."""
+    footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 2,
+              "content": "Footer", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    # The line at row py+1+inner_h−ch = 1+6−2 = 5
+    assert lines[5] == "├" + "─" * 18 + "┤"
+    assert lines[6][1:7] == "Footer"
+
+
+def test_attached_footer_follows_box_size():
+    """The stored x/y/width are ignored while attached — the footer spans
+    the box's inner width and follows its bottom edge, so a box resize
+    moves it (render-time)."""
+    narrow = _render(_box_with_footer(box_w=20, box_h=8)).split("\n")
+    wide_footer = {"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 3,
+                   "content": "Footer", "border_style": "solid"}
+    wide = _render(_box_with_footer(wide_footer, box_w=30, box_h=10)).split("\n")
+    # box 20×8: inner 18×6, line at row 1+6−3 = 4
+    assert narrow[4] == "├" + "─" * 18 + "┤"
+    # box 30×10: inner 28×8, line at row 1+8−3 = 6
+    assert wide[6] == "├" + "─" * 28 + "┤"
+
+
+def test_attached_footer_auto_attach_on_shrink():
+    """Shrinking the box so y + h >= inner_h attaches the footer
+    automatically (decision 11, accepted temporarily)."""
+    # Detached in a 20×8 box (2 + 3 = 5 < 6)...
+    footer = {"block_type": "footer", "x": 0, "y": 2, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid"}
+    detached = _render(_box_with_footer(footer, box_h=8)).split("\n")
+    assert detached[3][1] == "┌"  # the full border at the stored position
+    # ...attached in a 20×6 box (2 + 3 = 5 >= 4)
+    attached = _render(_box_with_footer(footer, box_h=6)).split("\n")
+    assert attached[2] == "├" + "─" * 18 + "┤"
+    assert attached[3][1:7] == "Footer"
+
+
+def test_attached_footer_empty_content_hint():
+    """Empty content: the [footer] hint at the top-left of the content
+    area (below the line)."""
+    footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+              "content": "", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    assert lines[5][1:9] == "[footer]"
+    assert lines[4] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_footer_fill_and_hide_text():
+    """fill paints the content area (the content on top); hide_text
+    suppresses the content and the hint — the line remains."""
+    filled = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid", "meta": {"fill": "░"}}
+    lines = _render(_box_with_footer(filled)).split("\n")
+    assert lines[5][1:7] == "Footer"
+    assert lines[5][7:19] == "░" * 12
+    assert lines[6][1:19] == "░" * 18
+    assert lines[4] == "├" + "─" * 18 + "┤"
+
+    hidden = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid", "meta": {"hide_text": True}}
+    out = _render(_box_with_footer(hidden))
+    lines = out.split("\n")
+    # The footer's content and hint are suppressed (the box's own [box]
+    # hint is unrelated and may show through the empty footer area)
+    assert "Footer" not in out
+    assert "[footer]" not in out
+    # The line remains
+    assert lines[4] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_footer_in_grid_unchanged():
+    """A grid parent is out of scope — the footer renders as a plain box
+    (full border), no junctions on the grid's frame."""
+    blocks = [{
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2},
+        "children": [{
+            "block_type": "footer", "x": 0, "y": 0, "width": 18, "height": 3,
+            "content": "Footer", "border_style": "solid",
+        }],
+    }]
+    lines = _render(blocks).split("\n")
+    # The footer's full border at the stored position (absolute 1..18 × 1..3)
+    assert lines[1][1] == "┌"
+    assert lines[1][18] == "┐"
+    assert lines[2][2:8] == "Footer"
+    assert lines[3][1] == "└"
+    assert lines[3][18] == "┘"
+    # No junctions on the grid's frame (row 3)
+    assert lines[3][0] == "│"
+    assert lines[3][23] == "│"
+    # The vertical partition under the footer's span is suppressed...
+    assert lines[1][8] != "│"
+    # ...and drawn again below the span
+    assert lines[5][8] == "│"
+
+
+def test_render_html_preview_attached_footer():
+    """The attached footer's overlay: the effective geometry (flush with
+    the inner bottom, full inner width) and the top line instead of the
+    full outline."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "foot", "x": 1, "y": 6, "width": 10, "height": 2,
+            "block_type": "footer", "content": "Footer", "border_style": "solid",
+        }],
+    }])
+    tag = _opening_tag(html, "foot")
+    # Effective geometry: 1-cell padding + (0, inner_h−h = 8−2 = 6),
+    # width 30−2 = 28
+    assert "left:12px" in tag
+    assert "top:100.8px" in tag
+    assert "width:336px" in tag
+    assert "height:28.8px" in tag
+    # The top line at the first row's vertical center: 0.5×14.4
+    assert 'class="block-line block-line--h block-line--seg block-line--solid"' in html
+    assert "top:7.2px;left:0;width:100%" in html
+    # No full outline for the footer (the parent keeps its own)
+    foot_start = html.index('data-block-id="foot"')
+    assert "block-border" not in html[foot_start:]
+    assert 'class="block-border block-border--solid"' in html
+
+
+def test_render_html_preview_attached_footer_dashed():
+    """The line overlay uses the footer's own border_style."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "foot", "x": 1, "y": 6, "width": 10, "height": 2,
+            "block_type": "footer", "content": "", "border_style": "dashed",
+        }],
+    }])
+    assert "block-line--dashed" in html
+    foot_start = html.index('data-block-id="foot"')
+    assert "block-border" not in html[foot_start:]
+
+
+def test_render_html_preview_detached_footer_full_border():
+    """y + h < inner_h: the footer overlay is a plain block at its stored
+    position/size with the full outline."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "foot", "x": 1, "y": 5, "width": 10, "height": 2,
+            "block_type": "footer", "content": "Footer", "border_style": "solid",
+        }],
+    }])
+    tag = _opening_tag(html, "foot")
+    # Stored geometry: 1-cell padding + (1, 5)
+    assert "left:24px" in tag
+    assert "top:86.4px" in tag
+    assert "width:120px" in tag
+    assert "height:28.8px" in tag
+    foot_start = html.index('data-block-id="foot"')
+    assert "block-border--solid" in html[foot_start:]
+    assert "block-line--seg" not in html[foot_start:]

@@ -3363,6 +3363,200 @@ test("attached header in grid unchanged", () => {
     assert.equal(ls[5][8], "│");
 });
 
+// ── Footer attach (todo-0008) ─────────────────────────────
+
+function boxWithFooter(footer, boxW = 20, boxH = 8, boxBorder = "solid") {
+    // The default footer (h=3) sits at y = inner_h − h = 6 − 3 = 3 —
+    // exactly flush with the bottom of the box's inner area (attached)
+    const f = footer || {
+        id: "f", block_type: "footer", x: 0, y: 3, width: 18, height: 3,
+        content: "Footer", border_style: "solid", parent_id: "b",
+    };
+    return [
+        { id: "b", block_type: "box", x: 0, y: 0, width: boxW, height: boxH,
+          content: "", border_style: boxBorder },
+        f,
+    ];
+}
+
+test("attached footer basic", () => {
+    // Attached (y+h == inner_h): no bottom/left/right border, the top
+    // line across the full inner width, ├/┤ junctions, content area full
+    // width × h−1 rows below the line
+    const ls = lines(render(boxWithFooter()));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    // The box's own [box] hint shows through the empty area
+    assert.equal(ls[1].slice(1, 6), "[box]");
+    assert.equal(ls[2].slice(1, 19), " ".repeat(18));
+    assert.equal(ls[3].slice(1, 19), " ".repeat(18));
+    // The top line with junctions (row py+1+inner_h−ch = 1+6−3 = 4)
+    assert.equal(ls[4], "├" + "─".repeat(18) + "┤");
+    assert.equal(ls[5].slice(1, 7), "Footer");
+    assert.equal(ls[5].slice(7, 19), " ".repeat(12));
+    assert.equal(ls[6].slice(1, 19), " ".repeat(18));
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached footer h=1", () => {
+    // ch == 1: the content area is 0 rows — the footer is the line only
+    const f = { id: "f", block_type: "footer", x: 0, y: 5, width: 18, height: 1,
+                content: "x", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[5], "│" + " ".repeat(18) + "│");
+    // The line at the last inner row (py+1+inner_h−ch = 1+6−1 = 6)
+    assert.equal(ls[6], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached footer taller than inner", () => {
+    // ch > inner_h: the line is clipped, no junctions
+    const f = { id: "f", block_type: "footer", x: 0, y: 0, width: 18, height: 3,
+                content: "Footer", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f, 20, 4)));
+    // Row 0 is the box's top border — no line, no junctions
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    // Content is clipped to the inner area (rows 1–2)
+    assert.equal(ls[1].slice(1, 7), "Footer");
+    assert.equal(ls[3], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached footer borderless parent", () => {
+    // A borderless box: the line is drawn, but there is no border to join
+    const ls = lines(render(boxWithFooter(null, 20, 8, "none")));
+    assert.equal(ls[0], "");
+    assert.equal(ls[1], "");
+    assert.equal(ls[2], "");
+    assert.equal(ls[3], "");
+    assert.equal(ls[4], " " + "─".repeat(18));
+    assert.equal(ls[5].slice(0, 7), " Footer");
+    assert.equal(ls.length, 6);
+});
+
+test("attached footer dashed line", () => {
+    // The line uses the footer's own border_style; junctions use the box's
+    const f = { id: "f", block_type: "footer", x: 0, y: 3, width: 18, height: 3,
+                content: "", border_style: "dashed", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[4], "├" + "┄".repeat(18) + "┤");
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached footer none border", () => {
+    // border_style=none on the footer: no line, content area full height
+    const f = { id: "f", block_type: "footer", x: 0, y: 3, width: 18, height: 3,
+                content: "Footer", border_style: "none", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[4].slice(1, 7), "Footer");
+    assert.equal(ls[4][0], "│");
+    assert.equal(ls[4][19], "│");
+});
+
+test("attached footer detached", () => {
+    // y + h < inner_h: a plain box at the stored position/width, no
+    // junctions
+    const f = { id: "f", block_type: "footer", x: 0, y: 1, width: 18, height: 3,
+                content: "Footer", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[2], "│" + "┌" + "─".repeat(16) + "┐" + "│");
+    assert.equal(ls[3], "│" + "│" + "Footer" + " ".repeat(10) + "│" + "│");
+    assert.equal(ls[4], "│" + "└" + "─".repeat(16) + "┘" + "│");
+    assert.equal(ls[2][0], "│");
+    assert.equal(ls[2][19], "│");
+});
+
+test("attached footer exact touch", () => {
+    // y + h == inner_h — the exact touch is attached (the mirror of the
+    // header's y == 0)
+    const f = { id: "f", block_type: "footer", x: 0, y: 4, width: 18, height: 2,
+                content: "Footer", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    // The line at row py+1+inner_h−ch = 1+6−2 = 5
+    assert.equal(ls[5], "├" + "─".repeat(18) + "┤");
+    assert.equal(ls[6].slice(1, 7), "Footer");
+});
+
+test("attached footer follows box size", () => {
+    // The stored x/y/width are ignored while attached — a box resize
+    // moves the footer (render-time)
+    const narrow = lines(render(boxWithFooter(null, 20, 8)));
+    const wideFooter = { id: "f", block_type: "footer", x: 0, y: 5, width: 18, height: 3,
+                         content: "Footer", border_style: "solid", parent_id: "b" };
+    const wide = lines(render(boxWithFooter(wideFooter, 30, 10)));
+    // box 20×8: inner 18×6, line at row 1+6−3 = 4
+    assert.equal(narrow[4], "├" + "─".repeat(18) + "┤");
+    // box 30×10: inner 28×8, line at row 1+8−3 = 6
+    assert.equal(wide[6], "├" + "─".repeat(28) + "┤");
+});
+
+test("attached footer auto attach on shrink", () => {
+    // Shrinking the box so y + h >= inner_h attaches the footer
+    // automatically (decision 11, accepted temporarily)
+    const f = { id: "f", block_type: "footer", x: 0, y: 2, width: 18, height: 3,
+                content: "Footer", border_style: "solid", parent_id: "b" };
+    // Detached in a 20×8 box (2 + 3 = 5 < 6)...
+    const detached = lines(render(boxWithFooter(f, 20, 8)));
+    assert.equal(detached[3][1], "┌"); // the full border at the stored position
+    // ...attached in a 20×6 box (2 + 3 = 5 >= 4)
+    const attached = lines(render(boxWithFooter(f, 20, 6)));
+    assert.equal(attached[2], "├" + "─".repeat(18) + "┤");
+    assert.equal(attached[3].slice(1, 7), "Footer");
+});
+
+test("attached footer empty content hint", () => {
+    // Empty content: the [footer] hint at the top-left of the content area
+    const f = { id: "f", block_type: "footer", x: 0, y: 3, width: 18, height: 3,
+                content: "", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[5].slice(1, 9), "[footer]");
+    assert.equal(ls[4], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached footer fill and hide_text", () => {
+    // fill paints the content area (content on top); hide_text suppresses
+    // the content and the hint — the line remains
+    const filled = { id: "f", block_type: "footer", x: 0, y: 3, width: 18, height: 3,
+                     content: "Footer", border_style: "solid",
+                     meta: { fill: "░" }, parent_id: "b" };
+    const ls = lines(render(boxWithFooter(filled)));
+    assert.equal(ls[5].slice(1, 7), "Footer");
+    assert.equal(ls[5].slice(7, 19), "░".repeat(12));
+    assert.equal(ls[6].slice(1, 19), "░".repeat(18));
+    assert.equal(ls[4], "├" + "─".repeat(18) + "┤");
+
+    const hidden = { id: "f", block_type: "footer", x: 0, y: 3, width: 18, height: 3,
+                     content: "Footer", border_style: "solid",
+                     meta: { hide_text: true }, parent_id: "b" };
+    const out = render(boxWithFooter(hidden));
+    const fls = lines(out);
+    assert.ok(!out.includes("Footer"));
+    assert.ok(!out.includes("[footer]"));
+    assert.equal(fls[4], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached footer in grid unchanged", () => {
+    // A grid parent is out of scope — the footer renders as a plain box
+    const blocks = [
+        { id: "g", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "f", block_type: "footer", x: 0, y: 0, width: 18, height: 3,
+          content: "Footer", border_style: "solid", parent_id: "g" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[1][1], "┌");
+    assert.equal(ls[1][18], "┐");
+    assert.equal(ls[2].slice(2, 8), "Footer");
+    assert.equal(ls[3][1], "└");
+    assert.equal(ls[3][18], "┘");
+    // No junctions on the grid's frame (row 3)
+    assert.equal(ls[3][0], "│");
+    assert.equal(ls[3][23], "│");
+    // The vertical partition under the footer's span is suppressed...
+    assert.notEqual(ls[1][8], "│");
+    // ...and drawn again below the span
+    assert.equal(ls[5][8], "│");
+});
+
 test("gridReshapeWidths: split/merge the last", () => {
     const r = PG.gridReshapeWidths;
     // No custom widths (or a stale array) → null (the even split)
