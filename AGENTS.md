@@ -114,6 +114,9 @@ boxframe/
   `border_style == none`); word-wrap + `meta.text_align`/`vertical_align`,
   fill, hint `[header]` — как у `box`. `ch == 1` — только линия
 - новый блок: 20×3, контент `[header]` (дефолт не меняется)
+- sticky-ресайз (0080, todo-0010): при ресайзе `box` редактор сохраняет
+  якорь — сохранённый `y' = min(y + N, −1)`; ресайз самого `header`
+  пишет только `height`; `box` с приклеенными детьми клампится к 4×4
 
 `footer` — «прилипает» к низу `box` (todo-0008, реализация — задача 0075;
 зеркало `header`, код attached-рендера общий — сторона из типа):
@@ -142,6 +145,9 @@ boxframe/
   `border_style == none`); word-wrap + `meta.text_align`/`vertical_align`,
   fill, hint `[footer]` — как у `box`. `ch == 1` — только линия
 - новый блок: 20×3, контент `[footer]` (дефолт не меняется)
+- sticky-ресайз (0080, todo-0010): при ресайзе `box` редактор сохраняет
+  якорь — сохранённый `y' = max(y + N, inner_h' − h + 1)`; ресайз самого
+  `footer` пишет только `height`
 
 `sidebar` — «прилипает» к левому/правому краю `box` (todo-0009, реализация
 — задача 0077; зеркало `header`/`footer`, код attached-рендера общий —
@@ -199,6 +205,10 @@ boxframe/
   `_blockDefaults`; стор/API размера не задают, generic 20×3 не трогает);
   drop в `box` приснапывается к ближайшему боку (`x=-1` / `inner_w−w+1`,
   `y=0`, `height=inner_h`)
+- sticky-ресайз (0080, todo-0010): при ресайзе `box` редактор сохраняет
+  якорь — левый `x' = min(x + M, −1)`, правый
+  `x' = max(x + M, inner_w' − w + 1)`; ресайз самого `sidebar` пишет
+  только `width`
 
 `text` — autosize по размеру содержимого (спецификация в `tasks/0041-0050/0049-text-block-autosize.md`):
 - по умолчанию без рамки (`border_style=none`), минимальный размер 1×1

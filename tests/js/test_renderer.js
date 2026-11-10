@@ -3975,3 +3975,59 @@ test("corner sidebar solid dominant over double footer → ╞", () => {
     const ls = lines(render(blocks));
     assert.equal(ls[6], "│    ╞═════════════╡");
 });
+
+// ── Degenerate chrome on a shrunk box (task 0080, todo-0010) ──
+// Mirrors the Python fixation tests: the editor keeps chrome attached
+// on any box resize, but API/import clients can still deliver degenerate
+// saved coordinates — the renderer's output is fixed here (0078 rules).
+
+test("degradation: header/footer chrome lines overlap in a shrunk box", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 8, height: 7,
+          content: "", border_style: "solid", meta: { hide_text: true } },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 6, height: 3,
+          content: "H", border_style: "solid", parent_id: "b" },
+        { id: "f", block_type: "footer", x: 0, y: 3, width: 6, height: 3,
+          content: "F", border_style: "solid", parent_id: "b" },
+    ];
+    assert.deepEqual(lines(render(blocks)), [
+        "┌──────┐",
+        "│H     │",
+        "│      │",
+        "├──────┤",
+        "│F     │",
+        "│      │",
+        "└──────┘",
+    ]);
+});
+
+test("degradation: header/footer lines swap at inner_h=3", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 8, height: 5,
+          content: "", border_style: "solid", meta: { hide_text: true } },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 6, height: 3,
+          content: "H", border_style: "solid", parent_id: "b" },
+        { id: "f", block_type: "footer", x: 0, y: 1, width: 6, height: 3,
+          content: "F", border_style: "solid", parent_id: "b" },
+    ];
+    assert.deepEqual(lines(render(blocks)), [
+        "┌──────┐",
+        "├──────┤",
+        "│F     │",
+        "├──────┤",
+        "└──────┘",
+    ]);
+});
+
+test("degradation: attachment lost for a tiny box (early return)", () => {
+    // inner_h < 1 → planAttached early-returns, the header draws nothing
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 6, height: 2,
+          content: "", border_style: "solid", meta: { hide_text: true } },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 4, height: 3,
+          content: "H", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.deepEqual(ls, ["┌────┐", "└────┘"]);
+    assert.ok(!ls.join("\n").includes("H"));
+});

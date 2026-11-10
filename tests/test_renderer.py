@@ -4581,3 +4581,76 @@ def test_corner_dual_sidebar_no_bleed():
     assert lines[0] == "┌───┬──────────┬───┐"    # both sidebars full (┬/┴)
     assert lines[3] == "│   ├──────────┤   │"    # header line trimmed ├ … ┤
     assert lines[9] == "└───┴──────────┴───┘"
+
+
+# ── Degenerate chrome on a shrunk box (task 0080, todo-0010) ──
+# The editor keeps chrome attached on any box resize (re-anchoring at
+# commit), but degenerate saved coordinates can still reach the renderer
+# through API/import clients. These tests FIXATE the current degenerate
+# art (no new rules — the 0078 composition/junction rules decide); a
+# sticky-attach regression in the editor shows up as a change here.
+
+def test_attached_header_footer_lines_overlap_in_shrunk_box():
+    """header ch=3 + footer ch=3 in inner_h=5: both lines land on the same
+    row — the overlap is deterministic (single ─ row, ├/┤ junctions from
+    both chrome), the content areas collapse above/below it."""
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 8, "height": 7,
+        "content": "", "border_style": "solid", "meta": {"hide_text": True},
+        "children": [
+            {"block_type": "header", "x": 0, "y": -1, "width": 6, "height": 3,
+             "content": "H", "border_style": "solid"},
+            {"block_type": "footer", "x": 0, "y": 3, "width": 6, "height": 3,
+             "content": "F", "border_style": "solid"},
+        ],
+    }]
+    assert _render(blocks).split("\n") == [
+        "┌──────┐",
+        "│H     │",
+        "│      │",
+        "├──────┤",
+        "│F     │",
+        "│      │",
+        "└──────┘",
+    ]
+
+
+def test_attached_header_footer_lines_swapped_inner_3():
+    """inner_h=3 with both chrome ch=3: the lines swap — the footer's on
+    the first inner row, the header's on the last; contents clip each
+    other (still attached, the art is just degenerate)."""
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 8, "height": 5,
+        "content": "", "border_style": "solid", "meta": {"hide_text": True},
+        "children": [
+            {"block_type": "header", "x": 0, "y": -1, "width": 6, "height": 3,
+             "content": "H", "border_style": "solid"},
+            {"block_type": "footer", "x": 0, "y": 1, "width": 6, "height": 3,
+             "content": "F", "border_style": "solid"},
+        ],
+    }]
+    assert _render(blocks).split("\n") == [
+        "┌──────┐",
+        "├──────┤",
+        "│F     │",
+        "├──────┤",
+        "└──────┘",
+    ]
+
+
+def test_attached_chrome_early_return_tiny_box():
+    """inner_h < 1 (box height 2): `_plan_attached` early-returns and the
+    attachment is silently lost — the header draws nothing (a plain box
+    inside the empty inner area). The editor's 4×4 clamp (0080) keeps
+    such layouts from being created; external clients get this fixed art."""
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 6, "height": 2,
+        "content": "", "border_style": "solid", "meta": {"hide_text": True},
+        "children": [
+            {"block_type": "header", "x": 0, "y": -1, "width": 4, "height": 3,
+             "content": "H", "border_style": "solid"},
+        ],
+    }]
+    art = _render(blocks)
+    assert art.split("\n") == ["┌────┐", "└────┘"]
+    assert "H" not in art

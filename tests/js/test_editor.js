@@ -1067,3 +1067,232 @@ test("selectionStyle: a multi-selection uses the group bbox for the offset", () 
     assert.ok(style.includes("--sel-ox:0px"));
     assert.ok(style.includes("--sel-oy:0px"));
 });
+
+// ── Sticky attach resize (0080, todo-0010) ───────────────
+// A box resize must not detach its attached chrome: on commit the
+// editor re-anchors the attached children's saved coordinates (the
+// todo-0010 formulas), attached chrome itself stores only the
+// perpendicular dimension, and a box carrying attached chrome clamps
+// to a minimum of 4×4.
+
+function chromeFixture() {
+    // box 12×8 at (0,0): inner 10×6; all four attach sides present.
+    return [
+        block("p", "box", 0, 0, 12, 8),
+        block("h", "header", 0, -1, 10, 3, "p"),
+        block("f", "footer", 0, 4, 10, 3, "p"),    // 4 + 3 > 6 → bottom
+        block("sl", "sidebar", -1, 0, 3, 6, "p"),  // x < 0 → left
+        block("sr", "sidebar", 8, 0, 3, 6, "p"),   // 8 + 3 > 10 → right
+    ];
+}
+
+function batchStub(app) {
+    const calls = [];
+    app.store = {
+        updateBlock: async (id, props) => {
+            calls.push({ id, props });
+            const b = app.blocks.find(x => x.id === id);
+            return Object.assign({}, b, props);
+        },
+        batchBlocks: async ({ update }) => {
+            calls.push(update);
+            update.forEach(u =>
+                Object.assign(app.blocks.find(b => b.id === u.id), u));
+            return { updated: update };
+        },
+    };
+    app.refreshRender = async () => {};
+    return calls;
+}
+
+test("_attachedSide: attach conditions; exact touch is not attached", () => {
+    const app = appWith([
+        block("p", "box", 0, 0, 12, 8),
+        block("ht", "header", 0, -1, 10, 3, "p"),
+        block("h0", "header", 0, 0, 10, 3, "p"),       // exact touch → no
+        block("fb", "footer", 0, 4, 10, 3, "p"),
+        block("f0", "footer", 0, 3, 10, 3, "p"),       // 3+3 = 6 → no
+        block("sr", "sidebar", 8, 0, 3, 6, "p"),
+        block("sboth", "sidebar", -2, 0, 20, 6, "p"),  // both sides → left
+        block("g", "grid", 20, 0, 10, 8),
+        block("gh", "header", 0, -1, 8, 3, "g"),       // grid parent → no
+        block("plain", "box", 2, 2, 4, 4, "p"),        // ordinary child
+    ]);
+    const side = id => app._attachedSide(app.blocks.find(b => b.id === id));
+    assert.equal(side("ht"), "top");
+    assert.equal(side("h0"), null);
+    assert.equal(side("fb"), "bottom");
+    assert.equal(side("f0"), null);
+    assert.equal(side("sr"), "right");
+    assert.equal(side("sboth"), "left");
+    assert.equal(side("gh"), null);
+    assert.equal(side("plain"), null);
+    assert.equal(side("p"), null);
+});
+
+test("_commitBlockResize: box 'nw' drag re-anchors attached chrome", async () => {
+    const app = appWith(chromeFixture());
+    const calls = batchStub(app);
+    cornerResize(app, app.blocks[0], "nw", 24, 48); // top/left edges +3
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    // h/sl already sit at the minimum overlap: min(c + N, -1) keeps them;
+    // f/sr are pushed along (gap bookkeeping, stay attached)
+    assert.deepEqual(calls[0], [
+        { id: "p", x: 3, y: 3, width: 9, height: 5 },
+        { id: "f", x: 0, y: 7 },   // max(4 + 3, 3 - 3 + 1) = 7
+        { id: "sr", x: 11, y: 0 }, // max(8 + 3, 7 - 3 + 1) = 11
+    ]);
+});
+
+test("_commitBlockResize: 'se' growth pushes footer and right sidebar", async () => {
+    const app = appWith(chromeFixture());
+    const calls = batchStub(app);
+    cornerResize(app, app.blocks[0], "se", 16, 16); // +2 right, +1 down
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    // Pre-fix the condition broke silently: 4 + 3 > 11 false, 8 + 3 > 12
+    // false — both detached mid-resize.
+    assert.deepEqual(calls[0], [
+        { id: "p", x: 0, y: 0, width: 14, height: 9 },
+        { id: "f", x: 0, y: 5 },   // max(4, 7 - 3 + 1) = 5
+        { id: "sr", x: 10, y: 0 }, // max(8, 12 - 3 + 1) = 10
+    ]);
+});
+
+test("_commitBlockResize: the attach gap collapses to touching", async () => {
+    const app = appWith([
+        block("p", "box", 0, 0, 12, 12),
+        block("h", "header", 0, -5, 10, 3, "p"), // a 4-row gap above
+    ]);
+    const calls = batchStub(app);
+    cornerResize(app, app.blocks[0], "nw", 0, 96); // top edge 6 cells down
+    await app._commitBlockResize();
+    assert.deepEqual(calls[0], [
+        { id: "p", x: 0, y: 6, width: 12, height: 6 },
+        { id: "h", x: 0, y: -1 }, // min(-5 + 6, -1) = -1 — gap collapsed
+    ]);
+});
+
+test("_commitBlockResize: attached header drag stores only height", async () => {
+    const app = appWith(chromeFixture());
+    const calls = batchStub(app);
+    // Header eff rect (1, 1, 10, 3); 'se' +2 right, +1 down
+    cornerResize(app, app.blocks[1], "se", 16, 16);
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], { id: "h", props: { height: 4 } });
+    // x/y/width untouched — after a later detach the block keeps its
+    // honest stored size (no inflation to the box's inner width)
+    assert.deepEqual(
+        [app.blocks[1].x, app.blocks[1].y, app.blocks[1].width],
+        [0, -1, 10],
+    );
+});
+
+test("_commitBlockResize: attached sidebar drag stores only width", async () => {
+    const app = appWith(chromeFixture());
+    const calls = batchStub(app);
+    // Right sidebar eff rect (8, 1, 3, 6); 'sw' drags its left edge 2 left
+    cornerResize(app, app.blocks[4], "sw", -16, 16);
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], { id: "sr", props: { width: 5 } });
+    assert.deepEqual(
+        [app.blocks[4].x, app.blocks[4].y, app.blocks[4].height],
+        [8, 0, 6],
+    );
+});
+
+test("corner resize: attached chrome preview changes only the perpendicular size", () => {
+    const app = appWith(chromeFixture());
+    cornerResize(app, app.blocks[1], "se", 16, 16);
+    assert.deepEqual(
+        [app.resizePreviewX, app.resizePreviewY,
+         app.resizePreviewW, app.resizePreviewH],
+        [1, 1, 10, 4],
+    );
+});
+
+test("corner resize: a box with attached chrome clamps to 4×4", () => {
+    const app = appWith(chromeFixture());
+    cornerResize(app, app.blocks[0], "sw", 80, 0); // 10 cells right → w 2
+    assert.deepEqual(
+        [app.resizePreviewX, app.resizePreviewY,
+         app.resizePreviewW, app.resizePreviewH],
+        [8, 0, 4, 8], // the fixed right edge (x=12) preserved
+    );
+});
+
+test("_commitBlockResize: box with attached chrome clamps commit to 4×4", async () => {
+    const app = appWith(chromeFixture());
+    const calls = batchStub(app);
+    cornerResize(app, app.blocks[0], "se", -96, -112); // would hit 0×1
+    await app._commitBlockResize();
+    // inner 2×2 still keeps the chrome conditions true (footer/right
+    // sidebar stay attached by margin), so only the box is written
+    assert.deepEqual(calls[0], {
+        id: "p", props: { x: 0, y: 0, width: 4, height: 4 },
+    });
+});
+
+test("_commitBlockResize: group resize — chrome excluded, carried child not double-shifted", async () => {
+    const app = appWith([
+        block("p", "box", 4, 4, 20, 10),
+        block("h", "header", 0, -1, 18, 3, "p"),
+        block("f", "footer", 0, 6, 18, 3, "p"),  // 6 + 3 > 8
+        block("c", "text", 2, 2, 8, 2, "p"),
+    ]);
+    const calls = batchStub(app);
+    // Group bbox = the box (4,4,20,10); 'nw' -2 left, +1 down → dX/dW −2/+2,
+    // dY/dH +1/−1
+    cornerResize(app, app.blocks[0], "nw", -16, 16, ["p", "h", "f", "c"]);
+    await app._commitBlockResize();
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], [
+        { id: "p", x: 2, y: 5, width: 22, height: 9 },
+        // footer re-anchored for the new inner_h=7: max(6 + 1, 7 − 3 + 1) = 7
+        { id: "f", x: 0, y: 7 },
+        // carried by p (parent in the group): relative offset stays (2,2)
+        // — pre-fix double shift produced x=0, y=3 — size takes the delta
+        { id: "c", x: 2, y: 2, width: 10, height: 1 },
+    ]);
+    // header untouched by the delta and by the anchor (min(-1 + 1, -1) = -1)
+    assert.deepEqual([app.blocks[1].x, app.blocks[1].y], [0, -1]);
+});
+
+test("applyPropValue: box height change re-anchors attached chrome", async () => {
+    const app = appWith(chromeFixture());
+    app.selectedIds = ["p"];
+    const calls = batchStub(app);
+    await app.applyPropValue({ key: "height", kind: "number" }, 11);
+
+    assert.equal(calls.length, 1);
+    // inner 10×9: footer max(4, 9 − 3 + 1) = 7; right sidebar unchanged
+    // (inner_w is the same), header/left stay at their -1 anchors
+    assert.deepEqual(calls[0], [
+        { id: "p", height: 11 },
+        { id: "f", x: 0, y: 7 },
+    ]);
+});
+
+test("applyPropValue: panel box size clamps to 4 with attached chrome", async () => {
+    const app = appWith(chromeFixture());
+    app.selectedIds = ["p"];
+    const calls = batchStub(app);
+    await app.applyPropValue({ key: "height", kind: "number" }, 2);
+    assert.deepEqual(calls[0], [{ id: "p", height: 4 }]);
+});
+
+test("applyPropValue: plain box (no attached chrome) keeps single updateBlock", async () => {
+    const app = appWith([block("p", "box", 0, 0, 12, 8)]);
+    app.selectedIds = ["p"];
+    const calls = batchStub(app);
+    await app.applyPropValue({ key: "height", kind: "number" }, 2);
+    assert.deepEqual(calls[0], { id: "p", props: { height: 2 } });
+});

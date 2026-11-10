@@ -463,6 +463,29 @@ function editorApp() {
         // geometry check (hit-test, selection, overlays) must work in
         // absolute (canvas) coordinates.
 
+        // Which side of a `box` parent the block is attached to — the
+        // attach conditions of todo-0074/0075/0077 (header: relative
+        // y < 0; footer: y + h > inner_h; sidebar: x < 0 / x + w >
+        // inner_w; both sidebar sides clipped → left wins, same
+        // tie-break as the renderer). Returns 'top' / 'bottom' /
+        // 'left' / 'right', or null when the block is not attached.
+        // Single source for `_absoluteRect` and the sticky-resize
+        // anchors (task 0080); mirrors `_plan_attached` /
+        // `planAttached`.
+        _attachedSide(block) {
+            if (!block.parent_id) return null;
+            const parent = this.blocks.find(b => b.id === block.parent_id);
+            if (!parent || parent.block_type !== 'box') return null;
+            if (block.block_type === 'header' && block.y < 0) return 'top';
+            if (block.block_type === 'footer'
+                && block.y + block.height > parent.height - 2) return 'bottom';
+            if (block.block_type === 'sidebar') {
+                if (block.x < 0) return 'left';
+                if (block.x + block.width > parent.width - 2) return 'right';
+            }
+            return null;
+        },
+
         // Absolute (canvas) rectangle of a block — walks up the parent
         // chain, adding the 1-cell container padding at each level. A
         // header whose top border is clipped by the box's top edge
@@ -485,34 +508,21 @@ function editorApp() {
             const directParent = block.parent_id
                 ? this.blocks.find(b => b.id === block.parent_id)
                 : null;
-            if (directParent && directParent.block_type === 'box') {
-                // Attached header (todo-0007): flush with the top of the
-                // box's inner area at the full inner width.
-                if (block.block_type === 'header' && block.y < 0) {
+            const side = this._attachedSide(block);
+            if (directParent && side) {
+                if (side === 'top') {
                     x = 0;
                     y = 0;
                     width = directParent.width - 2;
-                } else if (
-                    block.block_type === 'footer' &&
-                    block.y + block.height > directParent.height - 2
-                ) {
-                    // Attached footer (todo-0008): flush with the bottom
-                    // of the box's inner area at the full inner width.
+                } else if (side === 'bottom') {
                     x = 0;
                     y = directParent.height - 2 - block.height;
                     width = directParent.width - 2;
-                } else if (block.block_type === 'sidebar' && block.x < 0) {
-                    // Attached sidebar (todo-0009, left): flush with the
-                    // left of the box's inner area at the full inner height.
+                } else if (side === 'left') {
                     x = 0;
                     y = 0;
                     height = directParent.height - 2;
-                } else if (
-                    block.block_type === 'sidebar' &&
-                    block.x + block.width > directParent.width - 2
-                ) {
-                    // Attached sidebar (todo-0009, right): flush with the
-                    // right of the box's inner area at the full inner height.
+                } else {
                     x = directParent.width - 2 - block.width;
                     y = 0;
                     height = directParent.height - 2;
@@ -534,6 +544,47 @@ function editorApp() {
         _absToRel(absX, absY, parent) {
             const pr = this._absoluteRect(parent);
             return { x: absX - (pr.x + 1), y: absY - (pr.y + 1) };
+        },
+
+        // True if the box has at least one attached chrome child — the
+        // sticky-resize clamp (min 4×4, task 0080) applies only to those.
+        _hasAttachedChildren(box) {
+            return this.blocks.some(
+                c => c.parent_id === box.id && this._attachedSide(c)
+            );
+        },
+
+        // Sticky attach (todo-0010, task 0080): after a `box` resize the
+        // already-attached chrome children are re-anchored so their attach
+        // condition stays true for the box's NEW inner size:
+        //   top:    y' = min(y + N, -1)
+        //   bottom: y' = max(y + N, inner_h' - h + 1)
+        //   left:   x' = min(x + M, -1)
+        //   right:  x' = max(x + M, inner_w' - w + 1)
+        // N/M are the box's saved position deltas — the chrome is carried
+        // by the box and the terms only keep the attach-gap bookkeeping
+        // (a gap collapses to touching, agreed 2026-11-10); the max/min
+        // clamps against the new inner size are what keep the attachment
+        // when the box grows. Must be called before the box's saved
+        // geometry is mutated (the attach side is evaluated on the old
+        // state). Returns batchBlocks-ready { id, x, y } updates.
+        _anchorAttachedChildren(box, newWidth, newHeight, N, M) {
+            const innerW = newWidth - 2;
+            const innerH = newHeight - 2;
+            const updates = [];
+            for (const c of this.blocks) {
+                if (c.parent_id !== box.id) continue;
+                const side = this._attachedSide(c);
+                if (!side) continue;
+                let x = c.x;
+                let y = c.y;
+                if (side === 'top') y = Math.min(c.y + N, -1);
+                else if (side === 'bottom') y = Math.max(c.y + N, innerH - c.height + 1);
+                else if (side === 'left') x = Math.min(c.x + M, -1);
+                else x = Math.max(c.x + M, innerW - c.width + 1);
+                if (x !== c.x || y !== c.y) updates.push({ id: c.id, x, y });
+            }
+            return updates;
         },
 
         // Ids of a block and all of its descendants (BFS over the flat list).
@@ -1520,6 +1571,7 @@ function editorApp() {
                         break;
                 }
 
+                let attached = null;
                 if (this.resizeGroup) {
                     // Group resize: the bounding box grows/shrinks; per-block
                     // minimums and line thickness are applied on commit.
@@ -1530,15 +1582,38 @@ function editorApp() {
                     if (this.dragBlock.block_type === 'hline') newH = 1;
                     if (this.dragBlock.block_type === 'vline') newW = 1;
 
-                    // Clamp to minimum size only — blocks may extend beyond
-                    // the layout bounds. Buttons support height 1 ([label]),
-                    // text blocks and dividers shrink to 1×1 (they autosize
-                    // to content).
-                    const t = this.dragBlock.block_type;
-                    const minW = (t === 'vline' || t === 'text' || t === 'divider') ? 1 : 2;
-                    const minH = (t === 'hline' || t === 'button' || t === 'text' || t === 'divider') ? 1 : 2;
-                    newW = Math.max(minW, newW);
-                    newH = Math.max(minH, newH);
+                    attached = this._attachedSide(this.dragBlock);
+                    if (attached) {
+                        // Attached chrome (0080): only the perpendicular
+                        // dimension changes — the parallel one is the box's
+                        // inner size and the position is pinned to the edge
+                        // (mirrors what the commit stores).
+                        if (attached === 'top' || attached === 'bottom') {
+                            newW = this.resizeStartW;
+                            newH = (this.resizeCorner === 'nw' || this.resizeCorner === 'ne')
+                                ? this.resizeStartH - snapDy
+                                : this.resizeStartH + snapDy;
+                        } else {
+                            newH = this.resizeStartH;
+                            newW = (this.resizeCorner === 'ne' || this.resizeCorner === 'se')
+                                ? this.resizeStartW + snapDx
+                                : this.resizeStartW - snapDx;
+                        }
+                        newW = Math.max(1, newW);
+                        newH = Math.max(1, newH);
+                    } else {
+                        // Clamp to minimum size only — blocks may extend beyond
+                        // the layout bounds. Buttons support height 1 ([label]),
+                        // text blocks and dividers shrink to 1×1 (they autosize
+                        // to content). A box with attached chrome clamps to 4×4
+                        // (0080) — the inner area keeps ≥ 2×2 for the bands.
+                        const t = this.dragBlock.block_type;
+                        const chrome = t === 'box' && this._hasAttachedChildren(this.dragBlock);
+                        const minW = chrome ? 4 : (t === 'vline' || t === 'text' || t === 'divider') ? 1 : 2;
+                        const minH = chrome ? 4 : (t === 'hline' || t === 'button' || t === 'text' || t === 'divider') ? 1 : 2;
+                        newW = Math.max(minW, newW);
+                        newH = Math.max(minH, newH);
+                    }
                 }
 
                 // A size clamped to its minimum keeps the fixed corner in
@@ -1549,6 +1624,17 @@ function editorApp() {
                 }
                 if (this.resizeCorner === 'nw' || this.resizeCorner === 'ne') {
                     newY = this.resizeStartY + this.resizeStartH - newH;
+                }
+                // Attached chrome preview (0080): the edge anchored to the
+                // box border stays pinned — the free edge carries the size.
+                if (attached === 'top') {
+                    newY = this.resizeStartY;
+                } else if (attached === 'bottom') {
+                    newY = this.resizeStartY + this.resizeStartH - newH;
+                } else if (attached === 'left') {
+                    newX = this.resizeStartX;
+                } else if (attached === 'right') {
+                    newX = this.resizeStartX + this.resizeStartW - newW;
                 }
                 // No block may cross the canvas origin (0,0) — the fixed
                 // corner stays, the moving edge stops at the origin.
@@ -1876,22 +1962,43 @@ function editorApp() {
                 const dH = absH - this.resizeStartH;
                 if (dX === 0 && dY === 0 && dW === 0 && dH === 0) return;
 
+                const inGroup = new Set(this.resizeOriginal.map(o => o.id));
                 const updates = [];
                 for (const o of this.resizeOriginal) {
                     const b = this.blocks.find(bl => bl.id === o.id);
                     if (!b) continue;
+                    // Attached chrome (0080): transforming its saved coords
+                    // with the bbox delta would detach it — it follows its
+                    // box automatically through the anchor updates below.
+                    if (this._attachedSide(b)) continue;
+                    // A box with attached chrome clamps to 4×4 (inner area
+                    // ≥ 2×2, task 0080); others keep the general minimums.
                     // Text blocks and dividers shrink to 1×1 (they autosize
                     // to content)
+                    const hasChrome = b.block_type === 'box'
+                        && this._hasAttachedChildren(b);
                     const minW = (b.block_type === 'vline' || b.block_type === 'text' || b.block_type === 'divider') ? 1 : 2;
                     const minH = (b.block_type === 'hline' || b.block_type === 'button' || b.block_type === 'text' || b.block_type === 'divider') ? 1 : 2;
-                    const x = o.x + dX;
-                    const y = o.y + dY;
-                    let w = Math.max(minW, o.width + dW);
-                    let h = Math.max(minH, o.height + dH);
+                    // A child whose parent is also in the group is carried
+                    // by it — applying the bbox delta to its saved
+                    // (relative) coords as well would double the shift
+                    // (0080 fix).
+                    const parentInGroup = b.parent_id && inGroup.has(b.parent_id);
+                    const x = parentInGroup ? o.x : o.x + dX;
+                    const y = parentInGroup ? o.y : o.y + dY;
+                    let w = Math.max(hasChrome ? 4 : minW, o.width + dW);
+                    let h = Math.max(hasChrome ? 4 : minH, o.height + dH);
                     if (b.block_type === 'hline') h = 1;
                     if (b.block_type === 'vline') w = 1;
-                    if (x === o.x && y === o.y && w === o.width && h === o.height) continue;
+                    // Sticky attach: re-anchor the box's attached chrome to
+                    // its new inner size (N/M = the box's saved deltas).
+                    const anchored = hasChrome
+                        ? this._anchorAttachedChildren(b, w, h, y - o.y, x - o.x)
+                        : [];
+                    if (x === o.x && y === o.y && w === o.width
+                        && h === o.height && !anchored.length) continue;
                     updates.push({ id: o.id, x, y, width: w, height: h });
+                    updates.push(...anchored);
                 }
                 if (!updates.length) return;
 
@@ -1908,6 +2015,45 @@ function editorApp() {
             const block = this.dragBlock;
             const old = { x: block.x, y: block.y, width: block.width, height: block.height };
 
+            // Resizing attached chrome (0080) stores only the perpendicular
+            // dimension — the parallel one is owned by the box's inner size
+            // (effective geometry) and x/y stay pinned while attached, so
+            // the block does not end up "inflated" after a later detach.
+            const side = this._attachedSide(block);
+            if (side) {
+                const band = side === 'top' || side === 'bottom';
+                const key = band ? 'height' : 'width';
+                const value = Math.max(1, band ? absH : absW);
+                if (value === block[key]) return;
+                try {
+                    const updated = await this.store.updateBlock(block.id, { [key]: value });
+                    Object.assign(block, updated);
+                    await this.refreshRender();
+                } catch (err) {
+                    Object.assign(block, old);
+                    console.error('Failed to resize block:', err);
+                }
+                return;
+            }
+
+            // A box with attached chrome cannot shrink below 4×4 — the
+            // inner area keeps ≥ 2×2 for the chrome bands (0080). The
+            // fixed corner is preserved: only the moving edge stops.
+            const hasChrome = block.block_type === 'box'
+                && this._hasAttachedChildren(block);
+            if (hasChrome && absW < 4) {
+                if (corner === 'nw' || corner === 'sw') {
+                    absX = this.resizeStartX + this.resizeStartW - 4;
+                }
+                absW = 4;
+            }
+            if (hasChrome && absH < 4) {
+                if (corner === 'nw' || corner === 'ne') {
+                    absY = this.resizeStartY + this.resizeStartH - 4;
+                }
+                absH = 4;
+            }
+
             // A child keeps its parent — the new absolute position is
             // converted back to coordinates relative to it (a top/left
             // corner drag moves the block, so x/y may change too).
@@ -1922,15 +2068,32 @@ function editorApp() {
                 }
             }
 
-            if (x === old.x && y === old.y && absW === old.width && absH === old.height) {
+            // Sticky attach (0080): the box's attached chrome is re-anchored
+            // to the new inner size in the same batch (one undo step).
+            const anchored = hasChrome
+                ? this._anchorAttachedChildren(block, absW, absH, y - old.y, x - old.x)
+                : [];
+
+            if (x === old.x && y === old.y && absW === old.width
+                && absH === old.height && !anchored.length) {
                 return; // No change
             }
 
             try {
-                const updated = await this.store.updateBlock(block.id, {
-                    x, y, width: absW, height: absH
-                });
-                Object.assign(block, updated);
+                if (anchored.length) {
+                    const result = await this.store.batchBlocks({
+                        update: [
+                            { id: block.id, x, y, width: absW, height: absH },
+                            ...anchored,
+                        ],
+                    });
+                    this._applyBatchResult(result);
+                } else {
+                    const updated = await this.store.updateBlock(block.id, {
+                        x, y, width: absW, height: absH
+                    });
+                    Object.assign(block, updated);
+                }
                 await this.refreshRender();
             } catch (err) {
                 Object.assign(block, old);
@@ -2575,6 +2738,28 @@ function editorApp() {
                 const oldMeta = prop.meta ? Object.assign({}, b.meta || {}) : null;
                 const oldValue = prop.meta ? undefined : b[prop.key];
 
+                // A box size change through the panel keeps attached chrome
+                // sticky and clamps the box to ≥ 4×4 (0080) — one batch,
+                // one undo step (N = M = 0: the panel never moves the box).
+                if (!prop.meta && (prop.key === 'width' || prop.key === 'height')
+                    && b.block_type === 'box' && this._hasAttachedChildren(b)) {
+                    const size = Math.max(4, value);
+                    const newW = prop.key === 'width' ? size : b.width;
+                    const newH = prop.key === 'height' ? size : b.height;
+                    const updates = [
+                        { id: b.id, [prop.key]: size },
+                        ...this._anchorAttachedChildren(b, newW, newH, 0, 0),
+                    ];
+                    try {
+                        const result = await this.store.batchBlocks({ update: updates });
+                        this._applyBatchResult(result);
+                        await this.refreshRender();
+                    } catch (err) {
+                        console.error('Failed to update block:', err);
+                    }
+                    return;
+                }
+
                 try {
                     const updated = await this.store.updateBlock(b.id, makeProps(b));
                     Object.assign(b, updated);
@@ -2590,7 +2775,28 @@ function editorApp() {
                 return;
             }
 
-            const updates = sel.map(b => Object.assign({ id: b.id }, makeProps(b)));
+            const byId = new Map(
+                sel.map(b => [b.id, Object.assign({ id: b.id }, makeProps(b))])
+            );
+            // Sticky attach for box members of a multi-selection size
+            // change (0080) — clamp 4 and the chrome anchors, see the
+            // single-selection path above.
+            if (!prop.meta && (prop.key === 'width' || prop.key === 'height')) {
+                for (const b of sel) {
+                    if (b.block_type !== 'box' || !this._hasAttachedChildren(b)) continue;
+                    const size = Math.max(4, value);
+                    byId.get(b.id)[prop.key] = size;
+                    const newW = prop.key === 'width' ? size : b.width;
+                    const newH = prop.key === 'height' ? size : b.height;
+                    for (const cu of this._anchorAttachedChildren(b, newW, newH, 0, 0)) {
+                        const target = byId.get(cu.id) || { id: cu.id };
+                        target.x = cu.x;
+                        target.y = cu.y;
+                        byId.set(cu.id, target);
+                    }
+                }
+            }
+            const updates = [...byId.values()];
             try {
                 const result = await this.store.batchBlocks({ update: updates });
                 this._applyBatchResult(result);
