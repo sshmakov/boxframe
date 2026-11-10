@@ -2308,11 +2308,49 @@ function editorApp() {
 
             const block = sibs[idx];
             const other = sibs[target];
+
+            if (block.order === other.order) {
+                await this._normalizeAndSwap(sibs, idx, target);
+            } else {
+                await this._swapOrders(block, other);
+            }
+        },
+
+        async _normalizeAndSwap(sibs, idx, target) {
+            const oldOrders = sibs.map(b => b.order);
+            // Assign unique sequential order values matching current
+            // effective sort order (sibs is sorted top-to-bottom).
+            for (let i = 0; i < sibs.length; i++) {
+                sibs[i].order = sibs.length - 1 - i;
+            }
+            // Swap the two adjacent entries.
+            const tmp = sibs[idx].order;
+            sibs[idx].order = sibs[target].order;
+            sibs[target].order = tmp;
+
+            const updates = sibs
+                .map((b, i) => ({ id: b.id, order: b.order }))
+                .filter((_, i) => sibs[i].order !== oldOrders[i]);
+
+            try {
+                if (updates.length === 1) {
+                    await this.store.updateBlock(updates[0].id, { order: updates[0].order });
+                } else {
+                    await this.store.batchBlocks({ update: updates });
+                }
+                this._reorderBlocks();
+                await this.refreshRender();
+            } catch (err) {
+                sibs.forEach((b, i) => { b.order = oldOrders[i]; });
+                console.error('Failed to move block order:', err);
+            }
+        },
+
+        async _swapOrders(block, other) {
             const blockOldOrder = block.order;
             const otherOldOrder = other.order;
-            block.order = other.order;
+            block.order = otherOldOrder;
             other.order = blockOldOrder;
-
             try {
                 await this.store.updateBlock(block.id, { order: block.order });
                 await this.store.updateBlock(other.id, { order: other.order });

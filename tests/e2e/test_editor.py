@@ -3423,3 +3423,45 @@ def test_tree_row_hover_nested_child(page: Page):
     expect(page.locator(f'.block-preview[data-block-id="{box_id}"]')) \
         .not_to_have_class(re.compile(r"block-preview--hover"))
     expect(page.locator(".block-preview--hover")).to_have_count(1)
+
+
+def test_move_order_same_order_blocks(page: Page):
+    """↑/↓ buttons work correctly when sibling blocks share the same order
+    (the common default: every new block gets order=0). After a move the
+    blocks must actually swap in the tree."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+    # Both boxes have order=0; B (created later, higher _seq) is on top.
+    tree = page.locator(".block-item")
+    expect(tree.nth(0)).to_have_attribute("data-coords", "14,2")
+    expect(tree.nth(1)).to_have_attribute("data-coords", "2,2")
+
+    # Click ↑ on the bottom box (A at 2,2)
+    page.locator('.block-item[data-coords="2,2"]').locator("button[title*='Move up']").click()
+    page.wait_for_timeout(200)
+
+    # After the move, A (2,2) should be on top (higher order)
+    expect(tree.nth(0)).to_have_attribute("data-coords", "2,2")
+    expect(tree.nth(1)).to_have_attribute("data-coords", "14,2")
+
+    # Verify order values are now unique (tooltip shows z#N)
+    title_a = page.locator('.block-item[data-coords="2,2"]').get_attribute("title")
+    title_b = page.locator('.block-item[data-coords="14,2"]').get_attribute("title")
+    order_a = int(re.search(r"z#(\d+)", title_a).group(1))
+    order_b = int(re.search(r"z#(\d+)", title_b).group(1))
+    assert order_a > order_b
+
+
+def test_move_order_same_order_move_down(page: Page):
+    """↓ on the top block of a same-order pair swaps it below."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+    tree = page.locator(".block-item")
+    # B (14,2) is on top initially (higher _seq).
+    expect(tree.nth(0)).to_have_attribute("data-coords", "14,2")
+
+    # Click ↓ on the top box (B at 14,2)
+    page.locator('.block-item[data-coords="14,2"]').locator("button[title*='Move down']").click()
+    page.wait_for_timeout(200)
+
+    # B should now be below A
+    expect(tree.nth(0)).to_have_attribute("data-coords", "2,2")
+    expect(tree.nth(1)).to_have_attribute("data-coords", "14,2")
