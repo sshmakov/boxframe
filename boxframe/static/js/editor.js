@@ -2176,6 +2176,58 @@ function editorApp() {
                 (b.order - a.order) || ((b._seq || 0) - (a._seq || 0)));
         },
 
+        _containerTypes: ['box', 'grid'],
+
+        get treeBlocks() {
+            const childrenMap = {};
+            const validIds = new Set(this.blocks.map(b => b.id));
+            for (const b of this.blocks) {
+                const pid = b.parent_id && validIds.has(b.parent_id) ? b.parent_id : '__root__';
+                (childrenMap[pid] || (childrenMap[pid] = [])).push(b);
+            }
+            const sortSiblings = (list) =>
+                list.sort((a, b) =>
+                    (b.order - a.order) || ((b._seq || 0) - (a._seq || 0)));
+            const result = [];
+            const walk = (list, depth) => {
+                sortSiblings(list);
+                for (const b of list) {
+                    b._depth = depth;
+                    b._isContainer = this._containerTypes.includes(b.block_type);
+                    result.push(b);
+                    const kids = childrenMap[b.id];
+                    if (kids) walk(kids, depth + 1);
+                }
+            };
+            walk(childrenMap['__root__'] || [], 0);
+            return result;
+        },
+
+        _siblingsOf(blockId) {
+            const block = this.blocks.find(b => b.id === blockId);
+            if (!block) return [];
+            const pid = block.parent_id && this.blocks.some(b => b.id === block.parent_id)
+                ? block.parent_id : null;
+            return this.blocks.filter(b => {
+                const bPid = b.parent_id && this.blocks.some(x => x.id === b.parent_id)
+                    ? b.parent_id : null;
+                return bPid === pid;
+            }).sort((a, b) =>
+                (b.order - a.order) || ((b._seq || 0) - (a._seq || 0)));
+        },
+
+        canMoveUp(blockId) {
+            const sibs = this._siblingsOf(blockId);
+            const idx = sibs.findIndex(b => b.id === blockId);
+            return idx > 0;
+        },
+
+        canMoveDown(blockId) {
+            const sibs = this._siblingsOf(blockId);
+            const idx = sibs.findIndex(b => b.id === blockId);
+            return idx >= 0 && idx < sibs.length - 1;
+        },
+
         // Whether the renderer draws a block's children: everything
         // except lines/dividers/buttons (atomic elements) renders its
         // children — regardless of the parent's border: a borderless
@@ -2244,35 +2296,27 @@ function editorApp() {
         },
 
         async moveBlockOrder(blockId, delta) {
-            const block = this.blocks.find(b => b.id === blockId);
-            if (!block) return;
+            const sibs = this._siblingsOf(blockId);
+            const idx = sibs.findIndex(b => b.id === blockId);
+            if (idx < 0) return;
+            const target = delta > 0 ? idx - 1 : idx + 1;
+            if (target < 0 || target >= sibs.length) return;
 
-            const oldOrder = block.order;
-            const newOrder = block.order + delta;
-            if (newOrder < 0) return;
-
-            // Find another block at the target order to swap with
-            const other = this.blocks.find(b => b.id !== blockId && b.order === newOrder);
-            if (other) {
-                // Swap orders
-                const temp = other.order;
-                other.order = block.order;
-                block.order = temp;
-            } else {
-                block.order = newOrder;
-            }
+            const block = sibs[idx];
+            const other = sibs[target];
+            const blockOldOrder = block.order;
+            const otherOldOrder = other.order;
+            block.order = other.order;
+            other.order = blockOldOrder;
 
             try {
-                await this.store.updateBlock(blockId, { order: block.order });
-                // Re-sort list so position reflects z-order
+                await this.store.updateBlock(block.id, { order: block.order });
+                await this.store.updateBlock(other.id, { order: other.order });
                 this._reorderBlocks();
                 await this.refreshRender();
             } catch (err) {
-                // Rollback on error
-                block.order = oldOrder;
-                if (other) {
-                    other.order = newOrder;
-                }
+                block.order = blockOldOrder;
+                other.order = otherOldOrder;
                 console.error('Failed to move block order:', err);
             }
         },

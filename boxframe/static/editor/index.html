@@ -73,20 +73,21 @@
             <div class="editor-elements">
                 <div class="section-title" x-text="'Elements (' + blocks.length + ')'"></div>
                 <div class="element-list">
-                    <template x-for="(block, idx) in blocks" :key="block.id">
+                    <template x-for="block in treeBlocks" :key="block.id">
                         <div class="block-item"
                              :class="{ 'block-item--selected': selectedIds.includes(block.id) }"
+                             :style="'padding-left:' + (8 + block._depth * 16) + 'px'"
+                             :data-coords="block.x + ',' + block.y"
                              @click="onListItemClick($event, block.id)"
-                             title="Shift/Ctrl+click — add to selection">
+                             :title="'Shift/Ctrl+click — add to selection | (' + block.x + ',' + block.y + ') z#' + block.order">
                             <span class="block-item__info">
+                                <span class="block-item__tree" x-text="block._isContainer ? '▾' : (block._depth > 0 ? '·' : '')"></span>
                                 <strong x-text="block.block_type"></strong>
-                                <span class="block-item__pos" x-text="' @(' + block.x + ',' + block.y + ')'"></span>
-                                <span class="block-order" x-text="'#' + block.order"></span>
                             </span>
                             <span class="block-actions">
-                                <button class="order-btn" @click="moveBlockOrder(block.id, -1)" :disabled="block.order <= 0" title="Move down (lower z-index)">↓</button>
-                                <button class="order-btn" @click="moveBlockOrder(block.id, 1)" :disabled="block.order >= maxOrder" title="Move up (higher z-index)">↑</button>
-                                <button class="delete-block" @click="deleteBlock(block.id)" title="Delete">×</button>
+                                <button class="order-btn" @click.stop="moveBlockOrder(block.id, -1)" :disabled="!canMoveDown(block.id)" title="Move down (lower z-index)">↓</button>
+                                <button class="order-btn" @click.stop="moveBlockOrder(block.id, 1)" :disabled="!canMoveUp(block.id)" title="Move up (higher z-index)">↑</button>
+                                <button class="delete-block" @click.stop="deleteBlock(block.id)" title="Delete">×</button>
                             </span>
                         </div>
                     </template>

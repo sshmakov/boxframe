@@ -130,8 +130,8 @@ def test_drag_existing_block_to_new_position(page: Page):
     expect(block_items).to_have_count(1)
 
     # Get the initial position from the block list
-    initial_pos_text = page.locator(".block-item").first.text_content()
-    assert "@(" in initial_pos_text
+    initial_coords = page.locator(".block-item").first.get_attribute("data-coords")
+    assert initial_coords is not None and "," in initial_coords
 
     # The block should now be draggable on the canvas
     # Simulate a mouse drag on the canvas area
@@ -178,7 +178,7 @@ def test_multiple_blocks_via_palette_drag(page: Page):
 
 
 def test_block_list_shows_coordinates(page: Page):
-    """Test that the block list displays block coordinates correctly."""
+    """Test that the block list exposes block coordinates via data-coords."""
     project_id, _ = _create_e2e_project(page)
     layout_id = _create_e2e_layout(page, project_id)
 
@@ -189,10 +189,9 @@ def test_block_list_shows_coordinates(page: Page):
     block_items = page.locator(".block-item")
     expect(block_items).to_be_visible()
 
-    # Check that coordinates are displayed in the format "(@x,y)"
-    block_text = block_items.first.text_content()
-    assert "@(" in block_text, f"Expected '@(' in block text '{block_text}'"
-    assert ")" in block_text, f"Expected ')' in block text '{block_text}'"
+    # Coordinates are in the data-coords attribute
+    coords = block_items.first.get_attribute("data-coords")
+    assert coords is not None and "," in coords, f"Expected coords in data-coords, got '{coords}'"
 
 
 def test_delete_block_via_block_list(page: Page):

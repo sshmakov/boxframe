@@ -866,8 +866,8 @@ def test_selection_group_resize_resizes_all_blocks(page: Page):
 
     # Select both blocks via the sidebar list (click + shift+click) — the
     # floating properties panel covers the second block on the canvas
-    page.locator(".block-item", has_text="@(2,2)").click()
-    page.locator(".block-item", has_text="@(30,2)").click(modifiers=["Shift"])
+    page.locator('.block-item[data-coords="2,2"]').click()
+    page.locator('.block-item[data-coords="30,2"]').click(modifiers=["Shift"])
     expect(page.locator(".block-item--selected")).to_have_count(2)
 
     # Estimate the character cell size from the first block's rendered size
@@ -2260,10 +2260,14 @@ def test_static_editor_import_add_when_not_empty(page: Page):
     # The imported blocks (box @(0,0), button @(2,1)) are selected, the
     # pre-existing box @(1,1) is not
     expect(page.locator(".block-item--selected")).to_have_count(2)
-    sel = page.locator(".block-item--selected .block-item__info").all_inner_texts()
-    assert any("button" in t and "(2,1)" in t for t in sel)
-    assert any("box" in t and "(0,0)" in t for t in sel)
-    assert not any("(1,1)" in t for t in sel)
+    sel_types = page.locator(".block-item--selected .block-item__info strong").all_inner_texts()
+    sel_coords = page.locator(".block-item--selected").evaluate_all(
+        "els => els.map(el => el.dataset.coords)")
+    assert any(t == "button" and c == "2,1" for t, c in zip(sel_types, sel_coords))
+    assert any(t == "box" and c == "0,0" for t, c in zip(sel_types, sel_coords))
+    all_coords = page.locator(".block-item").evaluate_all(
+        "els => els.map(el => el.dataset.coords)")
+    assert "1,1" in all_coords  # pre-existing block exists but not selected
 
 
 def test_static_editor_import_replace_when_not_empty(page: Page):
@@ -3233,7 +3237,7 @@ def test_resize_top_edge_keeps_attached_header(page: Page):
     cw = box_box["width"] / 20
     ch = box_box["height"] / 10
 
-    page.locator(".block-item", has_text="box @(2,2)").click()
+    page.locator('.block-item[data-coords="2,2"]', has_text="box").click()
     _drag_selection_handle(page, "nw", 0, 3, cw, ch)
 
     def resized(p):
@@ -3262,7 +3266,7 @@ def test_resize_bottom_growth_pushes_attached_footer(page: Page):
     cw = box_box["width"] / 20
     ch = box_box["height"] / 10
 
-    page.locator(".block-item", has_text="box @(2,2)").click()
+    page.locator('.block-item[data-coords="2,2"]', has_text="box").click()
     _drag_selection_handle(page, "se", 0, 3, cw, ch)
 
     def pushed(p):
@@ -3320,7 +3324,7 @@ def test_resize_box_with_attached_header_clamps_to_4x4(page: Page):
     cw = box_box["width"] / 20
     ch = box_box["height"] / 10
 
-    page.locator(".block-item", has_text="box @(2,2)").click()
+    page.locator('.block-item[data-coords="2,2"]', has_text="box").click()
     _drag_selection_handle(page, "se", -17, -7, cw, ch)
 
     def clamped(p):
@@ -3350,9 +3354,9 @@ def test_group_resize_box_and_attached_header(page: Page):
     cw = box_box["width"] / 20
     ch = box_box["height"] / 10
 
-    page.locator(".block-item", has_text="box @(4,4)").click()
-    page.locator(".block-item", has_text="header @(0,-1)").click(modifiers=["Shift"])
-    page.locator(".block-item", has_text="text @(2,4)").click(modifiers=["Shift"])
+    page.locator('.block-item[data-coords="4,4"]', has_text="box").click()
+    page.locator('.block-item[data-coords="0,-1"]', has_text="header").click(modifiers=["Shift"])
+    page.locator('.block-item[data-coords="2,4"]', has_text="text").click(modifiers=["Shift"])
     expect(page.locator(".block-item--selected")).to_have_count(3)
 
     # Group bbox = the box (4,4,20,10); drag 'nw' -2 left, +1 down
