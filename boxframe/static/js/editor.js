@@ -176,6 +176,10 @@ function editorApp() {
         pendingBlock: null,    // block under cursor on mousedown (click vs drag)
         pendingToggle: false,  // shift/ctrl+click on a block → toggle on mouseup
 
+        // Hover highlight driven by the elements tree: hovering a row
+        // outlines the matching block on the canvas (informational, no click).
+        hoveredBlockId: null,
+
         // ── Marquee (rubber-band) selection state ──────────────
         marquee: null,         // { startX, startY, curX, curY, add } in content px
         marqueeEl: null,
@@ -2985,6 +2989,7 @@ function editorApp() {
             this.$nextTick(() => {
                 this._bindResizeHandles();
                 this._markSelectedPreviews();
+                this._markHoverPreview();
             });
         },
 
@@ -3000,6 +3005,45 @@ function editorApp() {
                 const el = canvas.querySelector('.block-preview[data-block-id="' + id + '"]');
                 if (el) el.classList.add('block-preview--selected');
             }
+        },
+
+        // Hover highlight (elements tree): hovering a row outlines the
+        // matching block on the canvas without selecting it. Diff-synced so
+        // moving between adjacent rows leaves exactly one block outlined.
+        _hoverPreviewEl(blockId) {
+            const canvas = document.querySelector('.canvas-container');
+            return canvas
+                ? canvas.querySelector('.block-preview[data-block-id="' + blockId + '"]')
+                : null;
+        },
+
+        setHover(blockId) {
+            if (this.hoveredBlockId === blockId) return;
+            if (this.hoveredBlockId) {
+                const prev = this._hoverPreviewEl(this.hoveredBlockId);
+                if (prev) prev.classList.remove('block-preview--hover');
+            }
+            this.hoveredBlockId = blockId;
+            if (blockId) {
+                const el = this._hoverPreviewEl(blockId);
+                if (el) el.classList.add('block-preview--hover');
+            }
+        },
+
+        // Guard against the enter/leave event ordering when the cursor moves
+        // directly between two adjacent rows: only clear if this row still
+        // owns the highlight.
+        clearHover(blockId) {
+            if (blockId != null && this.hoveredBlockId !== blockId) return;
+            this.setHover(null);
+        },
+
+        // Re-apply the hover outline after a re-render replaced the overlay
+        // DOM (the hovered row is still under the cursor).
+        _markHoverPreview() {
+            if (!this.hoveredBlockId) return;
+            const el = this._hoverPreviewEl(this.hoveredBlockId);
+            if (el) el.classList.add('block-preview--hover');
         },
 
         async addBlock(type) {

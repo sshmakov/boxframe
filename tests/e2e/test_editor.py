@@ -3377,3 +3377,49 @@ def test_group_resize_box_and_attached_header(page: Page):
     # w = 1 + dW(+2) = 3 and h = 1 + dH(−1) clamps to the text minimum of 1.
     c = blocks[child_id]
     assert (c["x"], c["y"], c["width"], c["height"]) == (2, 4, 3, 1)
+
+
+def test_tree_row_hover_highlights_block(page: Page):
+    """Hovering an elements-tree row (no click) outlines the matching block
+    on the canvas; moving to another row moves the highlight (exactly one),
+    and leaving the list clears it. Hovering must not change the selection."""
+    layout_id, (a_id, b_id) = _create_project_with_blocks(page, TWO_BOXES)
+
+    # Hover the tree row of the first box (2,2)
+    page.locator('.block-item[data-coords="2,2"]', has_text="box").hover()
+    expect(page.locator(f'.block-preview[data-block-id="{a_id}"]')) \
+        .to_have_class(re.compile(r"block-preview--hover"))
+    expect(page.locator(".block-preview--hover")).to_have_count(1)
+    # Hovering is purely informational — nothing gets selected
+    expect(page.locator(".block-preview--selected")).to_have_count(0)
+    expect(page.locator(".block-item--selected")).to_have_count(0)
+
+    # Moving the cursor to the second box's row moves the highlight
+    page.locator('.block-item[data-coords="14,2"]', has_text="box").hover()
+    expect(page.locator(f'.block-preview[data-block-id="{b_id}"]')) \
+        .to_have_class(re.compile(r"block-preview--hover"))
+    expect(page.locator(f'.block-preview[data-block-id="{a_id}"]')) \
+        .not_to_have_class(re.compile(r"block-preview--hover"))
+    expect(page.locator(".block-preview--hover")).to_have_count(1)
+
+    # Leaving the element list (cursor over the palette, not a row) clears it
+    page.locator(".palette-btn").first.hover()
+    expect(page.locator(".block-preview--hover")).to_have_count(0)
+
+
+def test_tree_row_hover_nested_child(page: Page):
+    """Hovering a nested (child) row highlights the child block, not its
+    container — the outline targets the exact block under the row."""
+    layout_id, (box_id, child_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 4, "y": 4, "width": 20, "height": 10},
+        {"block_type": "text", "x": 2, "y": 4, "width": 8, "height": 1,
+         "content": "hi", "parent_index": 0},
+    ])
+    # The tree row's data-coords carries the saved (parent-relative) offset
+    # of the text child → "2,4"
+    page.locator('.block-item[data-coords="2,4"]', has_text="text").hover()
+    expect(page.locator(f'.block-preview[data-block-id="{child_id}"]')) \
+        .to_have_class(re.compile(r"block-preview--hover"))
+    expect(page.locator(f'.block-preview[data-block-id="{box_id}"]')) \
+        .not_to_have_class(re.compile(r"block-preview--hover"))
+    expect(page.locator(".block-preview--hover")).to_have_count(1)
