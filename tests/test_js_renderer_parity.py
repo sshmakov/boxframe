@@ -1091,3 +1091,147 @@ def test_parity_attached_footer_html():
         assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(
             to_nested(blocks)
         ), (footer, bw, bh, bb)
+
+
+# ── sidebar-attach parity (todo-0009) ────────────────────────
+
+def _box_with_sidebar_blocks(sidebar: dict, box_w: int = 20, box_h: int = 8,
+                             box_border: str = "solid") -> list[dict]:
+    """A flat box + sidebar-child pair (the attach parity fixture)."""
+    s = dict(sidebar)
+    s.setdefault("id", "s")
+    s["parent_id"] = "b"
+    return [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+         "content": "", "border_style": box_border, "order": 0},
+        s,
+    ]
+
+
+def _box_with_corner_blocks(header: dict, sidebar: dict, box_w: int = 20,
+                            box_h: int = 10, box_border: str = "solid") -> list[dict]:
+    """A flat box + header-child + sidebar-child (the corner-dominance fixture)."""
+    h = dict(header)
+    h.setdefault("id", "h")
+    h["parent_id"] = "b"
+    s = dict(sidebar)
+    s.setdefault("id", "s")
+    s["parent_id"] = "b"
+    return [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+         "content": "", "border_style": box_border, "order": 0},
+        h,
+        s,
+    ]
+
+
+def test_parity_attached_sidebar():
+    """The attached-sidebar render (todo-0009) matches byte-for-byte."""
+    cases = [
+        # (sidebar, box_w, box_h, box_border)
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),
+        ({"block_type": "sidebar", "x": 13, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),   # right attach
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 1, "height": 3,
+          "content": "x", "border_style": "solid"}, 20, 8, "solid"),         # w==1 line only
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 20, "height": 3,
+          "content": "wide", "border_style": "solid"}, 20, 8, "solid"),      # w > inner_w (clipped)
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "none"),    # borderless parent
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "", "border_style": "dashed"}, 20, 8, "solid"),         # dashed line
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "none"}, 20, 8, "solid"),    # no line
+        ({"block_type": "sidebar", "x": 2, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),   # detached (0<=x, x+w<=inner_w)
+        ({"block_type": "sidebar", "x": 0, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),   # exact left touch (not attached)
+        ({"block_type": "sidebar", "x": 12, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),   # exact right touch (x+w==inner_w)
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "", "border_style": "solid"}, 20, 8, "solid"),          # [sidebar] hint
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid",
+          "meta": {"fill": "░"}}, 20, 8, "solid"),                           # fill
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid",
+          "meta": {"hide_text": True}}, 20, 8, "solid"),                     # hide_text
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 8, "height": 3,
+          "content": "Sidebar", "border_style": "solid",
+          "meta": {"text_align": "center", "vertical_align": "middle"}}, 20, 8, "solid"),
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "double"}, 20, 8, "solid"),  # mixed ╥/╨ (box solid, child double)
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "double"),  # mixed ╤/╧ (box double, child solid)
+    ]
+    for sidebar, bw, bh, bb in cases:
+        blocks = _box_with_sidebar_blocks(sidebar, bw, bh, bb)
+        assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 14
+        ), (sidebar, bw, bh, bb)
+
+
+def test_parity_attached_corner():
+    """The header/footer × sidebar corner dominance (todo-0009) matches
+    byte-for-byte (trimming + inner T-junctions)."""
+    corner_cases = [
+        # (header, sidebar, note)
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": 3, "width": 5, "height": 3,
+          "content": "Side", "border_style": "solid"}, "header dominant (sidebar below)"),
+        ({"block_type": "header", "x": 7, "y": -1, "width": 10, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid"}, "sidebar dominant (header right)"),
+        ({"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid"}, "tie -> header dominant"),
+        ({"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+          "content": "Header", "border_style": "solid", "order": 0},
+         {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid", "order": 5}, "sidebar higher order -> sidebar dominant"),
+        ({"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "Side", "border_style": "solid"}, "footer dominant (sidebar above)"),
+        ({"block_type": "header", "x": 7, "y": -1, "width": 12, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": 12, "y": 0, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid"}, "right sidebar dominant (header left of it)"),
+    ]
+    for header, sidebar, _note in corner_cases:
+        blocks = [
+            {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+             "content": "", "border_style": "solid", "order": 0},
+        ]
+        h = dict(header); h.setdefault("id", "h"); h["parent_id"] = "b"
+        s = dict(sidebar); s.setdefault("id", "s"); s["parent_id"] = "b"
+        blocks += [h, s]
+        assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 14
+        ), _note
+
+
+def test_parity_attached_sidebar_html():
+    """The attached-sidebar HTML overlay (effective geometry + vertical
+    line) matches byte-for-byte."""
+    cases = [
+        ({"block_type": "sidebar", "x": -1, "y": 1, "width": 5, "height": 4,
+          "content": "Sidebar", "border_style": "solid"}, 30, 10, "solid"),
+        ({"block_type": "sidebar", "x": 24, "y": 1, "width": 5, "height": 4,
+          "content": "Sidebar", "border_style": "solid"}, 30, 10, "solid"),  # right attach
+        ({"block_type": "sidebar", "x": -1, "y": 1, "width": 5, "height": 4,
+          "content": "", "border_style": "dashed"}, 30, 10, "solid"),
+        ({"block_type": "sidebar", "x": 2, "y": 1, "width": 5, "height": 4,
+          "content": "Sidebar", "border_style": "solid"}, 30, 10, "solid"),  # detached
+        ({"block_type": "sidebar", "x": -1, "y": 1, "width": 5, "height": 4,
+          "content": "Sidebar", "border_style": "solid"}, 30, 10, "none"),   # borderless parent
+    ]
+    for sidebar, bw, bh, bb in cases:
+        blocks = _box_with_sidebar_blocks(sidebar, bw, bh, bb)
+        assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(
+            to_nested(blocks)
+        ), (sidebar, bw, bh, bb)

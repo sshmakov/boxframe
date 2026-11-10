@@ -471,13 +471,17 @@ function editorApp() {
         // inner_h) starts from its effective geometry relative to the
         // direct parent — flush with the top/bottom of the inner area at
         // the full inner width (the stored x/width are ignored while
-        // attached), same rule as the renderer. A block merely touching
-        // the edge (y == 0 / y + h == inner_h) is not clipped and uses
-        // its stored geometry.
+        // attached), same rule as the renderer. A sidebar whose left/right
+        // border is clipped by the box's left/right edge (todo-0009:
+        // relative x < 0 / x + w > inner_w) is flush with that edge at the
+        // full inner height (the stored y/height are ignored while
+        // attached). A block merely touching the edge is not clipped and
+        // uses its stored geometry.
         _absoluteRect(block) {
             let x = block.x;
             let y = block.y;
             let width = block.width;
+            let height = block.height;
             const directParent = block.parent_id
                 ? this.blocks.find(b => b.id === block.parent_id)
                 : null;
@@ -497,6 +501,21 @@ function editorApp() {
                     x = 0;
                     y = directParent.height - 2 - block.height;
                     width = directParent.width - 2;
+                } else if (block.block_type === 'sidebar' && block.x < 0) {
+                    // Attached sidebar (todo-0009, left): flush with the
+                    // left of the box's inner area at the full inner height.
+                    x = 0;
+                    y = 0;
+                    height = directParent.height - 2;
+                } else if (
+                    block.block_type === 'sidebar' &&
+                    block.x + block.width > directParent.width - 2
+                ) {
+                    // Attached sidebar (todo-0009, right): flush with the
+                    // right of the box's inner area at the full inner height.
+                    x = directParent.width - 2 - block.width;
+                    y = 0;
+                    height = directParent.height - 2;
                 }
             }
             let pid = block.parent_id;
@@ -507,7 +526,7 @@ function editorApp() {
                 y = parent.y + 1 + y;
                 pid = parent.parent_id;
             }
-            return { x, y, width, height: block.height };
+            return { x, y, width, height };
         },
 
         // Convert an absolute (canvas) position to the relative position
@@ -1272,6 +1291,20 @@ function editorApp() {
                     payload.x = 0;
                     payload.y = container.height - 1 - h;
                     payload.width = container.width - 2;
+                } else if (this.dragType === 'sidebar' && container.block_type === 'box') {
+                    // Attached sidebar (todo-0009): snap to the box's left
+                    // or right edge — x = -1 (left) / x = inner_w − w + 1
+                    // (right) so the side border is clipped by that edge
+                    // (the attach condition), at the full inner height (the
+                    // renderer stretches it anyway; the stored height
+                    // applies once the sidebar is detached). The edge
+                    // nearest the drop point wins.
+                    const innerW = container.width - 2;
+                    const cr = this._absoluteRect(container);
+                    const relCenterX = (pos.x + w / 2) - (cr.x + 1);
+                    payload.x = relCenterX < innerW / 2 ? -1 : innerW - w + 1;
+                    payload.y = 0;
+                    payload.height = container.height - 2;
                 } else {
                     const rel = this._absToRel(pos.x, pos.y, container);
                     payload.x = rel.x;
@@ -1937,6 +1970,10 @@ function editorApp() {
             // Grid (todo-0005): partitions per meta.cols/rows; 24×8 gives
             // 3 columns × 8 cells, 2 rows × 4 cells.
             if (type === 'grid') return { width: 24, height: 8, content: '' };
+            // Sidebar (todo-0009): 12×16 — a tall side column that reads as
+            // an attached panel when dropped into a box (the renderer snaps
+            // it to the nearest edge at the full inner height).
+            if (type === 'sidebar') return { width: 12, height: 16, content: '[sidebar]' };
             return { width: 20, height: 3, content: `[${type}]` };
         },
 

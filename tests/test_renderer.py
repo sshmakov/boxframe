@@ -4187,3 +4187,229 @@ def test_attached_footer_solid_line_double_box():
     assert lines[0] == "╔" + "═" * 18 + "╗"
     assert lines[4] == "╟" + "─" * 18 + "╢"
     assert lines[7] == "╚" + "═" * 18 + "╝"
+
+
+# ── sidebar-attach (todo-0009) ───────────────────────────────
+
+def _box_with_sidebar(sidebar=None, box_w=20, box_h=8, box_border="solid"):
+    """A box with a single sidebar child (the attach test fixture). The
+    default sidebar sits at x=-1 — its left border is clipped by the box's
+    left edge (the attach condition, todo-0009)."""
+    if sidebar is None:
+        sidebar = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+                   "height": 3, "content": "Side", "border_style": "solid"}
+    return [{"block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+             "content": "", "border_style": box_border, "children": [sidebar]}]
+
+
+def _box_with_corner(header, sidebar, box_w=20, box_h=10, box_border="solid"):
+    return [{"block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+             "content": "", "border_style": box_border, "children": [header, sidebar]}]
+
+
+def test_attached_sidebar_basic():
+    """Attached left (x<0): no left/top/bottom border on the sidebar, the
+    vertical line across the full inner height, ┬/┴ junctions on the box's
+    top/bottom border, the content area on the near side of the line."""
+    lines = _render(_box_with_sidebar()).split("\n")
+    # Top border: ┌ then ─ to the sidebar line, ┬ junction, ─ to ┐
+    assert lines[0] == "┌─────┬────────────┐"
+    # The sidebar's vertical line at column 6 (x=1, w=6 → col x+w−1)
+    assert lines[2][6] == "│"
+    # Bottom border has the ┴ junction at the same column
+    assert lines[7] == "└─────┴────────────┘"
+
+
+def test_attached_sidebar_right():
+    """Attached right (x+w > inner_w): the vertical line on the sidebar's
+    left column, content to its right."""
+    sb = {"block_type": "sidebar", "x": 13, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0] == "┌────────────┬─────┐"   # ┬ at the line column 13
+    assert lines[7] == "└────────────┴─────┘"
+
+
+def test_attached_sidebar_w1_line_only():
+    """w == 1: only the vertical line, no content column."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 1,
+          "height": 3, "content": "x", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0] == "┌┬─────────────────┐"
+    assert lines[2][0:2] == "││"
+
+
+def test_attached_sidebar_wider_than_inner():
+    """w > inner_w: the line is clipped (no line, no junctions) — like a
+    sidebar taller... wider than the inner area."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 20,
+          "height": 3, "content": "wide", "border_style": "solid"}
+    art = _render(_box_with_sidebar(sb))
+    assert "┬" not in art and "┴" not in art
+    assert art.split("\n")[0] == "┌" + "─" * 18 + "┐"
+
+
+def test_attached_sidebar_borderless_parent():
+    """A borderless box: the vertical line is drawn but there is no border
+    to join — no ┬/┴ junctions."""
+    art = _render(_box_with_sidebar(box_border="none"))
+    assert "┬" not in art and "┴" not in art
+
+
+def test_attached_sidebar_dashed_line():
+    """A dashed sidebar line in a solid box: ┆ vertical, junctions fall
+    back to the box's solid ┬/┴ (no dashed junction glyphs)."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "", "border_style": "dashed"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0][6] == "┬"
+    assert lines[2][6] == "┆"
+
+
+def test_attached_sidebar_none_border():
+    """border_style=none: no line, no junctions — the sidebar keeps its
+    content but draws no divider."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "none"}
+    art = _render(_box_with_sidebar(sb))
+    assert "┬" not in art and "┴" not in art
+
+
+def test_attached_sidebar_detached():
+    """0 <= x and x+w <= inner_w: not clipped — a plain box, unchanged."""
+    sb = {"block_type": "sidebar", "x": 2, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"   # no ┬ on the top border
+    assert "┬" not in lines[0]
+
+
+def test_attached_sidebar_exact_touch_not_attached():
+    """x == 0 (left) and x+w == inner_w (right): touching, not clipped —
+    the sidebar renders as a plain box (no attach)."""
+    left = {"block_type": "sidebar", "x": 0, "y": 0, "width": 6,
+            "height": 3, "content": "Side", "border_style": "solid"}
+    assert "┬" not in _render(_box_with_sidebar(left))
+    right = {"block_type": "sidebar", "x": 12, "y": 0, "width": 6,
+             "height": 3, "content": "Side", "border_style": "solid"}
+    assert "┬" not in _render(_box_with_sidebar(right))
+
+
+def test_attached_sidebar_hint():
+    """Empty content: the [sidebar] hint in the content area."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[1][1:6] == "[side"
+
+
+def test_attached_sidebar_fill():
+    """meta.fill paints the content area (not the line column)."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "solid",
+          "meta": {"fill": "░"}}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    # Row 2 is fully filled in the content area (cols 1..5), line at 6
+    assert lines[2] == "│" + "░" * 5 + "│" + " " * 12 + "│"
+
+
+def test_attached_sidebar_double_line_solid_box():
+    """box solid + sidebar double: line ║, junctions ╥ (top) / ╨ (bottom)
+    (single horizontal border + double vertical line)."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "", "border_style": "double"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0] == "┌─────╥────────────┐"
+    assert lines[7] == "└─────╨────────────┘"
+
+
+def test_attached_sidebar_solid_line_double_box():
+    """box double + sidebar solid: line │, junctions ╤ (top) / ╧ (bottom)
+    (double horizontal border + single vertical line)."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb, box_border="double")).split("\n")
+    assert lines[0] == "╔═════╤════════════╗"
+    assert lines[7] == "╚═════╧════════════╝"
+
+
+def test_attached_sidebar_in_grid_unchanged():
+    """A sidebar in a grid is out of scope — it renders as a plain box."""
+    blocks = [{
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2},
+        "children": [{"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+                      "height": 3, "content": "Side", "border_style": "solid"}],
+    }]
+    art = _render(blocks)
+    # The sidebar renders as a plain box (its own border + content), not
+    # attached — no full-height divider, no attach junctions.
+    assert "│Side│" in art
+
+
+# ── corner dominance: header/footer × sidebar (todo-0009) ────
+
+def test_corner_header_dominant():
+    """Header full width + sidebar placed below it (y below the header):
+    the header keeps ├/┤ on the box borders, the sidebar is trimmed to
+    start below the header line with an inner ┬ on the header line."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "Head", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 3, "width": 5, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    # Header line at row 3 (full width): box ├ on left border, ┬ where the
+    # sidebar line meets the header line, ┤ on right border
+    assert lines[3] == "├────┬─────────────┤"
+    # The box top border is untouched by the (trimmed) sidebar
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+
+
+def test_corner_sidebar_dominant():
+    """Sidebar full height + header placed to its right: the sidebar keeps
+    ┬/┴ on the box top/bottom borders, the header is trimmed with an inner
+    ├ on the sidebar line and ┤ on the box right border."""
+    header = {"block_type": "header", "x": 7, "y": -1, "width": 10, "height": 3,
+              "content": "Head", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    # Sidebar full height: ┬ on the top border at the line column
+    assert lines[0] == "┌─────┬────────────┐"
+    # Header line trimmed: inner ├ on the sidebar line, ┤ on right border
+    assert lines[3] == "│     ├────────────┤"
+
+
+def test_corner_tie_header_dominant():
+    """Both blocks overlap the corner (no placement signal): the default
+    is header-dominant (the classic app-chrome)."""
+    header = {"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+              "content": "Head", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    assert lines[3] == "├─────┬────────────┤"   # header dominant
+
+
+def test_corner_order_tiebreak():
+    """Overlapping corner, sidebar has a higher order → sidebar dominant."""
+    header = {"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+              "content": "Head", "border_style": "solid", "order": 0}
+    sb = {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Si", "border_style": "solid", "order": 5}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    assert lines[3] == "│     ├────────────┤"   # sidebar dominant
+
+
+def test_corner_footer_dominant():
+    """Footer full width + sidebar above it: the footer keeps ├/┤, the
+    sidebar is trimmed with an inner ┴ on the footer line."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "Foot", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    # Footer line at row 6 (full width), ┴ where the sidebar line meets it
+    assert lines[6] == "├────┴─────────────┤"

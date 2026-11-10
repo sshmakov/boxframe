@@ -3671,3 +3671,154 @@ test("attached footer solid line in double box", () => {
     assert.equal(ls[4], "╟" + "─".repeat(18) + "╢");
     assert.equal(ls[7], "╚" + "═".repeat(18) + "╝");
 });
+
+// ── sidebar-attach (todo-0009) ───────────────────────────────
+
+function boxWithSidebar(sidebar, boxW = 20, boxH = 8, boxBorder = "solid") {
+    // The default sidebar (w=6) sits at x=-1 — its left border is clipped
+    // by the box's left edge (the attach condition, todo-0009)
+    const s = sidebar || {
+        id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b",
+    };
+    return [
+        { id: "b", block_type: "box", x: 0, y: 0, width: boxW, height: boxH,
+          content: "", border_style: boxBorder },
+        s,
+    ];
+}
+
+test("attached sidebar basic", () => {
+    const ls = lines(render(boxWithSidebar()));
+    assert.equal(ls[0], "┌─────┬────────────┐");
+    assert.equal(ls[2][6], "│");
+    assert.equal(ls[7], "└─────┴────────────┘");
+});
+
+test("attached sidebar right", () => {
+    const s = { id: "s", block_type: "sidebar", x: 13, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithSidebar(s)));
+    assert.equal(ls[0], "┌────────────┬─────┐");
+    assert.equal(ls[7], "└────────────┴─────┘");
+});
+
+test("attached sidebar w=1 line only", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 1, height: 3,
+        content: "x", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithSidebar(s)));
+    assert.equal(ls[0], "┌┬─────────────────┐");
+    assert.equal(ls[2].slice(0, 2), "││");
+});
+
+test("attached sidebar wider than inner — clipped", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 20, height: 3,
+        content: "wide", border_style: "solid", parent_id: "b" };
+    const art = render(boxWithSidebar(s));
+    assert.ok(!art.includes("┬") && !art.includes("┴"));
+});
+
+test("attached sidebar borderless parent", () => {
+    const art = render(boxWithSidebar(null, 20, 8, "none"));
+    assert.ok(!art.includes("┬") && !art.includes("┴"));
+});
+
+test("attached sidebar dashed line", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+        content: "", border_style: "dashed", parent_id: "b" };
+    const ls = lines(render(boxWithSidebar(s)));
+    assert.equal(ls[0][6], "┬");
+    assert.equal(ls[2][6], "┆");
+});
+
+test("attached sidebar none border", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "none", parent_id: "b" };
+    const art = render(boxWithSidebar(s));
+    assert.ok(!art.includes("┬") && !art.includes("┴"));
+});
+
+test("attached sidebar detached (plain box)", () => {
+    const s = { id: "s", block_type: "sidebar", x: 2, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b" };
+    assert.ok(!lines(render(boxWithSidebar(s)))[0].includes("┬"));
+});
+
+test("attached sidebar exact touch not attached", () => {
+    const left = { id: "s", block_type: "sidebar", x: 0, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b" };
+    assert.ok(!render(boxWithSidebar(left)).includes("┬"));
+    const right = { id: "s", block_type: "sidebar", x: 12, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b" };
+    assert.ok(!render(boxWithSidebar(right)).includes("┬"));
+});
+
+test("attached sidebar double line in solid box", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+        content: "", border_style: "double", parent_id: "b" };
+    const ls = lines(render(boxWithSidebar(s)));
+    assert.equal(ls[0], "┌─────╥────────────┐");
+    assert.equal(ls[7], "└─────╨────────────┘");
+});
+
+test("attached sidebar solid line in double box", () => {
+    const ls = lines(render(boxWithSidebar(null, 20, 8, "double")));
+    assert.equal(ls[0], "╔═════╤════════════╗");
+    assert.equal(ls[7], "╚═════╧════════════╝");
+});
+
+// ── corner dominance: header/footer × sidebar (todo-0009) ────
+
+test("corner header dominant (sidebar below header)", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 3, width: 5, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[3], "├────┬─────────────┤");
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+});
+
+test("corner sidebar dominant (header right)", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: 7, y: -1, width: 10, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌─────┬────────────┐");
+    assert.equal(ls[3], "│     ├────────────┤");
+});
+
+test("corner tie -> header dominant", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: -1, y: -1, width: 18, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: -1, width: 6, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[3], "├─────┬────────────┤");
+});
+
+test("corner order tiebreak -> sidebar dominant", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: -1, y: -1, width: 18, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b", order: 0 },
+        { id: "s", block_type: "sidebar", x: -1, y: -1, width: 6, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[3], "│     ├────────────┤");
+});
