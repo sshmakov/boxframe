@@ -431,6 +431,12 @@
     // (top) / ╧ (bottom); box single/child double → ╥ (top) / ╨ (bottom).
     var MIXED_TOP = { "double|solid": "╤", "solid|double": "╥" };
     var MIXED_BOTTOM = { "double|solid": "╧", "solid|double": "╨" };
+    // Mixed T junctions for a corner where two attached chrome lines meet
+    // (todo-0009, twoLineJunction): keyed "through|stem" — orient selects
+    // the table so the through arms and the stem each keep their own line's
+    // weight. down/up = horizontal through (╤╥╧╨); right/left = vertical
+    // through (╞╟╡╢).
+    var MIXED_BY_ORIENT = { down: MIXED_TOP, up: MIXED_BOTTOM, right: MIXED_LEFT, left: MIXED_RIGHT };
 
     function attachedVJunction(boxStyle, childStyle, end) {
         function fallback() {
@@ -448,12 +454,19 @@
     // orthogonal block meets the dominant line (todo-0009). throughStyle
     // is the dominant (two-arm) line, stemStyle the subordinate stem;
     // orient is the stem direction: "down"(┬)/"up"(┴)/"right"(├)/"left"(┤).
-    // Same styles → the style map glyph; mixed → the dominant style's
-    // glyph (the mixed ╤╥╧╨ set is reserved for sidebar-vs-border).
+    // Same styles → the style map glyph; mixed solid/double → the matching
+    // mixed T (╤╥ down / ╧╨ up horizontal through; ╞╟ right / ╡╢ left
+    // vertical through) so the stem keeps its own line's weight. Other
+    // mixes (dashed/dotted) → fall back to the dominant style's glyph.
     function twoLineJunction(throughStyle, stemStyle, orient) {
         var key = { down: "t_t", up: "b_l", right: "t_l", left: "t_r" }[orient];
-        var map = BORDERS[throughStyle] || BORDERS.solid;
-        return map[key];
+        function fallback() {
+            return (BORDERS[throughStyle] || BORDERS.solid)[key];
+        }
+        if (throughStyle === stemStyle) return fallback();
+        var ch = MIXED_BY_ORIENT[orient][throughStyle + "|" + stemStyle];
+        if (ch) return ch;
+        return fallback();
     }
 
     function mixedAttachedJunction(boxStyle, childStyle, side) {

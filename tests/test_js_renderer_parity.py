@@ -1251,6 +1251,35 @@ def test_parity_attached_corner_composition():
         ), note
 
 
+def test_parity_attached_corner_mixed_styles():
+    """Corner meeting junctions between chrome lines of DIFFERENT border
+    styles (solid×double) match byte-for-byte — the meeting T honours the
+    stem's own weight (╧╨/╞╟), not just the dominant's."""
+    def corner(footer_style, sidebar_style, sidebar_order):
+        return [
+            {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": 20,
+             "height": 10, "content": "", "border_style": "solid", "order": 0},
+            {"id": "f", "block_type": "footer", "x": 0, "y": 7, "width": 18,
+             "height": 3, "content": "", "border_style": footer_style,
+             "order": 0, "parent_id": "b"},
+            {"id": "s", "block_type": "sidebar", "x": -1, "y": 0, "width": 5,
+             "height": 3, "content": "", "border_style": sidebar_style,
+             "order": sidebar_order, "parent_id": "b"},
+        ]
+    cases = {
+        "footer-double/sidebar-solid (H dom)": corner("double", "solid", 0),
+        "footer-solid/sidebar-double (H dom)": corner("solid", "double", 0),
+        "sidebar-double dominant": corner("solid", "double", 5),
+        "sidebar-solid dominant/footer-double": corner("double", "solid", 5),
+        "dashed/double mix": corner("dashed", "double", 0),
+        "double/dotted mix": corner("double", "dotted", 5),
+    }
+    for note, blocks in cases.items():
+        assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 14
+        ), note
+
+
 def test_parity_attached_sidebar_html():
     """The attached-sidebar HTML overlay (effective geometry + vertical
     line) matches byte-for-byte."""

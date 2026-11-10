@@ -4130,6 +4130,90 @@ def test_mixed_attached_junction_unit():
     assert J("dashed", "double", "left") == "├"
 
 
+def test_two_line_junction_unit():
+    """_two_line_junction (corner where two attached chrome lines meet):
+    same styles → style-map T (t_t/b_l/t_l/t_r); solid×double → the mixed
+    T keyed on (through, stem) so the stem keeps its own weight (down ╤╥,
+    up ╧╨ horizontal-through; right ╞╟, left ╡╢ vertical-through);
+    dashed/dotted combinations fall back to the through line's glyph."""
+    from boxframe.services.renderer import _two_line_junction as J
+    # Same style → style-map glyph
+    assert J("solid", "solid", "down") == "┬"
+    assert J("double", "double", "up") == "╩"
+    assert J("double", "double", "right") == "╠"
+    assert J("solid", "solid", "left") == "┤"
+    # horizontal through (down/up): stem keeps its own vertical weight
+    assert J("double", "solid", "down") == "╤"   # double h, single stem down
+    assert J("solid", "double", "down") == "╥"   # single h, double stem down
+    assert J("double", "solid", "up") == "╧"     # double h, single stem up
+    assert J("solid", "double", "up") == "╨"     # single h, double stem up
+    # vertical through (right/left): stem keeps its own horizontal weight
+    assert J("solid", "double", "right") == "╞"  # single v, double stem right
+    assert J("double", "solid", "right") == "╟"  # double v, single stem right
+    assert J("solid", "double", "left") == "╡"   # single v, double stem left
+    assert J("double", "solid", "left") == "╢"   # double v, single stem left
+    # dashed/dotted → fallback to the through line's glyph
+    assert J("solid", "dashed", "up") == "┴"
+    assert J("dashed", "solid", "up") == "┴"
+    assert J("double", "dashed", "down") == "╦"
+    assert J("dashed", "double", "down") == "┬"
+    assert J("double", "dotted", "right") == "╠"
+    assert J("dotted", "double", "right") == "├"
+
+
+def test_corner_footer_double_sidebar_solid():
+    """Footer(double)+sidebar(solid), footer dominant: the meeting T on the
+    footer's double line keeps the single-stem sidebar → ╧ (was ╩ before the
+    corner junction honoured the stem's weight)."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "", "border_style": "solid"}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    assert lines[6] == "╞════╧═════════════╡"
+
+
+def test_corner_footer_solid_sidebar_double():
+    """Footer(solid)+sidebar(double), footer dominant: the double sidebar
+    line terminates in a double-stem junction on the solid footer line → ╨."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "", "border_style": "double"}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    assert lines[6] == "├────╨─────────────┤"
+
+
+def test_corner_sidebar_double_footer_solid_dominant():
+    """Sidebar(double) dominant over a solid footer: the meeting T sits on
+    the sidebar's double line and keeps the single-stem footer → ╟."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "", "border_style": "double", "order": 5}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    assert lines[6] == "│    ╟─────────────┤"
+
+
+def test_corner_sidebar_solid_footer_double_dominant():
+    """Sidebar(solid) dominant over a double footer: the meeting T sits on
+    the sidebar's single line and keeps the double-stem footer → ╞."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "", "border_style": "solid", "order": 5}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    assert lines[6] == "│    ╞═════════════╡"
+
+
 def test_attached_header_double_line_solid_box():
     """box solid + header double: line uses ═, junctions use ╞/╡
     (single vertical + double horizontal)."""

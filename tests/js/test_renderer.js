@@ -3897,3 +3897,81 @@ test("corner dual sidebar header trimmed both sides (no bleed)", () => {
     assert.equal(ls[3], "│   ├──────────┤   │");
     assert.equal(ls[9], "└───┴──────────┴───┘");
 });
+
+test("twoLineJunction: unit", () => {
+    const J = PG.twoLineJunction;
+    // Same style → style-map glyph
+    assert.equal(J("solid", "solid", "down"), "┬");
+    assert.equal(J("double", "double", "up"), "╩");
+    assert.equal(J("double", "double", "right"), "╠");
+    assert.equal(J("solid", "solid", "left"), "┤");
+    // horizontal through (down/up): stem keeps its own vertical weight
+    assert.equal(J("double", "solid", "down"), "╤");
+    assert.equal(J("solid", "double", "down"), "╥");
+    assert.equal(J("double", "solid", "up"), "╧");
+    assert.equal(J("solid", "double", "up"), "╨");
+    // vertical through (right/left): stem keeps its own horizontal weight
+    assert.equal(J("solid", "double", "right"), "╞");
+    assert.equal(J("double", "solid", "right"), "╟");
+    assert.equal(J("solid", "double", "left"), "╡");
+    assert.equal(J("double", "solid", "left"), "╢");
+    // dashed/dotted → fallback to the through line's glyph
+    assert.equal(J("solid", "dashed", "up"), "┴");
+    assert.equal(J("dashed", "solid", "up"), "┴");
+    assert.equal(J("double", "dashed", "down"), "╦");
+    assert.equal(J("dashed", "double", "down"), "┬");
+    assert.equal(J("double", "dotted", "right"), "╠");
+    assert.equal(J("dotted", "double", "right"), "├");
+});
+
+test("corner footer double + sidebar solid (footer dominant → ╧)", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "", border_style: "double", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[6], "╞════╧═════════════╡");
+});
+
+test("corner footer solid + sidebar double (footer dominant → ╨)", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "", border_style: "double", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[6], "├────╨─────────────┤");
+});
+
+test("corner sidebar double dominant over solid footer → ╟", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "", border_style: "double", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[6], "│    ╟─────────────┤");
+});
+
+test("corner sidebar solid dominant over double footer → ╞", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "", border_style: "double", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "", border_style: "solid", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[6], "│    ╞═════════════╡");
+});

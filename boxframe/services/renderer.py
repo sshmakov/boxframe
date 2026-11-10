@@ -445,6 +445,15 @@ _MIXED_RIGHT = {("solid", "double"): "╡", ("double", "solid"): "╢"}
 # the mirror (stem up): ╧ / ╨.
 _MIXED_TOP = {("double", "solid"): "╤", ("solid", "double"): "╥"}
 _MIXED_BOTTOM = {("double", "solid"): "╧", ("solid", "double"): "╨"}
+# Mixed T junctions for a corner where two attached chrome lines meet
+# (todo-0009, two_line_junction): keyed (through_style, stem_style) —
+# orient selects the table so the through arms and the stem each keep
+# their own line's weight. down/up = horizontal through (╤╥╧╨);
+# right/left = vertical through (╞╟╡╢).
+_MIXED_BY_ORIENT = {
+    "down": _MIXED_TOP, "up": _MIXED_BOTTOM,
+    "right": _MIXED_LEFT, "left": _MIXED_RIGHT,
+}
 
 
 def _attached_v_junction(box_style: str, child_style: str, end: str) -> str:
@@ -470,11 +479,19 @@ def _two_line_junction(through_style: str, stem_style: str, orient: str) -> str:
     (todo-0009). `through_style` is the dominant line (the two arms),
     `stem_style` the subordinate stem. `orient` gives the stem direction
     relative to the meeting cell: "down" (┬ family), "up" (┴), "right"
-    (├), "left" (┤). Same styles → the style map glyph; mixed → the
-    dominant style's glyph (Unicode has no clean asymmetric mixed T for
-    these; the through-line style wins — the mixed ╤╥╧╨ set is reserved
-    for the sidebar-vs-box-border junctions)."""
+    (├), "left" (┤). Same styles → the style map glyph; mixed solid/double
+    → the matching Unicode mixed T (╤╥ down, ╧╨ up — horizontal through;
+    ╞╟ right, ╡╢ left — vertical through), so the stem keeps its own line's
+    weight rather than adopting the dominant's. Other mixes (dashed/dotted)
+    → fallback to the dominant style's glyph (no dashed junction glyphs),
+    same as the box-border junctions."""
     key = {"down": "t_t", "up": "b_l", "right": "t_l", "left": "t_r"}[orient]
+    if through_style == stem_style:
+        return BORDERS.get(through_style, BORDERS["solid"])[key]
+    table = _MIXED_BY_ORIENT[orient]
+    junction = table.get((through_style, stem_style))
+    if junction:
+        return junction
     return BORDERS.get(through_style, BORDERS["solid"])[key]
 
 
