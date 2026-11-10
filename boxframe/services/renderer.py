@@ -1279,14 +1279,19 @@ class PseudoGraphicRenderer:
                     lr = line_row(hr)
                     col = line_col(vr)
                     if hr["side"] == "top":
-                        # header line at row lr; sidebar body starts at lr+1
+                        # header line at row lr; sidebar body starts at lr+1,
+                        # keeping its current bottom edge (so a footer trim
+                        # that ran first is preserved)
+                        bottom = vr["eff"][1] + vr["eff"][3] - 1
                         vr["eff"][1] = lr + 1
-                        vr["eff"][3] = (py + ph - 1) - (lr + 1)
+                        vr["eff"][3] = bottom - (lr + 1) + 1
                         vr["trim_top"] = True
                         orient = "down"
                     else:
-                        # footer line at row lr; sidebar body ends at lr−1
-                        vr["eff"][3] = (lr - 1) - (py + 1) + 1
+                        # footer line at row lr; sidebar body ends at lr−1,
+                        # keeping its current top edge (a header trim may have
+                        # already moved it down — anchor there, not at py+1)
+                        vr["eff"][3] = (lr - 1) - vr["eff"][1] + 1
                         vr["trim_bottom"] = True
                         orient = "up"
                     if vr["eff"][3] < 1:
@@ -1300,14 +1305,19 @@ class PseudoGraphicRenderer:
                     col = line_col(vr)
                     lr = line_row(hr)
                     if vr["side"] == "left":
-                        # sidebar line at col; header body starts at col+1
+                        # sidebar line at col; header body starts at col+1,
+                        # keeping its current right edge (a right-sidebar
+                        # trim that ran first is preserved)
+                        right = hr["eff"][0] + hr["eff"][2] - 1
                         hr["eff"][0] = col + 1
-                        hr["eff"][2] = (px + pw - 1) - (col + 1)
+                        hr["eff"][2] = right - (col + 1) + 1
                         hr["trim_left"] = True
                         orient = "right"
                     else:
-                        # sidebar line at col; header body ends at col−1
-                        hr["eff"][2] = (col - 1) - (px + 1) + 1
+                        # sidebar line at col; header body ends at col−1,
+                        # keeping its current left edge (a left-sidebar trim
+                        # may have already moved it — anchor there, not px+1)
+                        hr["eff"][2] = (col - 1) - hr["eff"][0] + 1
                         hr["trim_right"] = True
                         orient = "left"
                     if hr["eff"][2] < 1:

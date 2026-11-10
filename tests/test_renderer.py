@@ -4452,3 +4452,48 @@ def test_corner_footer_offset_merges():
     # merges the corner with an inner ┴ — no sidebar ┴ on the bottom border
     assert lines[0] == "┌────┬─────────────┐"
     assert lines[7] == "├────┴─────────────┤"
+
+
+def test_corner_three_way_no_bleed():
+    """Header(top)+footer(bottom)+sidebar(left) all attached: the sidebar is
+    trimmed on BOTH opposing sides, and the two trims must compose — the
+    sidebar line stops at each chrome line, never bleeding into the footer
+    body. (Regression: the bottom trim re-anchored at the box inner top,
+    over-extending the sidebar past the footer line.)"""
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [
+        {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+         "content": "H", "border_style": "solid"},
+        {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+         "content": "F", "border_style": "solid"},
+        {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+         "content": "S", "border_style": "solid"},
+    ]}]
+    lines = _render(blocks).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"      # sidebar top trimmed → no ┬
+    assert lines[3] == "├────┬─────────────┤"    # header line, ┬ meeting
+    assert lines[6] == "├────┴─────────────┤"    # footer line, ┴ meeting
+    assert lines[7] == "│F" + " " * 17 + "│"     # NO sidebar line inside footer
+    assert lines[8] == "│" + " " * 18 + "│"
+    assert lines[9] == "└" + "─" * 18 + "┘"      # sidebar bottom trimmed → no ┴
+
+
+def test_corner_dual_sidebar_no_bleed():
+    """Header(top) between a left and a right sidebar (both higher order →
+    both dominant): the header is trimmed on BOTH horizontal sides and the
+    trims compose — its line spans only the inner columns between the two
+    sidebar lines (regression: the right trim re-anchored at the box inner
+    left, over-extending the header through the right sidebar)."""
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [
+        {"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+         "content": "H", "border_style": "solid"},
+        {"block_type": "sidebar", "x": -1, "y": 0, "width": 4, "height": 3,
+         "content": "L", "border_style": "solid", "order": 5},
+        {"block_type": "sidebar", "x": 15, "y": 0, "width": 4, "height": 3,
+         "content": "R", "border_style": "solid", "order": 5},
+    ]}]
+    lines = _render(blocks).split("\n")
+    assert lines[0] == "┌───┬──────────┬───┐"    # both sidebars full (┬/┴)
+    assert lines[3] == "│   ├──────────┤   │"    # header line trimmed ├ … ┤
+    assert lines[9] == "└───┴──────────┴───┘"

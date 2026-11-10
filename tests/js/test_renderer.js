@@ -3856,3 +3856,44 @@ test("corner footer offset merges (no double framing)", () => {
     assert.equal(ls[0], "┌────┬─────────────┐");
     assert.equal(ls[7], "├────┴─────────────┤");
 });
+
+test("corner three-way header+footer+sidebar (no bleed)", () => {
+    // Sidebar trimmed on both opposing sides — the trims compose, the line
+    // stops at each chrome line instead of bleeding into the footer body.
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+          content: "H", border_style: "solid", parent_id: "b" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "F", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "S", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[3], "├────┬─────────────┤");
+    assert.equal(ls[6], "├────┴─────────────┤");
+    assert.equal(ls[7], "│F" + " ".repeat(17) + "│");
+    assert.equal(ls[8], "│" + " ".repeat(18) + "│");
+    assert.equal(ls[9], "└" + "─".repeat(18) + "┘");
+});
+
+test("corner dual sidebar header trimmed both sides (no bleed)", () => {
+    // Header between two dominant sidebars — both horizontal trims compose,
+    // the header line spans only the columns between the two sidebar lines.
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: -1, y: -1, width: 18, height: 3,
+          content: "H", border_style: "solid", parent_id: "b", order: 0 },
+        { id: "sl", block_type: "sidebar", x: -1, y: 0, width: 4, height: 3,
+          content: "L", border_style: "solid", parent_id: "b", order: 5 },
+        { id: "sr", block_type: "sidebar", x: 15, y: 0, width: 4, height: 3,
+          content: "R", border_style: "solid", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌───┬──────────┬───┐");
+    assert.equal(ls[3], "│   ├──────────┤   │");
+    assert.equal(ls[9], "└───┴──────────┴───┘");
+});

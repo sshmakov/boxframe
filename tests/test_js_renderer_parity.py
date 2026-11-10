@@ -1219,6 +1219,38 @@ def test_parity_attached_corner():
         ), _note
 
 
+def test_parity_attached_corner_composition():
+    """Corner trims that compose on BOTH sides of one attached block (a
+    sidebar trimmed top+bottom by header+footer; a header trimmed left+right
+    by two sidebars) match byte-for-byte — the opposite edge must be kept,
+    not re-anchored at the box's inner edge (fixes the bleed of a line into
+    the adjacent chrome block)."""
+    three_way = [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+         "content": "", "border_style": "solid", "order": 0},
+        {"id": "h", "block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+         "content": "H", "border_style": "solid", "order": 0, "parent_id": "b"},
+        {"id": "f", "block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+         "content": "F", "border_style": "solid", "order": 0, "parent_id": "b"},
+        {"id": "s", "block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+         "content": "S", "border_style": "solid", "order": 0, "parent_id": "b"},
+    ]
+    dual_sidebar = [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+         "content": "", "border_style": "solid", "order": 0},
+        {"id": "h", "block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+         "content": "H", "border_style": "solid", "order": 0, "parent_id": "b"},
+        {"id": "sl", "block_type": "sidebar", "x": -1, "y": 0, "width": 4, "height": 3,
+         "content": "L", "border_style": "solid", "order": 5, "parent_id": "b"},
+        {"id": "sr", "block_type": "sidebar", "x": 15, "y": 0, "width": 4, "height": 3,
+         "content": "R", "border_style": "solid", "order": 5, "parent_id": "b"},
+    ]
+    for blocks, note in ((three_way, "three-way"), (dual_sidebar, "dual-sidebar")):
+        assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 14
+        ), note
+
+
 def test_parity_attached_sidebar_html():
     """The attached-sidebar HTML overlay (effective geometry + vertical
     line) matches byte-for-byte."""

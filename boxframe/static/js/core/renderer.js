@@ -892,11 +892,16 @@
                 if (dom === "H") {
                     var lr = lineRow(hr), col = lineCol(vr), orient;
                     if (hr.side === "top") {
+                        // keep the current bottom edge so a footer trim that
+                        // ran first survives
+                        var sb = vr.eff[1] + vr.eff[3] - 1;
                         vr.eff[1] = lr + 1;
-                        vr.eff[3] = (py + ph - 1) - (lr + 1);
+                        vr.eff[3] = sb - (lr + 1) + 1;
                         vr.trimTop = true; orient = "down";
                     } else {
-                        vr.eff[3] = (lr - 1) - (py + 1) + 1;
+                        // anchor on the current top edge (a header trim may
+                        // have moved it), not the box's py+1
+                        vr.eff[3] = (lr - 1) - vr.eff[1] + 1;
                         vr.trimBottom = true; orient = "up";
                     }
                     if (vr.eff[3] < 1) vr.eff[3] = 1;
@@ -904,11 +909,16 @@
                 } else if (dom === "V") {
                     var col2 = lineCol(vr), lr2 = lineRow(hr), orient2;
                     if (vr.side === "left") {
+                        // keep the current right edge so a right-sidebar trim
+                        // that ran first survives
+                        var hr2 = hr.eff[0] + hr.eff[2] - 1;
                         hr.eff[0] = col2 + 1;
-                        hr.eff[2] = (px + pw - 1) - (col2 + 1);
+                        hr.eff[2] = hr2 - (col2 + 1) + 1;
                         hr.trimLeft = true; orient2 = "right";
                     } else {
-                        hr.eff[2] = (col2 - 1) - (px + 1) + 1;
+                        // anchor on the current left edge (a left-sidebar trim
+                        // may have moved it), not the box's px+1
+                        hr.eff[2] = (col2 - 1) - hr.eff[0] + 1;
                         hr.trimRight = true; orient2 = "left";
                     }
                     if (hr.eff[2] < 1) hr.eff[2] = 1;
