@@ -3783,7 +3783,25 @@ test("corner header dominant (sidebar below header)", () => {
     assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
 });
 
-test("corner sidebar dominant (header right)", () => {
+test("corner sidebar dominant via order (header offset right)", () => {
+    // Position no longer decides: the attached header stretches full width so
+    // the effective rects collide; a higher sidebar order → sidebar dominant.
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: 7, y: -1, width: 10, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b", order: 0 },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌─────┬────────────┐");
+    assert.equal(ls[3], "│     ├────────────┤");
+});
+
+test("corner offset tie -> header dominant (position no longer splits)", () => {
+    // The variant-B double-framing fix: an offset header stretches full width,
+    // collides with the full-height sidebar, and the order tie falls to H.
     const blocks = [
         { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
           content: "", border_style: "solid" },
@@ -3793,8 +3811,8 @@ test("corner sidebar dominant (header right)", () => {
           content: "Si", border_style: "solid", parent_id: "b" },
     ];
     const ls = lines(render(blocks));
-    assert.equal(ls[0], "┌─────┬────────────┐");
-    assert.equal(ls[3], "│     ├────────────┤");
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[3], "├─────┬────────────┤");
 });
 
 test("corner tie -> header dominant", () => {
@@ -3821,4 +3839,20 @@ test("corner order tiebreak -> sidebar dominant", () => {
     ];
     const ls = lines(render(blocks));
     assert.equal(ls[3], "│     ├────────────┤");
+});
+
+test("corner footer offset merges (no double framing)", () => {
+    // Offset footer stretches full width, collides with the full-height
+    // sidebar, order tie → footer dominant and the corner merges (┴).
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 6, y: 8, width: 12, height: 2,
+          content: "Foot", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌────┬─────────────┐");
+    assert.equal(ls[7], "├────┴─────────────┤");
 });

@@ -814,12 +814,19 @@
     // attached horizontal (header/footer, hr) and vertical (sidebar, vr)
     // block owns their shared corner (todo-0009). "H" → horizontal full,
     // sidebar trimmed; "V" → sidebar full, horizontal trimmed; null →
-    // no interaction. Saved positions decide first (the block placed away
-    // from the corner is subordinate); else higher order; tie → H.
+    // their EFFECTIVE rects do not overlap. The away test reads the
+    // effective (stretched) rects, not saved x/y: an attached header/
+    // footer spans the full inner width and a sidebar the full inner
+    // height, so their effective rects always intersect and dominance
+    // falls through to order (higher wins; tie → H, app-chrome). Using
+    // saved positions could mislabel two physically-crossing blocks as
+    // apart (a double-framed corner).
     function dominantCorner(hr, vr) {
         var hTop = hr.side === "top", vLeft = vr.side === "left";
-        var awayH = vLeft ? (hr.cx >= vr.cx + vr.cw) : (hr.cx + hr.cw <= vr.cx);
-        var awayV = hTop ? (vr.cy >= hr.cy + hr.ch) : (vr.cy + vr.ch <= hr.cy);
+        var hx = hr.eff[0], hy = hr.eff[1], hw = hr.eff[2], hh = hr.eff[3];
+        var vx = vr.eff[0], vy = vr.eff[1], vw = vr.eff[2], vh = vr.eff[3];
+        var awayH = vLeft ? (hx >= vx + vw) : (hx + hw <= vx);
+        var awayV = hTop ? (vy >= hy + hh) : (vy + vh <= hy);
         if (awayH && awayV) return null;
         if (awayH) return "V";
         if (awayV) return "H";

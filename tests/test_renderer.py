@@ -4366,18 +4366,38 @@ def test_corner_header_dominant():
 
 
 def test_corner_sidebar_dominant():
-    """Sidebar full height + header placed to its right: the sidebar keeps
-    ┬/┴ on the box top/bottom borders, the header is trimmed with an inner
-    ├ on the sidebar line and ┤ on the box right border."""
+    """A higher-order sidebar dominates the shared corner even with the
+    header placed off to its right: position no longer decides (the
+    attached header stretches to the full inner width, so the effective
+    rects collide and `order` decides). The sidebar keeps ┬/┴ on the box
+    top/bottom borders, the header is trimmed with an inner ├ on the
+    sidebar line and ┤ on the box right border."""
     header = {"block_type": "header", "x": 7, "y": -1, "width": 10, "height": 3,
-              "content": "Head", "border_style": "solid"}
+              "content": "Head", "border_style": "solid", "order": 0}
     sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
-          "content": "Si", "border_style": "solid"}
+          "content": "Si", "border_style": "solid", "order": 5}
     lines = _render(_box_with_corner(header, sb)).split("\n")
     # Sidebar full height: ┬ on the top border at the line column
     assert lines[0] == "┌─────┬────────────┐"
     # Header line trimmed: inner ├ on the sidebar line, ┤ on right border
     assert lines[3] == "│     ├────────────┤"
+
+
+def test_corner_offset_tie_header_dominant():
+    """Header placed to the sidebar's right with an equal order: the
+    attached header stretches to the full inner width, so its effective
+    rect collides with the full-height sidebar and the order tie falls to
+    the horizontal block (app-chrome) → header dominant. Saved positions
+    looking "apart" no longer produce a double-framed corner."""
+    header = {"block_type": "header", "x": 7, "y": -1, "width": 10, "height": 3,
+              "content": "Head", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    # Sidebar trimmed below the header line — the box top border is untouched
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # Header line full width: ├/┤ on box borders, ┬ at the sidebar line
+    assert lines[3] == "├─────┬────────────┤"
 
 
 def test_corner_tie_header_dominant():
@@ -4413,3 +4433,22 @@ def test_corner_footer_dominant():
     lines = _render(blocks).split("\n")
     # Footer line at row 6 (full width), ┴ where the sidebar line meets it
     assert lines[6] == "├────┴─────────────┤"
+
+
+def test_corner_footer_offset_merges():
+    """Footer placed off to the right with an equal order (the double-framing
+    variant-B case): the attached footer stretches to the full inner width,
+    so its effective rect collides with the full-height sidebar and the
+    corner merges (order tie → footer dominant) instead of leaving both
+    full lines crossing."""
+    footer = {"block_type": "footer", "x": 6, "y": 8, "width": 12, "height": 2,
+              "content": "Foot", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    # Sidebar full up to the footer line (┬ on the top border), footer line
+    # merges the corner with an inner ┴ — no sidebar ┴ on the bottom border
+    assert lines[0] == "┌────┬─────────────┐"
+    assert lines[7] == "├────┴─────────────┤"

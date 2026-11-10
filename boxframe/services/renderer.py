@@ -1169,22 +1169,30 @@ class PseudoGraphicRenderer:
         vertical (sidebar, `vr`) block owns the corner they share
         (todo-0009). "H" → the horizontal block is full, the sidebar is
         trimmed; "V" → the sidebar is full, the horizontal block is
-        trimmed; None → they do not interact.
+        trimmed; None → their *effective* rects do not overlap.
 
-        Saved positions decide first: the block whose stored rect is
-        placed *away* from the corner is the subordinate (the other is
-        full). Otherwise the higher `order` wins; on a tie the
-        horizontal block wins (the classic app-chrome default)."""
+        The away test uses the EFFECTIVE (render-time, stretched) rects,
+        not the saved positions: the block whose effective rect lies
+        entirely beyond the other is the subordinate. Because an attached
+        header/footer spans the full inner width and an attached sidebar
+        the full inner height, their effective rects always intersect, so
+        the away branches never fire in practice and dominance falls
+        through to `order` (higher wins; on a tie the horizontal block —
+        the classic app-chrome default). The saved-position test that
+        preceded this used stored `x`/`y` and could wrongly report two
+        blocks that physically cross as placed "diagonally apart" (a
+        double-framed corner); basing it on the effective geometry makes
+        every real intersection merge. """
         h_top = hr["side"] == "top"
         v_left = vr["side"] == "left"
-        # Horizontal block placed away from the vertical block (→ V full)
-        away_h = (hr["cx"] >= vr["cx"] + vr["cw"]) if v_left \
-            else (hr["cx"] + hr["cw"] <= vr["cx"])
-        # Vertical block placed away from the horizontal block (→ H full)
-        away_v = (vr["cy"] >= hr["cy"] + hr["ch"]) if h_top \
-            else (vr["cy"] + vr["ch"] <= hr["cy"])
+        hx, hy, hw, hh = hr["eff"]
+        vx, vy, vw, vh = vr["eff"]
+        # Horizontal effective rect entirely beyond the vertical one (→ V full)
+        away_h = (hx >= vx + vw) if v_left else (hx + hw <= vx)
+        # Vertical effective rect entirely beyond the horizontal one (→ H full)
+        away_v = (vy >= hy + hh) if h_top else (vy + vh <= hy)
         if away_h and away_v:
-            return None  # placed diagonally — no corner overlap
+            return None  # effective rects do not overlap — no corner
         if away_h:
             return "V"
         if away_v:
