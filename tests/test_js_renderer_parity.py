@@ -909,3 +909,394 @@ def test_parity_html_preview_child_bigger_than_parent():
          "content": "", "border_style": "dashed", "parent_id": "parent", "order": 0},
     ]
     assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(to_nested(blocks))
+
+
+def _box_with_header_blocks(header: dict, box_w: int = 20, box_h: int = 8,
+                            box_border: str = "solid") -> list[dict]:
+    """A flat box + header-child pair (the attach parity fixture)."""
+    h = dict(header)
+    h.setdefault("id", "h")
+    h["parent_id"] = "b"
+    return [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+         "content": "", "border_style": box_border, "order": 0},
+        h,
+    ]
+
+
+def test_parity_attached_header():
+    """The attached-header render (todo-0007) matches byte-for-byte."""
+    cases = [
+        # (header, box_w, box_h, box_border)
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 8, "solid"),
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 1,
+          "content": "x", "border_style": "solid"}, 20, 8, "solid"),          # h=1: line only
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 4, "solid"),      # ch > inner_h
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 8, "none"),       # borderless parent
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "", "border_style": "dashed"}, 20, 8, "solid"),          # dashed line
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Title", "border_style": "none"}, 20, 8, "solid"),       # no line
+        ({"block_type": "header", "x": 0, "y": 2, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 8, "solid"),      # detached
+        ({"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid"}, 20, 8, "solid"),      # exact touch (not attached)
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "", "border_style": "solid"}, 20, 8, "solid"),           # [header] hint
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid",
+          "meta": {"fill": "░"}}, 20, 8, "solid"),                            # fill
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid",
+          "meta": {"hide_text": True}}, 20, 8, "solid"),                      # hide_text
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Title", "border_style": "solid",
+          "meta": {"text_align": "center", "vertical_align": "middle"}}, 20, 8, "solid"),
+    ]
+    for header, bw, bh, bb in cases:
+        blocks = _box_with_header_blocks(header, bw, bh, bb)
+        assert render_js(blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 12
+        ), (header, bw, bh, bb)
+
+
+def test_parity_attached_header_in_grid():
+    """A header in a grid is out of scope — a plain box, identical output."""
+    blocks = [
+        {"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+         "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+        {"id": "h", "block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+         "content": "Title", "border_style": "solid", "parent_id": "g", "order": 0},
+    ]
+    assert render_js(blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+        to_nested(blocks), 40, 12
+    )
+
+
+def test_parity_attached_header_html():
+    """The attached-header HTML overlay (effective geometry + bottom line)
+    matches byte-for-byte."""
+    cases = [
+        # (header, box_w, box_h, box_border)
+        ({"block_type": "header", "x": 1, "y": -1, "width": 10, "height": 2,
+          "content": "Title", "border_style": "solid"}, 30, 10, "solid"),
+        ({"block_type": "header", "x": 1, "y": -1, "width": 10, "height": 2,
+          "content": "", "border_style": "dashed"}, 30, 10, "solid"),
+        ({"block_type": "header", "x": 1, "y": -1, "width": 10, "height": 2,
+          "content": "", "border_style": "none"}, 30, 10, "solid"),
+        ({"block_type": "header", "x": 1, "y": 2, "width": 10, "height": 2,
+          "content": "Title", "border_style": "solid"}, 30, 10, "solid"),  # detached
+        ({"block_type": "header", "x": 1, "y": 0, "width": 10, "height": 2,
+          "content": "Title", "border_style": "solid"}, 30, 10, "solid"),  # exact touch (not attached)
+        ({"block_type": "header", "x": 1, "y": -1, "width": 10, "height": 2,
+          "content": "Title", "border_style": "solid"}, 30, 10, "none"),   # borderless parent
+    ]
+    for header, bw, bh, bb in cases:
+        blocks = _box_with_header_blocks(header, bw, bh, bb)
+        assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(
+            to_nested(blocks)
+        ), (header, bw, bh, bb)
+
+
+def _box_with_footer_blocks(footer: dict, box_w: int = 20, box_h: int = 8,
+                            box_border: str = "solid") -> list[dict]:
+    """A flat box + footer-child pair (the attach parity fixture)."""
+    f = dict(footer)
+    f.setdefault("id", "f")
+    f["parent_id"] = "b"
+    return [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+         "content": "", "border_style": box_border, "order": 0},
+        f,
+    ]
+
+
+def test_parity_attached_footer():
+    """The attached-footer render (todo-0008) matches byte-for-byte."""
+    cases = [
+        # (footer, box_w, box_h, box_border)
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"}, 20, 8, "solid"),
+        ({"block_type": "footer", "x": 0, "y": 6, "width": 18, "height": 1,
+          "content": "x", "border_style": "solid"}, 20, 8, "solid"),          # h=1: line only
+        ({"block_type": "footer", "x": 0, "y": 0, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"}, 20, 4, "solid"),     # ch > inner_h
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"}, 20, 8, "none"),      # borderless parent
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+          "content": "", "border_style": "dashed"}, 20, 8, "solid"),          # dashed line
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "none"}, 20, 8, "solid"),      # no line
+        ({"block_type": "footer", "x": 0, "y": 1, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"}, 20, 8, "solid"),     # detached
+        ({"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"}, 20, 8, "solid"),     # exact touch (not attached)
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+          "content": "", "border_style": "solid"}, 20, 8, "solid"),           # [footer] hint
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid",
+          "meta": {"fill": "░"}}, 20, 8, "solid"),                            # fill
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid",
+          "meta": {"hide_text": True}}, 20, 8, "solid"),                      # hide_text
+        ({"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid",
+          "meta": {"text_align": "center", "vertical_align": "middle"}}, 20, 8, "solid"),
+        ({"block_type": "footer", "x": 0, "y": 2, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"}, 20, 6, "solid"),     # auto-attach (shrink)
+    ]
+    for footer, bw, bh, bb in cases:
+        blocks = _box_with_footer_blocks(footer, bw, bh, bb)
+        assert render_js(blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 12
+        ), (footer, bw, bh, bb)
+
+
+def test_parity_attached_footer_in_grid():
+    """A footer in a grid is out of scope — a plain box, identical output."""
+    blocks = [
+        {"id": "g", "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+         "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2}, "order": 0},
+        {"id": "f", "block_type": "footer", "x": 0, "y": 0, "width": 18, "height": 3,
+         "content": "Footer", "border_style": "solid", "parent_id": "g", "order": 0},
+    ]
+    assert render_js(blocks, 40, 12) == PseudoGraphicRenderer.render_simple(
+        to_nested(blocks), 40, 12
+    )
+
+
+def test_parity_attached_footer_html():
+    """The attached-footer HTML overlay (effective geometry + top line)
+    matches byte-for-byte."""
+    cases = [
+        # (footer, box_w, box_h, box_border)
+        ({"block_type": "footer", "x": 1, "y": 7, "width": 10, "height": 2,
+          "content": "Footer", "border_style": "solid"}, 30, 10, "solid"),
+        ({"block_type": "footer", "x": 1, "y": 7, "width": 10, "height": 2,
+          "content": "", "border_style": "dashed"}, 30, 10, "solid"),
+        ({"block_type": "footer", "x": 1, "y": 7, "width": 10, "height": 2,
+          "content": "", "border_style": "none"}, 30, 10, "solid"),
+        ({"block_type": "footer", "x": 1, "y": 5, "width": 10, "height": 2,
+          "content": "Footer", "border_style": "solid"}, 30, 10, "solid"),  # detached
+        ({"block_type": "footer", "x": 1, "y": 6, "width": 10, "height": 2,
+          "content": "Footer", "border_style": "solid"}, 30, 10, "solid"),  # exact touch (not attached)
+        ({"block_type": "footer", "x": 1, "y": 7, "width": 10, "height": 2,
+          "content": "Footer", "border_style": "solid"}, 30, 10, "none"),   # borderless parent
+    ]
+    for footer, bw, bh, bb in cases:
+        blocks = _box_with_footer_blocks(footer, bw, bh, bb)
+        assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(
+            to_nested(blocks)
+        ), (footer, bw, bh, bb)
+
+
+# ── sidebar-attach parity (todo-0009) ────────────────────────
+
+def _box_with_sidebar_blocks(sidebar: dict, box_w: int = 20, box_h: int = 8,
+                             box_border: str = "solid") -> list[dict]:
+    """A flat box + sidebar-child pair (the attach parity fixture)."""
+    s = dict(sidebar)
+    s.setdefault("id", "s")
+    s["parent_id"] = "b"
+    return [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+         "content": "", "border_style": box_border, "order": 0},
+        s,
+    ]
+
+
+def _box_with_corner_blocks(header: dict, sidebar: dict, box_w: int = 20,
+                            box_h: int = 10, box_border: str = "solid") -> list[dict]:
+    """A flat box + header-child + sidebar-child (the corner-dominance fixture)."""
+    h = dict(header)
+    h.setdefault("id", "h")
+    h["parent_id"] = "b"
+    s = dict(sidebar)
+    s.setdefault("id", "s")
+    s["parent_id"] = "b"
+    return [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+         "content": "", "border_style": box_border, "order": 0},
+        h,
+        s,
+    ]
+
+
+def test_parity_attached_sidebar():
+    """The attached-sidebar render (todo-0009) matches byte-for-byte."""
+    cases = [
+        # (sidebar, box_w, box_h, box_border)
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),
+        ({"block_type": "sidebar", "x": 13, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),   # right attach
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 1, "height": 3,
+          "content": "x", "border_style": "solid"}, 20, 8, "solid"),         # w==1 line only
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 20, "height": 3,
+          "content": "wide", "border_style": "solid"}, 20, 8, "solid"),      # w > inner_w (clipped)
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "none"),    # borderless parent
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "", "border_style": "dashed"}, 20, 8, "solid"),         # dashed line
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "none"}, 20, 8, "solid"),    # no line
+        ({"block_type": "sidebar", "x": 2, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),   # detached (0<=x, x+w<=inner_w)
+        ({"block_type": "sidebar", "x": 0, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),   # exact left touch (not attached)
+        ({"block_type": "sidebar", "x": 12, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "solid"),   # exact right touch (x+w==inner_w)
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "", "border_style": "solid"}, 20, 8, "solid"),          # [sidebar] hint
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid",
+          "meta": {"fill": "░"}}, 20, 8, "solid"),                           # fill
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid",
+          "meta": {"hide_text": True}}, 20, 8, "solid"),                     # hide_text
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 8, "height": 3,
+          "content": "Sidebar", "border_style": "solid",
+          "meta": {"text_align": "center", "vertical_align": "middle"}}, 20, 8, "solid"),
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "double"}, 20, 8, "solid"),  # mixed ╥/╨ (box solid, child double)
+        ({"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Sidebar", "border_style": "solid"}, 20, 8, "double"),  # mixed ╤/╧ (box double, child solid)
+    ]
+    for sidebar, bw, bh, bb in cases:
+        blocks = _box_with_sidebar_blocks(sidebar, bw, bh, bb)
+        assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 14
+        ), (sidebar, bw, bh, bb)
+
+
+def test_parity_attached_corner():
+    """The header/footer × sidebar corner dominance (todo-0009) matches
+    byte-for-byte (trimming + inner T-junctions)."""
+    corner_cases = [
+        # (header, sidebar, note)
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": 3, "width": 5, "height": 3,
+          "content": "Side", "border_style": "solid"}, "header dominant (sidebar below)"),
+        ({"block_type": "header", "x": 7, "y": -1, "width": 10, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid"}, "offset header, tie -> header dominant (effective rects collide)"),
+        ({"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid"}, "tie -> header dominant"),
+        ({"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+          "content": "Header", "border_style": "solid", "order": 0},
+         {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid", "order": 5}, "sidebar higher order -> sidebar dominant"),
+        ({"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "Side", "border_style": "solid"}, "footer dominant (sidebar above)"),
+        ({"block_type": "footer", "x": 6, "y": 8, "width": 12, "height": 2,
+          "content": "Footer", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "Side", "border_style": "solid"}, "offset footer, tie -> merged corner (no double framing)"),
+        ({"block_type": "header", "x": 7, "y": -1, "width": 12, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": 12, "y": 0, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid"}, "right sidebar dominant (header left of it)"),
+    ]
+    for header, sidebar, _note in corner_cases:
+        blocks = [
+            {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+             "content": "", "border_style": "solid", "order": 0},
+        ]
+        h = dict(header); h.setdefault("id", "h"); h["parent_id"] = "b"
+        s = dict(sidebar); s.setdefault("id", "s"); s["parent_id"] = "b"
+        blocks += [h, s]
+        assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 14
+        ), _note
+
+
+def test_parity_attached_corner_composition():
+    """Corner trims that compose on BOTH sides of one attached block (a
+    sidebar trimmed top+bottom by header+footer; a header trimmed left+right
+    by two sidebars) match byte-for-byte — the opposite edge must be kept,
+    not re-anchored at the box's inner edge (fixes the bleed of a line into
+    the adjacent chrome block)."""
+    three_way = [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+         "content": "", "border_style": "solid", "order": 0},
+        {"id": "h", "block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+         "content": "H", "border_style": "solid", "order": 0, "parent_id": "b"},
+        {"id": "f", "block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+         "content": "F", "border_style": "solid", "order": 0, "parent_id": "b"},
+        {"id": "s", "block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+         "content": "S", "border_style": "solid", "order": 0, "parent_id": "b"},
+    ]
+    dual_sidebar = [
+        {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+         "content": "", "border_style": "solid", "order": 0},
+        {"id": "h", "block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+         "content": "H", "border_style": "solid", "order": 0, "parent_id": "b"},
+        {"id": "sl", "block_type": "sidebar", "x": -1, "y": 0, "width": 4, "height": 3,
+         "content": "L", "border_style": "solid", "order": 5, "parent_id": "b"},
+        {"id": "sr", "block_type": "sidebar", "x": 15, "y": 0, "width": 4, "height": 3,
+         "content": "R", "border_style": "solid", "order": 5, "parent_id": "b"},
+    ]
+    for blocks, note in ((three_way, "three-way"), (dual_sidebar, "dual-sidebar")):
+        assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 14
+        ), note
+
+
+def test_parity_attached_corner_mixed_styles():
+    """Corner meeting junctions between chrome lines of DIFFERENT border
+    styles (solid×double) match byte-for-byte — the meeting T honours the
+    stem's own weight (╧╨/╞╟), not just the dominant's."""
+    def corner(footer_style, sidebar_style, sidebar_order):
+        return [
+            {"id": "b", "block_type": "box", "x": 0, "y": 0, "width": 20,
+             "height": 10, "content": "", "border_style": "solid", "order": 0},
+            {"id": "f", "block_type": "footer", "x": 0, "y": 7, "width": 18,
+             "height": 3, "content": "", "border_style": footer_style,
+             "order": 0, "parent_id": "b"},
+            {"id": "s", "block_type": "sidebar", "x": -1, "y": 0, "width": 5,
+             "height": 3, "content": "", "border_style": sidebar_style,
+             "order": sidebar_order, "parent_id": "b"},
+        ]
+    cases = {
+        "footer-double/sidebar-solid (H dom)": corner("double", "solid", 0),
+        "footer-solid/sidebar-double (H dom)": corner("solid", "double", 0),
+        "sidebar-double dominant": corner("solid", "double", 5),
+        "sidebar-solid dominant/footer-double": corner("double", "solid", 5),
+        "dashed/double mix": corner("dashed", "double", 0),
+        "double/dotted mix": corner("double", "dotted", 5),
+    }
+    for note, blocks in cases.items():
+        assert render_js(blocks, 40, 14) == PseudoGraphicRenderer.render_simple(
+            to_nested(blocks), 40, 14
+        ), note
+
+
+def test_parity_attached_sidebar_html():
+    """The attached-sidebar HTML overlay (effective geometry + vertical
+    line) matches byte-for-byte."""
+    cases = [
+        ({"block_type": "sidebar", "x": -1, "y": 1, "width": 5, "height": 4,
+          "content": "Sidebar", "border_style": "solid"}, 30, 10, "solid"),
+        ({"block_type": "sidebar", "x": 24, "y": 1, "width": 5, "height": 4,
+          "content": "Sidebar", "border_style": "solid"}, 30, 10, "solid"),  # right attach
+        ({"block_type": "sidebar", "x": -1, "y": 1, "width": 5, "height": 4,
+          "content": "", "border_style": "dashed"}, 30, 10, "solid"),
+        ({"block_type": "sidebar", "x": 2, "y": 1, "width": 5, "height": 4,
+          "content": "Sidebar", "border_style": "solid"}, 30, 10, "solid"),  # detached
+        ({"block_type": "sidebar", "x": -1, "y": 1, "width": 5, "height": 4,
+          "content": "Sidebar", "border_style": "solid"}, 30, 10, "none"),   # borderless parent
+    ]
+    for sidebar, bw, bh, bb in cases:
+        blocks = _box_with_sidebar_blocks(sidebar, bw, bh, bb)
+        assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(
+            to_nested(blocks)
+        ), (sidebar, bw, bh, bb)

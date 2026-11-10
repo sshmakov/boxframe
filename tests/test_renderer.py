@@ -3551,3 +3551,1106 @@ def test_grid_span_with_uneven_split():
     # The junction at (5,4) keeps only the drawn arms (0063)
     assert lines[4][5] == "┬"
     assert lines[4][15] == "┼"
+
+
+# ── Header attach (todo-0007) ─────────────────────────────
+
+def _box_with_header(header=None, box_w=20, box_h=8, box_border="solid"):
+    """A box with a single header child (the attach test fixture).
+
+    The default header sits at y=-1 — its top border is clipped by the
+    box's top edge (the attach condition, todo-0007).
+    """
+    if header is None:
+        header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+                  "content": "Title", "border_style": "solid"}
+    return [{
+        "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+        "content": "", "border_style": box_border, "children": [header],
+    }]
+
+
+def test_attached_header_basic():
+    """Attached (y=0): no top/left/right border, the bottom line across
+    the full inner width, ├/┤ junctions on the box's border, the content
+    area is the full width × h−1 rows above the line."""
+    lines = _render(_box_with_header()).split("\n")
+    # The box's top border is untouched
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # Content (default left/top) in the first content row
+    assert lines[1][1:6] == "Title"
+    assert lines[1][6:19] == " " * 13
+    # The second content row is empty (no line yet)
+    assert lines[2][1:19] == " " * 18
+    # The bottom line with junctions (row py+ch = 3)
+    assert lines[3] == "├" + "─" * 18 + "┤"
+    # The rest of the box is empty
+    assert lines[4] == "│" + " " * 18 + "│"
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_header_h1():
+    """ch == 1: the content area is 0 rows — the header is the line only
+    (a divider attached to the top)."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 1,
+              "content": "x", "border_style": "solid"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[1] == "├" + "─" * 18 + "┤"
+    # The content is not drawn (0 content rows)
+    assert lines[2] == "│" + " " * 18 + "│"
+
+
+def test_attached_header_taller_than_inner():
+    """ch > inner_h: the line is clipped (the box's bottom border stands
+    in for it) and the junctions are not drawn."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid"}
+    lines = _render(_box_with_header(header, box_w=20, box_h=4)).split("\n")
+    # Content is clipped to the inner area (rows 1–2)
+    assert lines[1][1:6] == "Title"
+    # Row 3 is the box's bottom border — no line, no junctions
+    assert lines[3] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_header_borderless_parent():
+    """A borderless box (border_style=none): the line is drawn across the
+    inner width, but there is no border to join — no junctions."""
+    lines = _render(_box_with_header(box_border="none")).split("\n")
+    # No box border at all (row 0 is empty)
+    assert lines[0] == ""
+    assert lines[1][:6] == " Title"
+    # The line ends in plain ─ (no ├/┤); the empty rows below it are
+    # stripped from the art
+    assert lines[3] == " " + "─" * 18
+    assert len(lines) == 4
+
+
+def test_attached_header_dashed_line():
+    """The line uses the header's own border_style (dashed in a solid
+    box); the junctions use the box's style map."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "", "border_style": "dashed"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[3] == "├" + "┄" * 18 + "┤"
+    # The box's border stays solid
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_header_none_border():
+    """border_style=none on the header: no line, the content area is the
+    full height (no line row), no junctions."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "Title", "border_style": "none"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[1][1:6] == "Title"
+    # Row 3 (the would-be line row) is empty — the box's border is intact
+    assert lines[3] == "│" + " " * 18 + "│"
+
+
+def test_attached_header_detached():
+    """y > 0: the header is detached — a plain box at its stored
+    position/width, no junctions."""
+    header = {"block_type": "header", "x": 0, "y": 2, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid"}
+    lines = _render(_box_with_header(header)).split("\n")
+    # The full border at the stored position (absolute row 3)
+    assert lines[3] == "│" + "┌" + "─" * 16 + "┐" + "│"
+    assert lines[4] == "│" + "│" + "Title" + " " * 11 + "│" + "│"
+    assert lines[5] == "│" + "└" + "─" * 16 + "┘" + "│"
+    # No junctions on the box's border
+    assert lines[3][0] == "│"
+    assert lines[3][19] == "│"
+
+
+def test_header_exact_touch_not_attached():
+    """y == 0: the header touches the top edge but its top border is not
+    clipped — it is NOT attached (a plain box at the stored position,
+    full border, no junctions)."""
+    header = {"block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid"}
+    lines = _render(_box_with_header(header)).split("\n")
+    # The full border at the stored position (absolute rows 1–3)
+    assert lines[1] == "│" + "┌" + "─" * 16 + "┐" + "│"
+    assert lines[2] == "│" + "│" + "Title" + " " * 11 + "│" + "│"
+    assert lines[3] == "│" + "└" + "─" * 16 + "┘" + "│"
+    # No junctions on the box's border
+    assert lines[1][0] == "│"
+    assert lines[1][19] == "│"
+
+
+def test_attached_header_follows_box_width():
+    """The stored x/width are ignored while attached — the header spans
+    the box's inner width, so a box resize stretches it (render-time)."""
+    narrow = _render(_box_with_header(box_w=20)).split("\n")
+    wide = _render(_box_with_header(box_w=30)).split("\n")
+    assert narrow[3] == "├" + "─" * 18 + "┤"
+    assert wide[3] == "├" + "─" * 28 + "┤"
+
+
+def test_attached_header_empty_content_hint():
+    """Empty content: the [header] hint at the top-left of the content
+    area (the box's rules)."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "", "border_style": "solid"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[1][1:9] == "[header]"
+    assert lines[3] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_header_fill_and_hide_text():
+    """fill paints the content area (the content on top); hide_text
+    suppresses the content and the hint — the line remains."""
+    filled = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid", "meta": {"fill": "░"}}
+    lines = _render(_box_with_header(filled)).split("\n")
+    assert lines[1][1:6] == "Title"
+    assert lines[1][6:19] == "░" * 13
+    assert lines[2][1:19] == "░" * 18
+    assert lines[3] == "├" + "─" * 18 + "┤"
+
+    hidden = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "Title", "border_style": "solid", "meta": {"hide_text": True}}
+    out = _render(_box_with_header(hidden))
+    lines = out.split("\n")
+    # The header's content and hint are suppressed (the box's own [box]
+    # hint is unrelated and may show through the empty header area)
+    assert "Title" not in out
+    assert "[header]" not in out
+    # The line remains
+    assert lines[3] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_header_in_grid_unchanged():
+    """A grid parent is out of scope — the header renders as a plain box
+    (full border), no junctions on the grid's frame."""
+    blocks = [{
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2},
+        "children": [{
+            "block_type": "header", "x": 0, "y": 0, "width": 18, "height": 3,
+            "content": "Title", "border_style": "solid",
+        }],
+    }]
+    lines = _render(blocks).split("\n")
+    # The header's full border at the stored position (absolute 1..18 × 1..3)
+    assert lines[1][1] == "┌"
+    assert lines[1][18] == "┐"
+    assert lines[2][2:7] == "Title"
+    assert lines[3][1] == "└"
+    assert lines[3][18] == "┘"
+    # No junctions on the grid's frame (row 3)
+    assert lines[3][0] == "│"
+    assert lines[3][23] == "│"
+    # The vertical partition under the header's span is suppressed...
+    assert lines[1][8] != "│"
+    # ...and drawn again below the span
+    assert lines[5][8] == "│"
+
+
+def test_render_html_preview_attached_header():
+    """The attached header's overlay: the effective geometry (flush with
+    the inner top, full inner width) and the bottom line instead of the
+    full outline."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "head", "x": 1, "y": -1, "width": 10, "height": 2,
+            "block_type": "header", "content": "Title", "border_style": "solid",
+        }],
+    }])
+    tag = _opening_tag(html, "head")
+    # Effective geometry: 1-cell padding + (0, 0), width 30−2 = 28
+    assert "left:12px" in tag
+    assert "top:14.4px" in tag
+    assert "width:336px" in tag
+    assert "height:28.8px" in tag
+    # The bottom line at the last row's vertical center: (2−0.5)×14.4
+    assert 'class="block-line block-line--h block-line--seg block-line--solid"' in html
+    assert "top:21.6px;left:0;width:100%" in html
+    # No full outline for the header (the parent keeps its own)
+    head_start = html.index('data-block-id="head"')
+    assert "block-border" not in html[head_start:]
+    assert 'class="block-border block-border--solid"' in html
+
+
+def test_render_html_preview_attached_header_dashed():
+    """The line overlay uses the header's own border_style."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "head", "x": 1, "y": -1, "width": 10, "height": 2,
+            "block_type": "header", "content": "", "border_style": "dashed",
+        }],
+    }])
+    assert "block-line--dashed" in html
+    head_start = html.index('data-block-id="head"')
+    assert "block-border" not in html[head_start:]
+
+
+def test_render_html_preview_detached_header_full_border():
+    """y > 0: the header overlay is a plain block at its stored
+    position/size with the full outline."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "head", "x": 1, "y": 2, "width": 10, "height": 2,
+            "block_type": "header", "content": "Title", "border_style": "solid",
+        }],
+    }])
+    tag = _opening_tag(html, "head")
+    # Stored geometry: 1-cell padding + (1, 2)
+    assert "left:24px" in tag
+    assert "top:43.2px" in tag
+    assert "width:120px" in tag
+    assert "height:28.8px" in tag
+    head_start = html.index('data-block-id="head"')
+    assert "block-border--solid" in html[head_start:]
+    assert "block-line--seg" not in html[head_start:]
+
+
+# ── Footer attach (todo-0008) ─────────────────────────────
+
+
+def _box_with_footer(footer=None, box_w=20, box_h=8, box_border="solid"):
+    """A box with a single footer child (the attach test fixture).
+
+    The default footer (h=3) sits at y = inner_h − h + 1 = 6 − 3 + 1 = 4
+    — its bottom border is clipped by the box's bottom edge (the attach
+    condition, todo-0008).
+    """
+    if footer is None:
+        footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+                  "content": "Footer", "border_style": "solid"}
+    return [{
+        "block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+        "content": "", "border_style": box_border, "children": [footer],
+    }]
+
+
+def test_attached_footer_basic():
+    """Attached (y+h == inner_h): no bottom/left/right border, the top
+    line across the full inner width, ├/┤ junctions on the box's border,
+    the content area is the full width × h−1 rows below the line."""
+    lines = _render(_box_with_footer()).split("\n")
+    # The box's top border is untouched
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # The rows above the line are empty (the box's own [box] hint shows
+    # through the empty area, as in the header test)
+    assert lines[1][1:6] == "[box]"
+    assert lines[2][1:19] == " " * 18
+    assert lines[3][1:19] == " " * 18
+    # The top line with junctions (row py+1+inner_h−ch = 1+6−3 = 4)
+    assert lines[4] == "├" + "─" * 18 + "┤"
+    # Content (default left/top) in the first content row (below the line)
+    assert lines[5][1:7] == "Footer"
+    assert lines[5][7:19] == " " * 12
+    # The rest of the content area is empty
+    assert lines[6][1:19] == " " * 18
+    # The box's bottom border is untouched
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_footer_h1():
+    """ch == 1: the content area is 0 rows — the footer is the line only
+    (a divider attached to the bottom)."""
+    footer = {"block_type": "footer", "x": 0, "y": 6, "width": 18, "height": 1,
+              "content": "x", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[5] == "│" + " " * 18 + "│"
+    # The line at the last inner row (py+1+inner_h−ch = 1+6−1 = 6)
+    assert lines[6] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_footer_taller_than_inner():
+    """ch > inner_h: the line is clipped (the box's top border stands in
+    for it) and the junctions are not drawn."""
+    footer = {"block_type": "footer", "x": 0, "y": 0, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer, box_w=20, box_h=4)).split("\n")
+    # Row 0 is the box's top border — no line, no junctions
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # Content is clipped to the inner area (rows 1–2)
+    assert lines[1][1:7] == "Footer"
+    assert lines[3] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_footer_borderless_parent():
+    """A borderless box (border_style=none): the line is drawn across the
+    inner width, but there is no border to join — no junctions."""
+    lines = _render(_box_with_footer(box_border="none")).split("\n")
+    # No box border at all (the rows above the line are empty)
+    assert lines[0] == ""
+    assert lines[1] == ""
+    assert lines[2] == ""
+    assert lines[3] == ""
+    # The line ends in plain ─ (no ├/┤)
+    assert lines[4] == " " + "─" * 18
+    assert lines[5][:7] == " Footer"
+    assert len(lines) == 6
+
+
+def test_attached_footer_dashed_line():
+    """The line uses the footer's own border_style (dashed in a solid
+    box); the junctions use the box's style map."""
+    footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+              "content": "", "border_style": "dashed"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    assert lines[4] == "├" + "┄" * 18 + "┤"
+    # The box's border stays solid
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_footer_none_border():
+    """border_style=none on the footer: no line, the content area is the
+    full height (no line row), no junctions."""
+    footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "none"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    # The content starts at the effective top (row 4), no line
+    assert lines[4][1:7] == "Footer"
+    assert lines[4][0] == "│"
+    assert lines[4][19] == "│"
+
+
+def test_attached_footer_detached():
+    """y + h < inner_h: the footer is detached — a plain box at its
+    stored position/width, no junctions."""
+    footer = {"block_type": "footer", "x": 0, "y": 1, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    # The full border at the stored position (absolute rows 2–4)
+    assert lines[2] == "│" + "┌" + "─" * 16 + "┐" + "│"
+    assert lines[3] == "│" + "│" + "Footer" + " " * 10 + "│" + "│"
+    assert lines[4] == "│" + "└" + "─" * 16 + "┘" + "│"
+    # No junctions on the box's border
+    assert lines[2][0] == "│"
+    assert lines[2][19] == "│"
+
+
+def test_footer_exact_touch_not_attached():
+    """y + h == inner_h — the footer touches the bottom edge but its
+    bottom border is not clipped — it is NOT attached (a plain box at
+    the stored position, full border, no junctions)."""
+    footer = {"block_type": "footer", "x": 0, "y": 3, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    # The full border at the stored position (absolute rows 4–6)
+    assert lines[4] == "│" + "┌" + "─" * 16 + "┐" + "│"
+    assert lines[5] == "│" + "│" + "Footer" + " " * 10 + "│" + "│"
+    assert lines[6] == "│" + "└" + "─" * 16 + "┘" + "│"
+    # No junctions on the box's border
+    assert lines[4][0] == "│"
+    assert lines[4][19] == "│"
+
+
+def test_attached_footer_follows_box_size():
+    """The stored x/y/width are ignored while attached — the footer spans
+    the box's inner width and follows its bottom edge, so a box resize
+    moves it (render-time)."""
+    narrow = _render(_box_with_footer(box_w=20, box_h=8)).split("\n")
+    wide_footer = {"block_type": "footer", "x": 0, "y": 6, "width": 18, "height": 3,
+                   "content": "Footer", "border_style": "solid"}
+    wide = _render(_box_with_footer(wide_footer, box_w=30, box_h=10)).split("\n")
+    # box 20×8: inner 18×6, line at row 1+6−3 = 4
+    assert narrow[4] == "├" + "─" * 18 + "┤"
+    # box 30×10: inner 28×8, line at row 1+8−3 = 6
+    assert wide[6] == "├" + "─" * 28 + "┤"
+
+
+def test_attached_footer_auto_attach_on_shrink():
+    """Shrinking the box so y + h > inner_h attaches the footer
+    automatically (decision 11, accepted temporarily)."""
+    # Detached in a 20×8 box (2 + 3 = 5 < 6)...
+    footer = {"block_type": "footer", "x": 0, "y": 2, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid"}
+    detached = _render(_box_with_footer(footer, box_h=8)).split("\n")
+    assert detached[3][1] == "┌"  # the full border at the stored position
+    # ...attached in a 20×6 box (2 + 3 = 5 > 4)
+    attached = _render(_box_with_footer(footer, box_h=6)).split("\n")
+    assert attached[2] == "├" + "─" * 18 + "┤"
+    assert attached[3][1:7] == "Footer"
+
+
+def test_attached_footer_empty_content_hint():
+    """Empty content: the [footer] hint at the top-left of the content
+    area (below the line)."""
+    footer = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+              "content": "", "border_style": "solid"}
+    lines = _render(_box_with_footer(footer)).split("\n")
+    assert lines[5][1:9] == "[footer]"
+    assert lines[4] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_footer_fill_and_hide_text():
+    """fill paints the content area (the content on top); hide_text
+    suppresses the content and the hint — the line remains."""
+    filled = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid", "meta": {"fill": "░"}}
+    lines = _render(_box_with_footer(filled)).split("\n")
+    assert lines[5][1:7] == "Footer"
+    assert lines[5][7:19] == "░" * 12
+    assert lines[6][1:19] == "░" * 18
+    assert lines[4] == "├" + "─" * 18 + "┤"
+
+    hidden = {"block_type": "footer", "x": 0, "y": 4, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid", "meta": {"hide_text": True}}
+    out = _render(_box_with_footer(hidden))
+    lines = out.split("\n")
+    # The footer's content and hint are suppressed (the box's own [box]
+    # hint is unrelated and may show through the empty footer area)
+    assert "Footer" not in out
+    assert "[footer]" not in out
+    # The line remains
+    assert lines[4] == "├" + "─" * 18 + "┤"
+
+
+def test_attached_footer_in_grid_unchanged():
+    """A grid parent is out of scope — the footer renders as a plain box
+    (full border), no junctions on the grid's frame."""
+    blocks = [{
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2},
+        "children": [{
+            "block_type": "footer", "x": 0, "y": 0, "width": 18, "height": 3,
+            "content": "Footer", "border_style": "solid",
+        }],
+    }]
+    lines = _render(blocks).split("\n")
+    # The footer's full border at the stored position (absolute 1..18 × 1..3)
+    assert lines[1][1] == "┌"
+    assert lines[1][18] == "┐"
+    assert lines[2][2:8] == "Footer"
+    assert lines[3][1] == "└"
+    assert lines[3][18] == "┘"
+    # No junctions on the grid's frame (row 3)
+    assert lines[3][0] == "│"
+    assert lines[3][23] == "│"
+    # The vertical partition under the footer's span is suppressed...
+    assert lines[1][8] != "│"
+    # ...and drawn again below the span
+    assert lines[5][8] == "│"
+
+
+def test_render_html_preview_attached_footer():
+    """The attached footer's overlay: the effective geometry (flush with
+    the inner bottom, full inner width) and the top line instead of the
+    full outline."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "foot", "x": 1, "y": 7, "width": 10, "height": 2,
+            "block_type": "footer", "content": "Footer", "border_style": "solid",
+        }],
+    }])
+    tag = _opening_tag(html, "foot")
+    # Effective geometry: 1-cell padding + (0, inner_h−h = 8−2 = 6),
+    # width 30−2 = 28
+    assert "left:12px" in tag
+    assert "top:100.8px" in tag
+    assert "width:336px" in tag
+    assert "height:28.8px" in tag
+    # The top line at the first row's vertical center: 0.5×14.4
+    assert 'class="block-line block-line--h block-line--seg block-line--solid"' in html
+    assert "top:7.2px;left:0;width:100%" in html
+    # No full outline for the footer (the parent keeps its own)
+    foot_start = html.index('data-block-id="foot"')
+    assert "block-border" not in html[foot_start:]
+    assert 'class="block-border block-border--solid"' in html
+
+
+def test_render_html_preview_attached_footer_dashed():
+    """The line overlay uses the footer's own border_style."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "foot", "x": 1, "y": 7, "width": 10, "height": 2,
+            "block_type": "footer", "content": "", "border_style": "dashed",
+        }],
+    }])
+    assert "block-line--dashed" in html
+    foot_start = html.index('data-block-id="foot"')
+    assert "block-border" not in html[foot_start:]
+
+
+def test_render_html_preview_detached_footer_full_border():
+    """y + h < inner_h: the footer overlay is a plain block at its stored
+    position/size with the full outline."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid",
+        "children": [{
+            "id": "foot", "x": 1, "y": 5, "width": 10, "height": 2,
+            "block_type": "footer", "content": "Footer", "border_style": "solid",
+        }],
+    }])
+    tag = _opening_tag(html, "foot")
+    # Stored geometry: 1-cell padding + (1, 5)
+    assert "left:24px" in tag
+    assert "top:86.4px" in tag
+    assert "width:120px" in tag
+    assert "height:28.8px" in tag
+    foot_start = html.index('data-block-id="foot"')
+    assert "block-border--solid" in html[foot_start:]
+    assert "block-line--seg" not in html[foot_start:]
+
+
+# ── Mixed junctions for attached header/footer (Unicode mixed box-drawing) ──
+
+
+def test_mixed_attached_junction_unit():
+    """_mixed_attached_junction: same styles → t_l/t_r; solid×double →
+    Unicode mixed (╞╡/╟╢); dashed/dotted combinations fall back to the
+    box's junction (Unicode has no dashed junctions)."""
+    from boxframe.services.renderer import _mixed_attached_junction as J
+    # Same style → style-map junction
+    assert J("solid", "solid", "left") == "├"
+    assert J("solid", "solid", "right") == "┤"
+    assert J("double", "double", "left") == "╠"
+    assert J("double", "double", "right") == "╣"
+    # Mixed solid/double
+    assert J("solid", "double", "left") == "╞"
+    assert J("solid", "double", "right") == "╡"
+    assert J("double", "solid", "left") == "╟"
+    assert J("double", "solid", "right") == "╢"
+    # dashed/dotted → fallback to box's junction
+    assert J("solid", "dashed", "left") == "├"
+    assert J("dashed", "solid", "left") == "├"
+    assert J("solid", "dotted", "left") == "├"
+    assert J("dotted", "solid", "left") == "├"
+    assert J("double", "dashed", "left") == "╠"
+    assert J("dashed", "double", "left") == "├"
+
+
+def test_two_line_junction_unit():
+    """_two_line_junction (corner where two attached chrome lines meet):
+    same styles → style-map T (t_t/b_l/t_l/t_r); solid×double → the mixed
+    T keyed on (through, stem) so the stem keeps its own weight (down ╤╥,
+    up ╧╨ horizontal-through; right ╞╟, left ╡╢ vertical-through);
+    dashed/dotted combinations fall back to the through line's glyph."""
+    from boxframe.services.renderer import _two_line_junction as J
+    # Same style → style-map glyph
+    assert J("solid", "solid", "down") == "┬"
+    assert J("double", "double", "up") == "╩"
+    assert J("double", "double", "right") == "╠"
+    assert J("solid", "solid", "left") == "┤"
+    # horizontal through (down/up): stem keeps its own vertical weight
+    assert J("double", "solid", "down") == "╤"   # double h, single stem down
+    assert J("solid", "double", "down") == "╥"   # single h, double stem down
+    assert J("double", "solid", "up") == "╧"     # double h, single stem up
+    assert J("solid", "double", "up") == "╨"     # single h, double stem up
+    # vertical through (right/left): stem keeps its own horizontal weight
+    assert J("solid", "double", "right") == "╞"  # single v, double stem right
+    assert J("double", "solid", "right") == "╟"  # double v, single stem right
+    assert J("solid", "double", "left") == "╡"   # single v, double stem left
+    assert J("double", "solid", "left") == "╢"   # double v, single stem left
+    # dashed/dotted → fallback to the through line's glyph
+    assert J("solid", "dashed", "up") == "┴"
+    assert J("dashed", "solid", "up") == "┴"
+    assert J("double", "dashed", "down") == "╦"
+    assert J("dashed", "double", "down") == "┬"
+    assert J("double", "dotted", "right") == "╠"
+    assert J("dotted", "double", "right") == "├"
+
+
+def test_corner_footer_double_sidebar_solid():
+    """Footer(double)+sidebar(solid), footer dominant: the meeting T on the
+    footer's double line keeps the single-stem sidebar → ╧ (was ╩ before the
+    corner junction honoured the stem's weight)."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "", "border_style": "solid"}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    assert lines[6] == "╞════╧═════════════╡"
+
+
+def test_corner_footer_solid_sidebar_double():
+    """Footer(solid)+sidebar(double), footer dominant: the double sidebar
+    line terminates in a double-stem junction on the solid footer line → ╨."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "", "border_style": "double"}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    assert lines[6] == "├────╨─────────────┤"
+
+
+def test_corner_sidebar_double_footer_solid_dominant():
+    """Sidebar(double) dominant over a solid footer: the meeting T sits on
+    the sidebar's double line and keeps the single-stem footer → ╟."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "", "border_style": "double", "order": 5}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    assert lines[6] == "│    ╟─────────────┤"
+
+
+def test_corner_sidebar_solid_footer_double_dominant():
+    """Sidebar(solid) dominant over a double footer: the meeting T sits on
+    the sidebar's single line and keeps the double-stem footer → ╞."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "", "border_style": "solid", "order": 5}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    assert lines[6] == "│    ╞═════════════╡"
+
+
+def test_attached_header_double_line_solid_box():
+    """box solid + header double: line uses ═, junctions use ╞/╡
+    (single vertical + double horizontal)."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[3] == "╞" + "═" * 18 + "╡"
+    assert lines[4] == "│" + " " * 18 + "│"
+
+
+def test_attached_header_solid_line_double_box():
+    """box double + header solid: line uses ─, junctions use ╟/╢
+    (double vertical + single horizontal)."""
+    lines = _render(_box_with_header(box_border="double")).split("\n")
+    assert lines[0] == "╔" + "═" * 18 + "╗"
+    assert lines[3] == "╟" + "─" * 18 + "╢"
+    assert lines[4] == "║" + " " * 18 + "║"
+    assert lines[7] == "╚" + "═" * 18 + "╝"
+
+
+def test_attached_header_double_both():
+    """Both solid-both and double-both keep the same-style junction."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    lines = _render(_box_with_header(header, box_border="double")).split("\n")
+    assert lines[0] == "╔" + "═" * 18 + "╗"
+    assert lines[3] == "╠" + "═" * 18 + "╣"
+
+
+def test_attached_footer_double_line_solid_box():
+    """box solid + footer double: line uses ═, junctions use ╞/╡."""
+    footer = {"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 8,
+        "content": "", "border_style": "solid", "children": [footer],
+    }]
+    lines = _render(blocks).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # The footer line at y+1+inner_h−ch = 1+6−3 = 4
+    assert lines[4] == "╞" + "═" * 18 + "╡"
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_footer_solid_line_double_box():
+    """box double + footer solid: line uses ─, junctions use ╟/╢."""
+    footer = {"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid"}
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 8,
+        "content": "", "border_style": "double", "children": [footer],
+    }]
+    lines = _render(blocks).split("\n")
+    assert lines[0] == "╔" + "═" * 18 + "╗"
+    assert lines[4] == "╟" + "─" * 18 + "╢"
+    assert lines[7] == "╚" + "═" * 18 + "╝"
+
+
+# ── sidebar-attach (todo-0009) ───────────────────────────────
+
+def _box_with_sidebar(sidebar=None, box_w=20, box_h=8, box_border="solid"):
+    """A box with a single sidebar child (the attach test fixture). The
+    default sidebar sits at x=-1 — its left border is clipped by the box's
+    left edge (the attach condition, todo-0009)."""
+    if sidebar is None:
+        sidebar = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+                   "height": 3, "content": "Side", "border_style": "solid"}
+    return [{"block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+             "content": "", "border_style": box_border, "children": [sidebar]}]
+
+
+def _box_with_corner(header, sidebar, box_w=20, box_h=10, box_border="solid"):
+    return [{"block_type": "box", "x": 0, "y": 0, "width": box_w, "height": box_h,
+             "content": "", "border_style": box_border, "children": [header, sidebar]}]
+
+
+def test_attached_sidebar_basic():
+    """Attached left (x<0): no left/top/bottom border on the sidebar, the
+    vertical line across the full inner height, ┬/┴ junctions on the box's
+    top/bottom border, the content area on the near side of the line."""
+    lines = _render(_box_with_sidebar()).split("\n")
+    # Top border: ┌ then ─ to the sidebar line, ┬ junction, ─ to ┐
+    assert lines[0] == "┌─────┬────────────┐"
+    # The sidebar's vertical line at column 6 (x=1, w=6 → col x+w−1)
+    assert lines[2][6] == "│"
+    # Bottom border has the ┴ junction at the same column
+    assert lines[7] == "└─────┴────────────┘"
+
+
+def test_attached_sidebar_right():
+    """Attached right (x+w > inner_w): the vertical line on the sidebar's
+    left column, content to its right."""
+    sb = {"block_type": "sidebar", "x": 13, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0] == "┌────────────┬─────┐"   # ┬ at the line column 13
+    assert lines[7] == "└────────────┴─────┘"
+
+
+def test_attached_sidebar_w1_line_only():
+    """w == 1: only the vertical line, no content column."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 1,
+          "height": 3, "content": "x", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0] == "┌┬─────────────────┐"
+    assert lines[2][0:2] == "││"
+
+
+def test_attached_sidebar_wider_than_inner():
+    """w > inner_w: the line is clipped (no line, no junctions) — like a
+    sidebar taller... wider than the inner area."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 20,
+          "height": 3, "content": "wide", "border_style": "solid"}
+    art = _render(_box_with_sidebar(sb))
+    assert "┬" not in art and "┴" not in art
+    assert art.split("\n")[0] == "┌" + "─" * 18 + "┐"
+
+
+def test_attached_sidebar_borderless_parent():
+    """A borderless box: the vertical line is drawn but there is no border
+    to join — no ┬/┴ junctions."""
+    art = _render(_box_with_sidebar(box_border="none"))
+    assert "┬" not in art and "┴" not in art
+
+
+def test_attached_sidebar_dashed_line():
+    """A dashed sidebar line in a solid box: ┆ vertical, junctions fall
+    back to the box's solid ┬/┴ (no dashed junction glyphs)."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "", "border_style": "dashed"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0][6] == "┬"
+    assert lines[2][6] == "┆"
+
+
+def test_attached_sidebar_none_border():
+    """border_style=none: no line, no junctions — the sidebar keeps its
+    content but draws no divider."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "none"}
+    art = _render(_box_with_sidebar(sb))
+    assert "┬" not in art and "┴" not in art
+
+
+def test_attached_sidebar_detached():
+    """0 <= x and x+w <= inner_w: not clipped — a plain box, unchanged."""
+    sb = {"block_type": "sidebar", "x": 2, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"   # no ┬ on the top border
+    assert "┬" not in lines[0]
+
+
+def test_attached_sidebar_exact_touch_not_attached():
+    """x == 0 (left) and x+w == inner_w (right): touching, not clipped —
+    the sidebar renders as a plain box (no attach)."""
+    left = {"block_type": "sidebar", "x": 0, "y": 0, "width": 6,
+            "height": 3, "content": "Side", "border_style": "solid"}
+    assert "┬" not in _render(_box_with_sidebar(left))
+    right = {"block_type": "sidebar", "x": 12, "y": 0, "width": 6,
+             "height": 3, "content": "Side", "border_style": "solid"}
+    assert "┬" not in _render(_box_with_sidebar(right))
+
+
+def test_attached_sidebar_hint():
+    """Empty content: the [sidebar] hint in the content area."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[1][1:6] == "[side"
+
+
+def test_attached_sidebar_fill():
+    """meta.fill paints the content area (not the line column)."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "solid",
+          "meta": {"fill": "░"}}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    # Row 2 is fully filled in the content area (cols 1..5), line at 6
+    assert lines[2] == "│" + "░" * 5 + "│" + " " * 12 + "│"
+
+
+def test_attached_sidebar_double_line_solid_box():
+    """box solid + sidebar double: line ║, junctions ╥ (top) / ╨ (bottom)
+    (single horizontal border + double vertical line)."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "", "border_style": "double"}
+    lines = _render(_box_with_sidebar(sb)).split("\n")
+    assert lines[0] == "┌─────╥────────────┐"
+    assert lines[7] == "└─────╨────────────┘"
+
+
+def test_attached_sidebar_solid_line_double_box():
+    """box double + sidebar solid: line │, junctions ╤ (top) / ╧ (bottom)
+    (double horizontal border + single vertical line)."""
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+          "height": 3, "content": "Side", "border_style": "solid"}
+    lines = _render(_box_with_sidebar(sb, box_border="double")).split("\n")
+    assert lines[0] == "╔═════╤════════════╗"
+    assert lines[7] == "╚═════╧════════════╝"
+
+
+def test_attached_sidebar_in_grid_unchanged():
+    """A sidebar in a grid is out of scope — it renders as a plain box."""
+    blocks = [{
+        "block_type": "grid", "x": 0, "y": 0, "width": 24, "height": 8,
+        "content": "", "border_style": "solid", "meta": {"cols": 3, "rows": 2},
+        "children": [{"block_type": "sidebar", "x": -1, "y": 0, "width": 6,
+                      "height": 3, "content": "Side", "border_style": "solid"}],
+    }]
+    art = _render(blocks)
+    # The sidebar renders as a plain box (its own border + content), not
+    # attached — no full-height divider, no attach junctions.
+    assert "│Side│" in art
+
+
+# ── corner dominance: header/footer × sidebar (todo-0009) ────
+
+def test_corner_header_dominant():
+    """Header full width + sidebar placed below it (y below the header):
+    the header keeps ├/┤ on the box borders, the sidebar is trimmed to
+    start below the header line with an inner ┬ on the header line."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "Head", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 3, "width": 5, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    # Header line at row 3 (full width): box ├ on left border, ┬ where the
+    # sidebar line meets the header line, ┤ on right border
+    assert lines[3] == "├────┬─────────────┤"
+    # The box top border is untouched by the (trimmed) sidebar
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+
+
+def test_corner_sidebar_dominant():
+    """A higher-order sidebar dominates the shared corner even with the
+    header placed off to its right: position no longer decides (the
+    attached header stretches to the full inner width, so the effective
+    rects collide and `order` decides). The sidebar keeps ┬/┴ on the box
+    top/bottom borders, the header is trimmed with an inner ├ on the
+    sidebar line and ┤ on the box right border."""
+    header = {"block_type": "header", "x": 7, "y": -1, "width": 10, "height": 3,
+              "content": "Head", "border_style": "solid", "order": 0}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Si", "border_style": "solid", "order": 5}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    # Sidebar full height: ┬ on the top border at the line column
+    assert lines[0] == "┌─────┬────────────┐"
+    # Header line trimmed: inner ├ on the sidebar line, ┤ on right border
+    assert lines[3] == "│     ├────────────┤"
+
+
+def test_corner_offset_tie_header_dominant():
+    """Header placed to the sidebar's right with an equal order: the
+    attached header stretches to the full inner width, so its effective
+    rect collides with the full-height sidebar and the order tie falls to
+    the horizontal block (app-chrome) → header dominant. Saved positions
+    looking "apart" no longer produce a double-framed corner."""
+    header = {"block_type": "header", "x": 7, "y": -1, "width": 10, "height": 3,
+              "content": "Head", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 6, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    # Sidebar trimmed below the header line — the box top border is untouched
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # Header line full width: ├/┤ on box borders, ┬ at the sidebar line
+    assert lines[3] == "├─────┬────────────┤"
+
+
+def test_corner_tie_header_dominant():
+    """Both blocks overlap the corner (no placement signal): the default
+    is header-dominant (the classic app-chrome)."""
+    header = {"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+              "content": "Head", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    assert lines[3] == "├─────┬────────────┤"   # header dominant
+
+
+def test_corner_order_tiebreak():
+    """Overlapping corner, sidebar has a higher order → sidebar dominant."""
+    header = {"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+              "content": "Head", "border_style": "solid", "order": 0}
+    sb = {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Si", "border_style": "solid", "order": 5}
+    lines = _render(_box_with_corner(header, sb)).split("\n")
+    assert lines[3] == "│     ├────────────┤"   # sidebar dominant
+
+
+def test_corner_footer_dominant():
+    """Footer full width + sidebar above it: the footer keeps ├/┤, the
+    sidebar is trimmed with an inner ┴ on the footer line."""
+    footer = {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+              "content": "Foot", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    # Footer line at row 6 (full width), ┴ where the sidebar line meets it
+    assert lines[6] == "├────┴─────────────┤"
+
+
+def test_corner_footer_offset_merges():
+    """Footer placed off to the right with an equal order (the double-framing
+    variant-B case): the attached footer stretches to the full inner width,
+    so its effective rect collides with the full-height sidebar and the
+    corner merges (order tie → footer dominant) instead of leaving both
+    full lines crossing."""
+    footer = {"block_type": "footer", "x": 6, "y": 8, "width": 12, "height": 2,
+              "content": "Foot", "border_style": "solid"}
+    sb = {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "Si", "border_style": "solid"}
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [footer, sb]}]
+    lines = _render(blocks).split("\n")
+    # Sidebar full up to the footer line (┬ on the top border), footer line
+    # merges the corner with an inner ┴ — no sidebar ┴ on the bottom border
+    assert lines[0] == "┌────┬─────────────┐"
+    assert lines[7] == "├────┴─────────────┤"
+
+
+def test_corner_three_way_no_bleed():
+    """Header(top)+footer(bottom)+sidebar(left) all attached: the sidebar is
+    trimmed on BOTH opposing sides, and the two trims must compose — the
+    sidebar line stops at each chrome line, never bleeding into the footer
+    body. (Regression: the bottom trim re-anchored at the box inner top,
+    over-extending the sidebar past the footer line.)"""
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [
+        {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+         "content": "H", "border_style": "solid"},
+        {"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+         "content": "F", "border_style": "solid"},
+        {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+         "content": "S", "border_style": "solid"},
+    ]}]
+    lines = _render(blocks).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"      # sidebar top trimmed → no ┬
+    assert lines[3] == "├────┬─────────────┤"    # header line, ┬ meeting
+    assert lines[6] == "├────┴─────────────┤"    # footer line, ┴ meeting
+    assert lines[7] == "│F" + " " * 17 + "│"     # NO sidebar line inside footer
+    assert lines[8] == "│" + " " * 18 + "│"
+    assert lines[9] == "└" + "─" * 18 + "┘"      # sidebar bottom trimmed → no ┴
+
+
+def test_corner_dual_sidebar_no_bleed():
+    """Header(top) between a left and a right sidebar (both higher order →
+    both dominant): the header is trimmed on BOTH horizontal sides and the
+    trims compose — its line spans only the inner columns between the two
+    sidebar lines (regression: the right trim re-anchored at the box inner
+    left, over-extending the header through the right sidebar)."""
+    blocks = [{"block_type": "box", "x": 0, "y": 0, "width": 20, "height": 10,
+               "content": "", "border_style": "solid", "children": [
+        {"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+         "content": "H", "border_style": "solid"},
+        {"block_type": "sidebar", "x": -1, "y": 0, "width": 4, "height": 3,
+         "content": "L", "border_style": "solid", "order": 5},
+        {"block_type": "sidebar", "x": 15, "y": 0, "width": 4, "height": 3,
+         "content": "R", "border_style": "solid", "order": 5},
+    ]}]
+    lines = _render(blocks).split("\n")
+    assert lines[0] == "┌───┬──────────┬───┐"    # both sidebars full (┬/┴)
+    assert lines[3] == "│   ├──────────┤   │"    # header line trimmed ├ … ┤
+    assert lines[9] == "└───┴──────────┴───┘"
+
+
+# ── Degenerate chrome on a shrunk box (task 0080, todo-0010) ──
+# The editor keeps chrome attached on any box resize (re-anchoring at
+# commit), but degenerate saved coordinates can still reach the renderer
+# through API/import clients. These tests FIXATE the current degenerate
+# art (no new rules — the 0078 composition/junction rules decide); a
+# sticky-attach regression in the editor shows up as a change here.
+
+def test_attached_header_footer_lines_overlap_in_shrunk_box():
+    """header ch=3 + footer ch=3 in inner_h=5: both lines land on the same
+    row — the overlap is deterministic (single ─ row, ├/┤ junctions from
+    both chrome), the content areas collapse above/below it."""
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 8, "height": 7,
+        "content": "", "border_style": "solid", "meta": {"hide_text": True},
+        "children": [
+            {"block_type": "header", "x": 0, "y": -1, "width": 6, "height": 3,
+             "content": "H", "border_style": "solid"},
+            {"block_type": "footer", "x": 0, "y": 3, "width": 6, "height": 3,
+             "content": "F", "border_style": "solid"},
+        ],
+    }]
+    assert _render(blocks).split("\n") == [
+        "┌──────┐",
+        "│H     │",
+        "│      │",
+        "├──────┤",
+        "│F     │",
+        "│      │",
+        "└──────┘",
+    ]
+
+
+def test_attached_header_footer_lines_swapped_inner_3():
+    """inner_h=3 with both chrome ch=3: the lines swap — the footer's on
+    the first inner row, the header's on the last; contents clip each
+    other (still attached, the art is just degenerate)."""
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 8, "height": 5,
+        "content": "", "border_style": "solid", "meta": {"hide_text": True},
+        "children": [
+            {"block_type": "header", "x": 0, "y": -1, "width": 6, "height": 3,
+             "content": "H", "border_style": "solid"},
+            {"block_type": "footer", "x": 0, "y": 1, "width": 6, "height": 3,
+             "content": "F", "border_style": "solid"},
+        ],
+    }]
+    assert _render(blocks).split("\n") == [
+        "┌──────┐",
+        "├──────┤",
+        "│F     │",
+        "├──────┤",
+        "└──────┘",
+    ]
+
+
+def test_attached_chrome_early_return_tiny_box():
+    """inner_h < 1 (box height 2): `_plan_attached` early-returns and the
+    attachment is silently lost — the header draws nothing (a plain box
+    inside the empty inner area). The editor's 4×4 clamp (0080) keeps
+    such layouts from being created; external clients get this fixed art."""
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 6, "height": 2,
+        "content": "", "border_style": "solid", "meta": {"hide_text": True},
+        "children": [
+            {"block_type": "header", "x": 0, "y": -1, "width": 4, "height": 3,
+             "content": "H", "border_style": "solid"},
+        ],
+    }]
+    art = _render(blocks)
+    assert art.split("\n") == ["┌────┐", "└────┘"]
+    assert "H" not in art

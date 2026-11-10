@@ -3214,6 +3214,369 @@ test("grid span with uneven split", () => {
     assert.equal(ls[4][15], "┼");
 });
 
+// ── Header attach (todo-0007) ─────────────────────────────
+
+function boxWithHeader(header, boxW = 20, boxH = 8, boxBorder = "solid") {
+    // The default header sits at y=-1 — its top border is clipped by the
+    // box's top edge (the attach condition, todo-0007)
+    const h = header || {
+        id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+        content: "Title", border_style: "solid", parent_id: "b",
+    };
+    return [
+        { id: "b", block_type: "box", x: 0, y: 0, width: boxW, height: boxH,
+          content: "", border_style: boxBorder },
+        h,
+    ];
+}
+
+test("attached header basic", () => {
+    // Attached (y=0): no top/left/right border, the bottom line across the
+    // full inner width, ├/┤ junctions, content area full width × h−1 rows
+    const ls = lines(render(boxWithHeader()));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[1].slice(1, 6), "Title");
+    assert.equal(ls[1].slice(6, 19), " ".repeat(13));
+    assert.equal(ls[2].slice(1, 19), " ".repeat(18));
+    assert.equal(ls[3], "├" + "─".repeat(18) + "┤");
+    assert.equal(ls[4], "│" + " ".repeat(18) + "│");
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached header h=1", () => {
+    // ch == 1: the content area is 0 rows — the header is the line only
+    const h = { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 1,
+                content: "x", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[1], "├" + "─".repeat(18) + "┤");
+    assert.equal(ls[2], "│" + " ".repeat(18) + "│");
+});
+
+test("attached header taller than inner", () => {
+    // ch > inner_h: the line is clipped, no junctions
+    const h = { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+                content: "Title", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h, 20, 4)));
+    assert.equal(ls[1].slice(1, 6), "Title");
+    assert.equal(ls[3], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached header borderless parent", () => {
+    // A borderless box: the line is drawn, but there is no border to join
+    const ls = lines(render(boxWithHeader(null, 20, 8, "none")));
+    assert.equal(ls[0], "");
+    assert.equal(ls[1].slice(0, 6), " Title");
+    assert.equal(ls[3], " " + "─".repeat(18));
+    assert.equal(ls.length, 4);
+});
+
+test("attached header dashed line", () => {
+    // The line uses the header's own border_style; junctions use the box's
+    const h = { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+                content: "", border_style: "dashed", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[3], "├" + "┄".repeat(18) + "┤");
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached header none border", () => {
+    // border_style=none on the header: no line, content area full height
+    const h = { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+                content: "Title", border_style: "none", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[1].slice(1, 6), "Title");
+    assert.equal(ls[3], "│" + " ".repeat(18) + "│");
+});
+
+test("attached header detached", () => {
+    // y > 0: a plain box at the stored position/width, no junctions
+    const h = { id: "h", block_type: "header", x: 0, y: 2, width: 18, height: 3,
+                content: "Title", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[3], "│" + "┌" + "─".repeat(16) + "┐" + "│");
+    assert.equal(ls[4], "│" + "│" + "Title" + " ".repeat(11) + "│" + "│");
+    assert.equal(ls[5], "│" + "└" + "─".repeat(16) + "┘" + "│");
+    assert.equal(ls[3][0], "│");
+    assert.equal(ls[3][19], "│");
+});
+
+test("header exact touch not attached", () => {
+    // y == 0: the header touches the top edge but its top border is not
+    // clipped — it is NOT attached (a plain box at the stored position,
+    // full border, no junctions)
+    const h = { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+                content: "Title", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[1], "│" + "┌" + "─".repeat(16) + "┐" + "│");
+    assert.equal(ls[2], "│" + "│" + "Title" + " ".repeat(11) + "│" + "│");
+    assert.equal(ls[3], "│" + "└" + "─".repeat(16) + "┘" + "│");
+    assert.equal(ls[1][0], "│");
+    assert.equal(ls[1][19], "│");
+});
+
+test("attached header follows box width", () => {
+    // The stored x/width are ignored while attached — a box resize
+    // stretches the header (render-time)
+    const narrow = lines(render(boxWithHeader(null, 20)));
+    const wide = lines(render(boxWithHeader(null, 30)));
+    assert.equal(narrow[3], "├" + "─".repeat(18) + "┤");
+    assert.equal(wide[3], "├" + "─".repeat(28) + "┤");
+});
+
+test("attached header empty content hint", () => {
+    // Empty content: the [header] hint at the top-left of the content area
+    const h = { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+                content: "", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithHeader(h)));
+    assert.equal(ls[1].slice(1, 9), "[header]");
+    assert.equal(ls[3], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached header fill and hide_text", () => {
+    // fill paints the content area (content on top); hide_text suppresses
+    // the content and the hint — the line remains
+    const filled = { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+                     content: "Title", border_style: "solid",
+                     meta: { fill: "░" }, parent_id: "b" };
+    const ls = lines(render(boxWithHeader(filled)));
+    assert.equal(ls[1].slice(1, 6), "Title");
+    assert.equal(ls[1].slice(6, 19), "░".repeat(13));
+    assert.equal(ls[2].slice(1, 19), "░".repeat(18));
+    assert.equal(ls[3], "├" + "─".repeat(18) + "┤");
+
+    const hidden = { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+                     content: "Title", border_style: "solid",
+                     meta: { hide_text: true }, parent_id: "b" };
+    const out = render(boxWithHeader(hidden));
+    const hls = lines(out);
+    assert.ok(!out.includes("Title"));
+    assert.ok(!out.includes("[header]"));
+    assert.equal(hls[3], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached header in grid unchanged", () => {
+    // A grid parent is out of scope — the header renders as a plain box
+    const blocks = [
+        { id: "g", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "h", block_type: "header", x: 0, y: 0, width: 18, height: 3,
+          content: "Title", border_style: "solid", parent_id: "g" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[1][1], "┌");
+    assert.equal(ls[1][18], "┐");
+    assert.equal(ls[2].slice(2, 7), "Title");
+    assert.equal(ls[3][1], "└");
+    assert.equal(ls[3][18], "┘");
+    // No junctions on the grid's frame (row 3)
+    assert.equal(ls[3][0], "│");
+    assert.equal(ls[3][23], "│");
+    // The vertical partition under the header's span is suppressed...
+    assert.notEqual(ls[1][8], "│");
+    // ...and drawn again below the span
+    assert.equal(ls[5][8], "│");
+});
+
+// ── Footer attach (todo-0008) ─────────────────────────────
+
+function boxWithFooter(footer, boxW = 20, boxH = 8, boxBorder = "solid") {
+    // The default footer (h=3) sits at y = inner_h − h + 1 = 6 − 3 + 1 = 4
+    // — its bottom border is clipped by the box's bottom edge (the attach
+    // condition, todo-0008)
+    const f = footer || {
+        id: "f", block_type: "footer", x: 0, y: 4, width: 18, height: 3,
+        content: "Footer", border_style: "solid", parent_id: "b",
+    };
+    return [
+        { id: "b", block_type: "box", x: 0, y: 0, width: boxW, height: boxH,
+          content: "", border_style: boxBorder },
+        f,
+    ];
+}
+
+test("attached footer basic", () => {
+    // Attached (y+h == inner_h): no bottom/left/right border, the top
+    // line across the full inner width, ├/┤ junctions, content area full
+    // width × h−1 rows below the line
+    const ls = lines(render(boxWithFooter()));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    // The box's own [box] hint shows through the empty area
+    assert.equal(ls[1].slice(1, 6), "[box]");
+    assert.equal(ls[2].slice(1, 19), " ".repeat(18));
+    assert.equal(ls[3].slice(1, 19), " ".repeat(18));
+    // The top line with junctions (row py+1+inner_h−ch = 1+6−3 = 4)
+    assert.equal(ls[4], "├" + "─".repeat(18) + "┤");
+    assert.equal(ls[5].slice(1, 7), "Footer");
+    assert.equal(ls[5].slice(7, 19), " ".repeat(12));
+    assert.equal(ls[6].slice(1, 19), " ".repeat(18));
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached footer h=1", () => {
+    // ch == 1: the content area is 0 rows — the footer is the line only
+    const f = { id: "f", block_type: "footer", x: 0, y: 6, width: 18, height: 1,
+                content: "x", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[5], "│" + " ".repeat(18) + "│");
+    // The line at the last inner row (py+1+inner_h−ch = 1+6−1 = 6)
+    assert.equal(ls[6], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached footer taller than inner", () => {
+    // ch > inner_h: the line is clipped, no junctions
+    const f = { id: "f", block_type: "footer", x: 0, y: 0, width: 18, height: 3,
+                content: "Footer", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f, 20, 4)));
+    // Row 0 is the box's top border — no line, no junctions
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    // Content is clipped to the inner area (rows 1–2)
+    assert.equal(ls[1].slice(1, 7), "Footer");
+    assert.equal(ls[3], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached footer borderless parent", () => {
+    // A borderless box: the line is drawn, but there is no border to join
+    const ls = lines(render(boxWithFooter(null, 20, 8, "none")));
+    assert.equal(ls[0], "");
+    assert.equal(ls[1], "");
+    assert.equal(ls[2], "");
+    assert.equal(ls[3], "");
+    assert.equal(ls[4], " " + "─".repeat(18));
+    assert.equal(ls[5].slice(0, 7), " Footer");
+    assert.equal(ls.length, 6);
+});
+
+test("attached footer dashed line", () => {
+    // The line uses the footer's own border_style; junctions use the box's
+    const f = { id: "f", block_type: "footer", x: 0, y: 4, width: 18, height: 3,
+                content: "", border_style: "dashed", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[4], "├" + "┄".repeat(18) + "┤");
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached footer none border", () => {
+    // border_style=none on the footer: no line, content area full height
+    const f = { id: "f", block_type: "footer", x: 0, y: 4, width: 18, height: 3,
+                content: "Footer", border_style: "none", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[4].slice(1, 7), "Footer");
+    assert.equal(ls[4][0], "│");
+    assert.equal(ls[4][19], "│");
+});
+
+test("attached footer detached", () => {
+    // y + h < inner_h: a plain box at the stored position/width, no
+    // junctions
+    const f = { id: "f", block_type: "footer", x: 0, y: 1, width: 18, height: 3,
+                content: "Footer", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[2], "│" + "┌" + "─".repeat(16) + "┐" + "│");
+    assert.equal(ls[3], "│" + "│" + "Footer" + " ".repeat(10) + "│" + "│");
+    assert.equal(ls[4], "│" + "└" + "─".repeat(16) + "┘" + "│");
+    assert.equal(ls[2][0], "│");
+    assert.equal(ls[2][19], "│");
+});
+
+test("footer exact touch not attached", () => {
+    // y + h == inner_h — the footer touches the bottom edge but its
+    // bottom border is not clipped — it is NOT attached (a plain box at
+    // the stored position, full border, no junctions)
+    const f = { id: "f", block_type: "footer", x: 0, y: 3, width: 18, height: 3,
+                content: "Footer", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[4], "│" + "┌" + "─".repeat(16) + "┐" + "│");
+    assert.equal(ls[5], "│" + "│" + "Footer" + " ".repeat(10) + "│" + "│");
+    assert.equal(ls[6], "│" + "└" + "─".repeat(16) + "┘" + "│");
+    assert.equal(ls[4][0], "│");
+    assert.equal(ls[4][19], "│");
+});
+
+test("attached footer follows box size", () => {
+    // The stored x/y/width are ignored while attached — a box resize
+    // moves the footer (render-time)
+    const narrow = lines(render(boxWithFooter(null, 20, 8)));
+    const wideFooter = { id: "f", block_type: "footer", x: 0, y: 6, width: 18, height: 3,
+                         content: "Footer", border_style: "solid", parent_id: "b" };
+    const wide = lines(render(boxWithFooter(wideFooter, 30, 10)));
+    // box 20×8: inner 18×6, line at row 1+6−3 = 4
+    assert.equal(narrow[4], "├" + "─".repeat(18) + "┤");
+    // box 30×10: inner 28×8, line at row 1+8−3 = 6
+    assert.equal(wide[6], "├" + "─".repeat(28) + "┤");
+});
+
+test("attached footer auto attach on shrink", () => {
+    // Shrinking the box so y + h > inner_h attaches the footer
+    // automatically (decision 11, accepted temporarily)
+    const f = { id: "f", block_type: "footer", x: 0, y: 2, width: 18, height: 3,
+                content: "Footer", border_style: "solid", parent_id: "b" };
+    // Detached in a 20×8 box (2 + 3 = 5 < 6)...
+    const detached = lines(render(boxWithFooter(f, 20, 8)));
+    assert.equal(detached[3][1], "┌"); // the full border at the stored position
+    // ...attached in a 20×6 box (2 + 3 = 5 > 4)
+    const attached = lines(render(boxWithFooter(f, 20, 6)));
+    assert.equal(attached[2], "├" + "─".repeat(18) + "┤");
+    assert.equal(attached[3].slice(1, 7), "Footer");
+});
+
+test("attached footer empty content hint", () => {
+    // Empty content: the [footer] hint at the top-left of the content area
+    const f = { id: "f", block_type: "footer", x: 0, y: 4, width: 18, height: 3,
+                content: "", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[5].slice(1, 9), "[footer]");
+    assert.equal(ls[4], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached footer fill and hide_text", () => {
+    // fill paints the content area (content on top); hide_text suppresses
+    // the content and the hint — the line remains
+    const filled = { id: "f", block_type: "footer", x: 0, y: 4, width: 18, height: 3,
+                     content: "Footer", border_style: "solid",
+                     meta: { fill: "░" }, parent_id: "b" };
+    const ls = lines(render(boxWithFooter(filled)));
+    assert.equal(ls[5].slice(1, 7), "Footer");
+    assert.equal(ls[5].slice(7, 19), "░".repeat(12));
+    assert.equal(ls[6].slice(1, 19), "░".repeat(18));
+    assert.equal(ls[4], "├" + "─".repeat(18) + "┤");
+
+    const hidden = { id: "f", block_type: "footer", x: 0, y: 4, width: 18, height: 3,
+                     content: "Footer", border_style: "solid",
+                     meta: { hide_text: true }, parent_id: "b" };
+    const out = render(boxWithFooter(hidden));
+    const fls = lines(out);
+    assert.ok(!out.includes("Footer"));
+    assert.ok(!out.includes("[footer]"));
+    assert.equal(fls[4], "├" + "─".repeat(18) + "┤");
+});
+
+test("attached footer in grid unchanged", () => {
+    // A grid parent is out of scope — the footer renders as a plain box
+    const blocks = [
+        { id: "g", block_type: "grid", x: 0, y: 0, width: 24, height: 8,
+          content: "", border_style: "solid", meta: { cols: 3, rows: 2 } },
+        { id: "f", block_type: "footer", x: 0, y: 0, width: 18, height: 3,
+          content: "Footer", border_style: "solid", parent_id: "g" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[1][1], "┌");
+    assert.equal(ls[1][18], "┐");
+    assert.equal(ls[2].slice(2, 8), "Footer");
+    assert.equal(ls[3][1], "└");
+    assert.equal(ls[3][18], "┘");
+    // No junctions on the grid's frame (row 3)
+    assert.equal(ls[3][0], "│");
+    assert.equal(ls[3][23], "│");
+    // The vertical partition under the footer's span is suppressed...
+    assert.notEqual(ls[1][8], "│");
+    // ...and drawn again below the span
+    assert.equal(ls[5][8], "│");
+});
+
 test("gridReshapeWidths: split/merge the last", () => {
     const r = PG.gridReshapeWidths;
     // No custom widths (or a stale array) → null (the even split)
@@ -3233,4 +3596,438 @@ test("gridReshapeWidths: split/merge the last", () => {
     // Shrink — the last two are merged
     assert.deepEqual(r([4, 10, 4, 4], 4, 3), [4, 10, 8]);
     assert.deepEqual(r([4, 10, 8], 3, 2), [4, 18]);
+});
+
+// ── Mixed junctions for attached header/footer (Unicode mixed box-drawing) ──
+
+test("mixedAttachedJunction: unit", () => {
+    const J = PG.mixedAttachedJunction;
+    // Same style → style-map junction
+    assert.equal(J("solid", "solid", "left"), "├");
+    assert.equal(J("solid", "solid", "right"), "┤");
+    assert.equal(J("double", "double", "left"), "╠");
+    assert.equal(J("double", "double", "right"), "╣");
+    // Mixed solid/double
+    assert.equal(J("solid", "double", "left"), "╞");
+    assert.equal(J("solid", "double", "right"), "╡");
+    assert.equal(J("double", "solid", "left"), "╟");
+    assert.equal(J("double", "solid", "right"), "╢");
+    // dashed/dotted → fallback to box's junction
+    assert.equal(J("solid", "dashed", "left"), "├");
+    assert.equal(J("dashed", "solid", "left"), "├");
+    assert.equal(J("solid", "dotted", "left"), "├");
+    assert.equal(J("dotted", "solid", "left"), "├");
+    assert.equal(J("double", "dashed", "left"), "╠");
+    assert.equal(J("dashed", "double", "left"), "├");
+});
+
+test("attached header double line in solid box", () => {
+    const header = {
+        id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+        content: "", border_style: "double", parent_id: "b",
+    };
+    const ls = lines(render(boxWithHeader(header)));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[3], "╞" + "═".repeat(18) + "╡");
+    assert.equal(ls[4], "│" + " ".repeat(18) + "│");
+});
+
+test("attached header solid line in double box", () => {
+    const ls = lines(render(boxWithHeader(null, 20, 8, "double")));
+    assert.equal(ls[0], "╔" + "═".repeat(18) + "╗");
+    assert.equal(ls[3], "╟" + "─".repeat(18) + "╢");
+    assert.equal(ls[4], "║" + " ".repeat(18) + "║");
+    assert.equal(ls[7], "╚" + "═".repeat(18) + "╝");
+});
+
+test("attached header both double", () => {
+    const header = {
+        id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+        content: "", border_style: "double", parent_id: "b",
+    };
+    const ls = lines(render(boxWithHeader(header, 20, 8, "double")));
+    assert.equal(ls[0], "╔" + "═".repeat(18) + "╗");
+    assert.equal(ls[3], "╠" + "═".repeat(18) + "╣");
+});
+
+test("attached footer double line in solid box", () => {
+    const f = {
+        id: "f", block_type: "footer", x: 0, y: 5, width: 18, height: 3,
+        content: "", border_style: "double", parent_id: "b",
+    };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[4], "╞" + "═".repeat(18) + "╡");
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached footer solid line in double box", () => {
+    const f = {
+        id: "f", block_type: "footer", x: 0, y: 5, width: 18, height: 3,
+        content: "Footer", border_style: "solid", parent_id: "b",
+    };
+    const ls = lines(render(boxWithFooter(f, 20, 8, "double")));
+    assert.equal(ls[0], "╔" + "═".repeat(18) + "╗");
+    assert.equal(ls[4], "╟" + "─".repeat(18) + "╢");
+    assert.equal(ls[7], "╚" + "═".repeat(18) + "╝");
+});
+
+// ── sidebar-attach (todo-0009) ───────────────────────────────
+
+function boxWithSidebar(sidebar, boxW = 20, boxH = 8, boxBorder = "solid") {
+    // The default sidebar (w=6) sits at x=-1 — its left border is clipped
+    // by the box's left edge (the attach condition, todo-0009)
+    const s = sidebar || {
+        id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b",
+    };
+    return [
+        { id: "b", block_type: "box", x: 0, y: 0, width: boxW, height: boxH,
+          content: "", border_style: boxBorder },
+        s,
+    ];
+}
+
+test("attached sidebar basic", () => {
+    const ls = lines(render(boxWithSidebar()));
+    assert.equal(ls[0], "┌─────┬────────────┐");
+    assert.equal(ls[2][6], "│");
+    assert.equal(ls[7], "└─────┴────────────┘");
+});
+
+test("attached sidebar right", () => {
+    const s = { id: "s", block_type: "sidebar", x: 13, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithSidebar(s)));
+    assert.equal(ls[0], "┌────────────┬─────┐");
+    assert.equal(ls[7], "└────────────┴─────┘");
+});
+
+test("attached sidebar w=1 line only", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 1, height: 3,
+        content: "x", border_style: "solid", parent_id: "b" };
+    const ls = lines(render(boxWithSidebar(s)));
+    assert.equal(ls[0], "┌┬─────────────────┐");
+    assert.equal(ls[2].slice(0, 2), "││");
+});
+
+test("attached sidebar wider than inner — clipped", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 20, height: 3,
+        content: "wide", border_style: "solid", parent_id: "b" };
+    const art = render(boxWithSidebar(s));
+    assert.ok(!art.includes("┬") && !art.includes("┴"));
+});
+
+test("attached sidebar borderless parent", () => {
+    const art = render(boxWithSidebar(null, 20, 8, "none"));
+    assert.ok(!art.includes("┬") && !art.includes("┴"));
+});
+
+test("attached sidebar dashed line", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+        content: "", border_style: "dashed", parent_id: "b" };
+    const ls = lines(render(boxWithSidebar(s)));
+    assert.equal(ls[0][6], "┬");
+    assert.equal(ls[2][6], "┆");
+});
+
+test("attached sidebar none border", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "none", parent_id: "b" };
+    const art = render(boxWithSidebar(s));
+    assert.ok(!art.includes("┬") && !art.includes("┴"));
+});
+
+test("attached sidebar detached (plain box)", () => {
+    const s = { id: "s", block_type: "sidebar", x: 2, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b" };
+    assert.ok(!lines(render(boxWithSidebar(s)))[0].includes("┬"));
+});
+
+test("attached sidebar exact touch not attached", () => {
+    const left = { id: "s", block_type: "sidebar", x: 0, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b" };
+    assert.ok(!render(boxWithSidebar(left)).includes("┬"));
+    const right = { id: "s", block_type: "sidebar", x: 12, y: 0, width: 6, height: 3,
+        content: "Side", border_style: "solid", parent_id: "b" };
+    assert.ok(!render(boxWithSidebar(right)).includes("┬"));
+});
+
+test("attached sidebar double line in solid box", () => {
+    const s = { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+        content: "", border_style: "double", parent_id: "b" };
+    const ls = lines(render(boxWithSidebar(s)));
+    assert.equal(ls[0], "┌─────╥────────────┐");
+    assert.equal(ls[7], "└─────╨────────────┘");
+});
+
+test("attached sidebar solid line in double box", () => {
+    const ls = lines(render(boxWithSidebar(null, 20, 8, "double")));
+    assert.equal(ls[0], "╔═════╤════════════╗");
+    assert.equal(ls[7], "╚═════╧════════════╝");
+});
+
+// ── corner dominance: header/footer × sidebar (todo-0009) ────
+
+test("corner header dominant (sidebar below header)", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 3, width: 5, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[3], "├────┬─────────────┤");
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+});
+
+test("corner sidebar dominant via order (header offset right)", () => {
+    // Position no longer decides: the attached header stretches full width so
+    // the effective rects collide; a higher sidebar order → sidebar dominant.
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: 7, y: -1, width: 10, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b", order: 0 },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌─────┬────────────┐");
+    assert.equal(ls[3], "│     ├────────────┤");
+});
+
+test("corner offset tie -> header dominant (position no longer splits)", () => {
+    // The variant-B double-framing fix: an offset header stretches full width,
+    // collides with the full-height sidebar, and the order tie falls to H.
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: 7, y: -1, width: 10, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 6, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[3], "├─────┬────────────┤");
+});
+
+test("corner tie -> header dominant", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: -1, y: -1, width: 18, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: -1, width: 6, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[3], "├─────┬────────────┤");
+});
+
+test("corner order tiebreak -> sidebar dominant", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: -1, y: -1, width: 18, height: 3,
+          content: "Head", border_style: "solid", parent_id: "b", order: 0 },
+        { id: "s", block_type: "sidebar", x: -1, y: -1, width: 6, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[3], "│     ├────────────┤");
+});
+
+test("corner footer offset merges (no double framing)", () => {
+    // Offset footer stretches full width, collides with the full-height
+    // sidebar, order tie → footer dominant and the corner merges (┴).
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 6, y: 8, width: 12, height: 2,
+          content: "Foot", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "Si", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌────┬─────────────┐");
+    assert.equal(ls[7], "├────┴─────────────┤");
+});
+
+test("corner three-way header+footer+sidebar (no bleed)", () => {
+    // Sidebar trimmed on both opposing sides — the trims compose, the line
+    // stops at each chrome line instead of bleeding into the footer body.
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+          content: "H", border_style: "solid", parent_id: "b" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "F", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "S", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[3], "├────┬─────────────┤");
+    assert.equal(ls[6], "├────┴─────────────┤");
+    assert.equal(ls[7], "│F" + " ".repeat(17) + "│");
+    assert.equal(ls[8], "│" + " ".repeat(18) + "│");
+    assert.equal(ls[9], "└" + "─".repeat(18) + "┘");
+});
+
+test("corner dual sidebar header trimmed both sides (no bleed)", () => {
+    // Header between two dominant sidebars — both horizontal trims compose,
+    // the header line spans only the columns between the two sidebar lines.
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "h", block_type: "header", x: -1, y: -1, width: 18, height: 3,
+          content: "H", border_style: "solid", parent_id: "b", order: 0 },
+        { id: "sl", block_type: "sidebar", x: -1, y: 0, width: 4, height: 3,
+          content: "L", border_style: "solid", parent_id: "b", order: 5 },
+        { id: "sr", block_type: "sidebar", x: 15, y: 0, width: 4, height: 3,
+          content: "R", border_style: "solid", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[0], "┌───┬──────────┬───┐");
+    assert.equal(ls[3], "│   ├──────────┤   │");
+    assert.equal(ls[9], "└───┴──────────┴───┘");
+});
+
+test("twoLineJunction: unit", () => {
+    const J = PG.twoLineJunction;
+    // Same style → style-map glyph
+    assert.equal(J("solid", "solid", "down"), "┬");
+    assert.equal(J("double", "double", "up"), "╩");
+    assert.equal(J("double", "double", "right"), "╠");
+    assert.equal(J("solid", "solid", "left"), "┤");
+    // horizontal through (down/up): stem keeps its own vertical weight
+    assert.equal(J("double", "solid", "down"), "╤");
+    assert.equal(J("solid", "double", "down"), "╥");
+    assert.equal(J("double", "solid", "up"), "╧");
+    assert.equal(J("solid", "double", "up"), "╨");
+    // vertical through (right/left): stem keeps its own horizontal weight
+    assert.equal(J("solid", "double", "right"), "╞");
+    assert.equal(J("double", "solid", "right"), "╟");
+    assert.equal(J("solid", "double", "left"), "╡");
+    assert.equal(J("double", "solid", "left"), "╢");
+    // dashed/dotted → fallback to the through line's glyph
+    assert.equal(J("solid", "dashed", "up"), "┴");
+    assert.equal(J("dashed", "solid", "up"), "┴");
+    assert.equal(J("double", "dashed", "down"), "╦");
+    assert.equal(J("dashed", "double", "down"), "┬");
+    assert.equal(J("double", "dotted", "right"), "╠");
+    assert.equal(J("dotted", "double", "right"), "├");
+});
+
+test("corner footer double + sidebar solid (footer dominant → ╧)", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "", border_style: "double", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[6], "╞════╧═════════════╡");
+});
+
+test("corner footer solid + sidebar double (footer dominant → ╨)", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "", border_style: "double", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[6], "├────╨─────────────┤");
+});
+
+test("corner sidebar double dominant over solid footer → ╟", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "", border_style: "solid", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "", border_style: "double", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[6], "│    ╟─────────────┤");
+});
+
+test("corner sidebar solid dominant over double footer → ╞", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 20, height: 10,
+          content: "", border_style: "solid" },
+        { id: "f", block_type: "footer", x: 0, y: 7, width: 18, height: 3,
+          content: "", border_style: "double", parent_id: "b" },
+        { id: "s", block_type: "sidebar", x: -1, y: 0, width: 5, height: 3,
+          content: "", border_style: "solid", parent_id: "b", order: 5 },
+    ];
+    const ls = lines(render(blocks));
+    assert.equal(ls[6], "│    ╞═════════════╡");
+});
+
+// ── Degenerate chrome on a shrunk box (task 0080, todo-0010) ──
+// Mirrors the Python fixation tests: the editor keeps chrome attached
+// on any box resize, but API/import clients can still deliver degenerate
+// saved coordinates — the renderer's output is fixed here (0078 rules).
+
+test("degradation: header/footer chrome lines overlap in a shrunk box", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 8, height: 7,
+          content: "", border_style: "solid", meta: { hide_text: true } },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 6, height: 3,
+          content: "H", border_style: "solid", parent_id: "b" },
+        { id: "f", block_type: "footer", x: 0, y: 3, width: 6, height: 3,
+          content: "F", border_style: "solid", parent_id: "b" },
+    ];
+    assert.deepEqual(lines(render(blocks)), [
+        "┌──────┐",
+        "│H     │",
+        "│      │",
+        "├──────┤",
+        "│F     │",
+        "│      │",
+        "└──────┘",
+    ]);
+});
+
+test("degradation: header/footer lines swap at inner_h=3", () => {
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 8, height: 5,
+          content: "", border_style: "solid", meta: { hide_text: true } },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 6, height: 3,
+          content: "H", border_style: "solid", parent_id: "b" },
+        { id: "f", block_type: "footer", x: 0, y: 1, width: 6, height: 3,
+          content: "F", border_style: "solid", parent_id: "b" },
+    ];
+    assert.deepEqual(lines(render(blocks)), [
+        "┌──────┐",
+        "├──────┤",
+        "│F     │",
+        "├──────┤",
+        "└──────┘",
+    ]);
+});
+
+test("degradation: attachment lost for a tiny box (early return)", () => {
+    // inner_h < 1 → planAttached early-returns, the header draws nothing
+    const blocks = [
+        { id: "b", block_type: "box", x: 0, y: 0, width: 6, height: 2,
+          content: "", border_style: "solid", meta: { hide_text: true } },
+        { id: "h", block_type: "header", x: 0, y: -1, width: 4, height: 3,
+          content: "H", border_style: "solid", parent_id: "b" },
+    ];
+    const ls = lines(render(blocks));
+    assert.deepEqual(ls, ["┌────┐", "└────┘"]);
+    assert.ok(!ls.join("\n").includes("H"));
 });

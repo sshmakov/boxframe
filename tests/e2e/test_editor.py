@@ -3198,3 +3198,178 @@ def test_web_editor_grid_handle_clamps_to_one_cell(page: Page):
     r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
     blocks = {b["id"]: b for b in r.json()["blocks"]}
     assert blocks[grid_id]["meta"]["col_widths"][0] == 1
+
+
+# ── Sticky attached chrome on box resize (task 0080, todo-0010) ──
+
+def _drag_selection_handle(page: Page, corner: str, dxc: float, dyc: float,
+                           cw: float, ch: float) -> None:
+    """Drag a selection-frame corner handle by dxc/dyc character cells."""
+    handle = page.locator(f".block-selection .sel-resize--{corner}")
+    h = handle.bounding_box()
+    start_x = h["x"] + h["width"] / 2
+    start_y = h["y"] + h["height"] / 2
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x + dxc * cw, start_y + dyc * ch, steps=5)
+    page.mouse.up()
+
+
+def _layout_blocks(layout_id: str) -> dict:
+    r = requests.get(f"{BASE_URL}/api/layouts/{layout_id}", timeout=5)
+    return {b["id"]: b for b in r.json()["blocks"]}
+
+
+def test_resize_top_edge_keeps_attached_header(page: Page):
+    """Dragging a box's top-left handle 3 cells down keeps its attached
+    header attached: the saved y is re-anchored to -1 (min(y + N, -1)),
+    never dragged to y >= 0 where the attach condition would break."""
+    layout_id, (box_id, header_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 10},
+        {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+         "parent_index": 0},
+    ])
+    box_box = page.locator(f'.block-preview[data-block-id="{box_id}"]').bounding_box()
+    cw = box_box["width"] / 20
+    ch = box_box["height"] / 10
+
+    page.locator(".block-item", has_text="box @(2,2)").click()
+    _drag_selection_handle(page, "nw", 0, 3, cw, ch)
+
+    def resized(p):
+        return _layout_blocks(layout_id)[box_id]["y"] == 5
+    _poll_until(resized, page)
+
+    blocks = _layout_blocks(layout_id)
+    # Box: top edge +3 down, bottom fixed → (2, 5, 20, 7)
+    assert (blocks[box_id]["x"], blocks[box_id]["y"],
+            blocks[box_id]["width"], blocks[box_id]["height"]) == (2, 5, 20, 7)
+    # Header stays attached (y = min(-1 + 3, -1) = -1), x untouched
+    assert (blocks[header_id]["x"], blocks[header_id]["y"]) == (0, -1)
+
+
+def test_resize_bottom_growth_pushes_attached_footer(page: Page):
+    """Growing a box downwards must not detach its attached footer: the
+    saved y is re-anchored to the new inner height
+    (max(y, inner_h' - h + 1)) so the attach condition y + h > inner_h
+    keeps holding."""
+    layout_id, (box_id, footer_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 10},
+        {"block_type": "footer", "x": 0, "y": 6, "width": 18, "height": 3,
+         "parent_index": 0},
+    ])
+    box_box = page.locator(f'.block-preview[data-block-id="{box_id}"]').bounding_box()
+    cw = box_box["width"] / 20
+    ch = box_box["height"] / 10
+
+    page.locator(".block-item", has_text="box @(2,2)").click()
+    _drag_selection_handle(page, "se", 0, 3, cw, ch)
+
+    def pushed(p):
+        return _layout_blocks(layout_id)[footer_id]["y"] == 9
+    _poll_until(pushed, page)
+
+    blocks = _layout_blocks(layout_id)
+    assert blocks[box_id]["height"] == 13  # inner_h' = 11
+    # Footer re-anchored: max(6, 11 - 3 + 1) = 9 → attached (9 + 3 > 11)
+    assert (blocks[footer_id]["x"], blocks[footer_id]["y"]) == (0, 9)
+
+
+def test_resize_attached_header_stores_only_height(page: Page):
+    """Resizing an attached header via its handle stores only the height:
+    the parallel dimension is the box's inner width (effective geometry)
+    and the attach offset y = -1 must not be rewritten — the old commit
+    wrote the effective rect and detached/inflated the block."""
+    layout_id, (box_id, header_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 10},
+        {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+         "parent_index": 0, "content": "H"},
+    ])
+    box_box = page.locator(f'.block-preview[data-block-id="{box_id}"]').bounding_box()
+    cw = box_box["width"] / 20
+    ch = box_box["height"] / 10
+
+    # Click the header's effective centre (abs (3+9, 3+1.5) = (12, 4.5))
+    page.mouse.click(box_box["x"] + 10 * cw, box_box["y"] + 2.5 * ch)
+    expect(page.locator(".block-item--selected .block-item__info strong")
+           ).to_have_text("header")
+
+    _drag_selection_handle(page, "se", 2, 1, cw, ch)
+
+    def grown(p):
+        return _layout_blocks(layout_id)[header_id]["height"] == 4
+    _poll_until(grown, page)
+
+    blocks = _layout_blocks(layout_id)
+    h = blocks[header_id]
+    # Only the height changed; y and the stored width stay untouched
+    assert (h["x"], h["y"], h["width"], h["height"]) == (0, -1, 18, 4)
+    assert (blocks[box_id]["x"], blocks[box_id]["width"],
+            blocks[box_id]["height"]) == (2, 20, 10)
+
+
+def test_resize_box_with_attached_header_clamps_to_4x4(page: Page):
+    """A box carrying attached chrome cannot shrink below 4×4 (the inner
+    area keeps ≥ 2×2 for the bands); a plain box still goes to 2×2."""
+    layout_id, (box_id, header_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 10},
+        {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+         "parent_index": 0},
+    ])
+    box_box = page.locator(f'.block-preview[data-block-id="{box_id}"]').bounding_box()
+    cw = box_box["width"] / 20
+    ch = box_box["height"] / 10
+
+    page.locator(".block-item", has_text="box @(2,2)").click()
+    _drag_selection_handle(page, "se", -17, -7, cw, ch)
+
+    def clamped(p):
+        b = _layout_blocks(layout_id)[box_id]
+        return b["width"] == 4 and b["height"] == 4
+    _poll_until(clamped, page)
+
+    blocks = _layout_blocks(layout_id)
+    assert (blocks[box_id]["x"], blocks[box_id]["y"]) == (2, 2)
+    # Chrome is still attached inside the clamped box
+    assert blocks[header_id]["y"] == -1
+
+
+def test_group_resize_box_and_attached_header(page: Page):
+    """Group-resizing a box together with its attached header: the header
+    is excluded from the delta transform (it follows the box), stays
+    attached, and an ordinary child in the group is not double-shifted
+    (the bbox delta is not applied twice to carried children)."""
+    layout_id, (box_id, header_id, child_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 4, "y": 4, "width": 20, "height": 10},
+        {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+         "parent_index": 0},
+        {"block_type": "text", "x": 2, "y": 4, "width": 8, "height": 1,
+         "content": "t", "parent_index": 0},
+    ])
+    box_box = page.locator(f'.block-preview[data-block-id="{box_id}"]').bounding_box()
+    cw = box_box["width"] / 20
+    ch = box_box["height"] / 10
+
+    page.locator(".block-item", has_text="box @(4,4)").click()
+    page.locator(".block-item", has_text="header @(0,-1)").click(modifiers=["Shift"])
+    page.locator(".block-item", has_text="text @(2,4)").click(modifiers=["Shift"])
+    expect(page.locator(".block-item--selected")).to_have_count(3)
+
+    # Group bbox = the box (4,4,20,10); drag 'nw' -2 left, +1 down
+    _drag_selection_handle(page, "nw", -2, 1, cw, ch)
+
+    def moved(p):
+        return _layout_blocks(layout_id)[box_id]["y"] == 5
+    _poll_until(moved, page)
+
+    blocks = _layout_blocks(layout_id)
+    b = blocks[box_id]
+    assert (b["x"], b["y"], b["width"], b["height"]) == (2, 5, 22, 9)
+    # Header: untouched by the delta, still attached (min(-1 + 1, -1) = -1)
+    assert (blocks[header_id]["x"], blocks[header_id]["y"]) == (0, -1)
+    # Child carried by the box: relative offset kept (pre-fix: x=0, y=5 —
+    # double shift). Only the size gets the bbox delta; the text child is
+    # autosized to 1×1 by the server at creation (content "t"), so
+    # w = 1 + dW(+2) = 3 and h = 1 + dH(−1) clamps to the text minimum of 1.
+    c = blocks[child_id]
+    assert (c["x"], c["y"], c["width"], c["height"]) == (2, 4, 3, 1)

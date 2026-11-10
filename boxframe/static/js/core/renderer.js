@@ -421,6 +421,66 @@
         return null;
     }
 
+    // Mixed junctions when an attached header/footer's line style differs
+    // from the parent box border (Unicode has dedicated symbols for the
+    // solid×double combinations; dashed/dotted fall back to the box's).
+    var MIXED_LEFT = { "solid|double": "╞", "double|solid": "╟" };
+    var MIXED_RIGHT = { "solid|double": "╡", "double|solid": "╢" };
+    // Mixed junctions where an attached sidebar's VERTICAL line meets the
+    // box's HORIZONTAL border (todo-0009): box double/child single → ╤
+    // (top) / ╧ (bottom); box single/child double → ╥ (top) / ╨ (bottom).
+    var MIXED_TOP = { "double|solid": "╤", "solid|double": "╥" };
+    var MIXED_BOTTOM = { "double|solid": "╧", "solid|double": "╨" };
+    // Mixed T junctions for a corner where two attached chrome lines meet
+    // (todo-0009, twoLineJunction): keyed "through|stem" — orient selects
+    // the table so the through arms and the stem each keep their own line's
+    // weight. down/up = horizontal through (╤╥╧╨); right/left = vertical
+    // through (╞╟╡╢).
+    var MIXED_BY_ORIENT = { down: MIXED_TOP, up: MIXED_BOTTOM, right: MIXED_LEFT, left: MIXED_RIGHT };
+
+    function attachedVJunction(boxStyle, childStyle, end) {
+        function fallback() {
+            var map = BORDERS[boxStyle] || BORDERS.solid;
+            return end === "top" ? map.t_t : map.b_l;
+        }
+        if (boxStyle === childStyle) return fallback();
+        var table = end === "top" ? MIXED_TOP : MIXED_BOTTOM;
+        var ch = table[boxStyle + "|" + childStyle];
+        if (ch) return ch;
+        return fallback();
+    }
+
+    // Corner T-junction where an attached block trimmed by a dominant
+    // orthogonal block meets the dominant line (todo-0009). throughStyle
+    // is the dominant (two-arm) line, stemStyle the subordinate stem;
+    // orient is the stem direction: "down"(┬)/"up"(┴)/"right"(├)/"left"(┤).
+    // Same styles → the style map glyph; mixed solid/double → the matching
+    // mixed T (╤╥ down / ╧╨ up horizontal through; ╞╟ right / ╡╢ left
+    // vertical through) so the stem keeps its own line's weight. Other
+    // mixes (dashed/dotted) → fall back to the dominant style's glyph.
+    function twoLineJunction(throughStyle, stemStyle, orient) {
+        var key = { down: "t_t", up: "b_l", right: "t_l", left: "t_r" }[orient];
+        function fallback() {
+            return (BORDERS[throughStyle] || BORDERS.solid)[key];
+        }
+        if (throughStyle === stemStyle) return fallback();
+        var ch = MIXED_BY_ORIENT[orient][throughStyle + "|" + stemStyle];
+        if (ch) return ch;
+        return fallback();
+    }
+
+    function mixedAttachedJunction(boxStyle, childStyle, side) {
+        function fallback() {
+            var map = BORDERS[boxStyle] || BORDERS.solid;
+            return side === "left" ? map.t_l : map.t_r;
+        }
+        if (boxStyle === childStyle) return fallback();
+        var table = side === "left" ? MIXED_LEFT : MIXED_RIGHT;
+        var ch = table[boxStyle + "|" + childStyle];
+        if (ch) return ch;
+        return fallback();
+    }
+
     // ── Grid drawing (ports of the PseudoGraphicRenderer methods) ──
 
     // Write a cell, respecting the grid bounds and the active clip rect
@@ -652,6 +712,253 @@
                 }
             }
         }
+    }
+
+    // Port of PseudoGraphicRenderer._draw_attached: a header attached to
+    // the top of its box parent (todo-0007) or a footer attached to the
+    // bottom (todo-0008). The effective geometry (set by
+    // renderChildrenInContainer) is flush with the box's inner area at
+    // the full inner width — at the top for a header, at the bottom for
+    // a footer. No border on the three outer sides — only the line
+    // across the full effective width (the block's own border_style):
+    // the last row of the effective rectangle for a header, the first
+    // row for a footer; the content area is the full width × h−1 rows on
+    // the other side of the line (× h rows when the border style is none
+    // — there is no line). The line and the content are clipped by the
+    // container's inner area when the block is taller than it. The
+    // junctions with the box's border (├/┤) are drawn by the parent
+    // (drawGrid's frame-node pattern, 0063).
+    function drawAttached(block, style, grid, gw, gh, clip) {
+        var x = Math.max(0, Math.min(block.x, gw - 2));
+        var y = Math.max(0, Math.min(block.y, gh - 2));
+        var w = Math.min(block.width, gw - x);
+        var h = Math.min(block.height, gh - y);
+
+        if (w < 1 || h < 1) return;
+
+        var side = block.attached_side;
+        var vertical = (side === "left" || side === "right");
+        var hasLine = block.border_style !== "none";
+        var contentX, contentY, contentW, contentH;
+
+        if (vertical) {
+            if (hasLine) {
+                // The vertical line: the right column of the effective
+                // rectangle for a left sidebar, the left column for a
+                // right sidebar, full effective height.
+                var lineCol = (side === "left") ? (x + w - 1) : x;
+                for (var vj = 0; vj < h; vj++) {
+                    setCell(grid, gw, gh, clip, lineCol, y + vj, style.v);
+                }
+            }
+            if (hasLine && side === "left") { contentX = x; contentW = w - 1; }
+            else if (hasLine && side === "right") { contentX = x + 1; contentW = w - 1; }
+            else { contentX = x; contentW = w; }
+            contentY = y; contentH = h;
+        } else {
+            var isFooter = (side === "bottom");
+            if (hasLine) {
+                // The line: the first row of the effective rectangle for a
+                // footer (bottom attach), the last row for a header (top
+                // attach), full effective width.
+                var lineRow = isFooter ? y : y + h - 1;
+                for (var i = 0; i < w; i++) {
+                    setCell(grid, gw, gh, clip, x + i, lineRow, style.h);
+                }
+            }
+            // Content area: full width × h−1 rows on the other side of
+            // the line (× h when there is no line).
+            contentX = x; contentY = y;
+            if (hasLine && isFooter) contentY = y + 1;
+            contentW = w;
+            contentH = h - (hasLine ? 1 : 0);
+        }
+
+        // Fill (meta.fill) paints the content area first; the content is
+        // drawn on top (content wins) and the [type] hint is suppressed.
+        var fill = fillChar(block.block_type, block.meta);
+        if (fill && contentW > 0 && contentH > 0) {
+            for (var fj = 0; fj < contentH; fj++) {
+                var frow = contentY + fj;
+                if (frow >= gh) break;
+                for (var fi = 0; fi < contentW; fi++) {
+                    setCell(grid, gw, gh, clip, contentX + fi, frow, fill);
+                }
+            }
+        }
+
+        // Hide text (meta.hide_text): the content and the [type] hint are
+        // not drawn — the fill (above) and the line remain.
+        if ((block.meta || {}).hide_text) return;
+
+        if (!block.content) {
+            if (hasLine && contentW >= 4 && contentH > 0 && !fill) {
+                var hint = "[" + block.block_type + "]";
+                for (var hi = 0; hi < hint.length; hi++) {
+                    if (contentX + hi < contentX + contentW && contentY < gh) {
+                        setCell(grid, gw, gh, clip, contentX + hi, contentY, hint[hi]);
+                    }
+                }
+            }
+            return;
+        }
+
+        if (contentW <= 0 || contentH <= 0) return;
+
+        // Wrap content by words to fit the content area, then align (the
+        // same rules as drawContent: meta.text_align / vertical_align;
+        // a sidebar keeps the box default top/left — no type override).
+        var lines = wrapText(block.content, contentW);
+        var vOff = vAlignOffset(lines.length, contentH, (block.meta || {}).vertical_align);
+        var hAlign = (block.meta || {}).text_align;
+        for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            if (lineIdx + vOff >= contentH) break;
+            var row = contentY + lineIdx + vOff;
+            if (row >= gh) break;
+            var line = lines[lineIdx];
+            var off = hAlignOffset(line.length, contentW, hAlign);
+            for (var colIdx = 0; colIdx < line.length; colIdx++) {
+                setCell(grid, gw, gh, clip, contentX + off + colIdx, row, line[colIdx]);
+            }
+        }
+    }
+
+    // Port of PseudoGraphicRenderer._dominant_corner: which of an
+    // attached horizontal (header/footer, hr) and vertical (sidebar, vr)
+    // block owns their shared corner (todo-0009). "H" → horizontal full,
+    // sidebar trimmed; "V" → sidebar full, horizontal trimmed; null →
+    // their EFFECTIVE rects do not overlap. The away test reads the
+    // effective (stretched) rects, not saved x/y: an attached header/
+    // footer spans the full inner width and a sidebar the full inner
+    // height, so their effective rects always intersect and dominance
+    // falls through to order (higher wins; tie → H, app-chrome). Using
+    // saved positions could mislabel two physically-crossing blocks as
+    // apart (a double-framed corner).
+    function dominantCorner(hr, vr) {
+        var hTop = hr.side === "top", vLeft = vr.side === "left";
+        var hx = hr.eff[0], hy = hr.eff[1], hw = hr.eff[2], hh = hr.eff[3];
+        var vx = vr.eff[0], vy = vr.eff[1], vw = vr.eff[2], vh = vr.eff[3];
+        var awayH = vLeft ? (hx >= vx + vw) : (hx + hw <= vx);
+        var awayV = hTop ? (vy >= hy + hh) : (vy + vh <= hy);
+        if (awayH && awayV) return null;
+        if (awayH) return "V";
+        if (awayV) return "H";
+        var ho = hr.c.order || 0, vo = vr.c.order || 0;
+        if (vo > ho) return "V";
+        return "H";
+    }
+
+    // Port of PseudoGraphicRenderer._plan_attached: plan attached
+    // header/footer/sidebar children of a box parent (todo-0007/0008/
+    // 0009). Returns {borderOps, meetingOps, plan}: plan maps child id →
+    // {attached, side, x, y, width, height} (effective absolute geometry,
+    // trimmed at a shared corner); borderOps/meetingOps are [col,row,ch]
+    // the parent draws (border junctions outside the inner clip, inner
+    // corner T-junctions over the child lines).
+    function planAttached(parent, allBlocks) {
+        var borderOps = [], meetingOps = [], plan = {};
+        if (parent.block_type !== "box") return { borderOps: borderOps, meetingOps: meetingOps, plan: plan };
+        var px = parent.x, py = parent.y, pw = parent.width, ph = parent.height;
+        var innerW = pw - 2, innerH = ph - 2, boxStyle = parent.border_style;
+
+        var children = allBlocks.filter(function (b) { return b.parent_id === parent.id; });
+        var i;
+        for (i = 0; i < children.length; i++) plan[children[i].id] = { attached: false, side: "" };
+        if (innerW < 1 || innerH < 1) return { borderOps: borderOps, meetingOps: meetingOps, plan: plan };
+
+        var recs = [];
+        for (i = 0; i < children.length; i++) {
+            var c = children[i];
+            var t = c.block_type, cx = c.x, cy = c.y, cw = c.width, chh = c.height;
+            var side, clipped, eff;
+            if (t === "header" && cy < 0) {
+                side = "top"; clipped = chh > innerH; eff = [px + 1, py + 1, innerW, Math.max(1, chh)];
+            } else if (t === "footer" && cy + chh > innerH) {
+                side = "bottom"; clipped = chh > innerH;
+                eff = [px + 1, py + 1 + innerH - Math.max(1, chh), innerW, Math.max(1, chh)];
+            } else if (t === "sidebar" && cx < 0) {
+                side = "left"; clipped = cw > innerW; eff = [px + 1, py + 1, Math.max(1, cw), innerH];
+            } else if (t === "sidebar" && cx + cw > innerW) {
+                side = "right"; clipped = cw > innerW;
+                eff = [px + 1 + innerW - Math.max(1, cw), py + 1, Math.max(1, cw), innerH];
+            } else {
+                continue;
+            }
+            recs.push({
+                c: c, side: side, cx: cx, cy: cy, cw: cw, ch: chh, eff: eff, clipped: clipped,
+                trimLeft: false, trimRight: false, trimTop: false, trimBottom: false,
+            });
+        }
+
+        function lineCol(vr) { return vr.side === "left" ? vr.eff[0] + vr.eff[2] - 1 : vr.eff[0]; }
+        function lineRow(hr) { return hr.side === "top" ? hr.eff[1] + hr.eff[3] - 1 : hr.eff[1]; }
+
+        for (var hi = 0; hi < recs.length; hi++) {
+            var hr = recs[hi];
+            if (hr.side !== "top" && hr.side !== "bottom") continue;
+            if (hr.clipped) continue;
+            for (var vi = 0; vi < recs.length; vi++) {
+                var vr = recs[vi];
+                if (vr.side !== "left" && vr.side !== "right") continue;
+                if (vr.clipped) continue;
+                var dom = dominantCorner(hr, vr);
+                if (dom === "H") {
+                    var lr = lineRow(hr), col = lineCol(vr), orient;
+                    if (hr.side === "top") {
+                        // keep the current bottom edge so a footer trim that
+                        // ran first survives
+                        var sb = vr.eff[1] + vr.eff[3] - 1;
+                        vr.eff[1] = lr + 1;
+                        vr.eff[3] = sb - (lr + 1) + 1;
+                        vr.trimTop = true; orient = "down";
+                    } else {
+                        // anchor on the current top edge (a header trim may
+                        // have moved it), not the box's py+1
+                        vr.eff[3] = (lr - 1) - vr.eff[1] + 1;
+                        vr.trimBottom = true; orient = "up";
+                    }
+                    if (vr.eff[3] < 1) vr.eff[3] = 1;
+                    meetingOps.push([col, lr, twoLineJunction(hr.c.border_style, vr.c.border_style, orient)]);
+                } else if (dom === "V") {
+                    var col2 = lineCol(vr), lr2 = lineRow(hr), orient2;
+                    if (vr.side === "left") {
+                        // keep the current right edge so a right-sidebar trim
+                        // that ran first survives
+                        var hr2 = hr.eff[0] + hr.eff[2] - 1;
+                        hr.eff[0] = col2 + 1;
+                        hr.eff[2] = hr2 - (col2 + 1) + 1;
+                        hr.trimLeft = true; orient2 = "right";
+                    } else {
+                        // anchor on the current left edge (a left-sidebar trim
+                        // may have moved it), not the box's px+1
+                        hr.eff[2] = (col2 - 1) - hr.eff[0] + 1;
+                        hr.trimRight = true; orient2 = "left";
+                    }
+                    if (hr.eff[2] < 1) hr.eff[2] = 1;
+                    meetingOps.push([col2, lr2, twoLineJunction(vr.c.border_style, hr.c.border_style, orient2)]);
+                }
+            }
+        }
+
+        for (var ri = 0; ri < recs.length; ri++) {
+            var r = recs[ri], cc = r.c;
+            plan[cc.id] = {
+                attached: true, side: r.side,
+                x: r.eff[0], y: r.eff[1], width: r.eff[2], height: r.eff[3],
+            };
+            if (r.clipped || cc.border_style === "none" || boxStyle === "none") continue;
+            var s = r.side;
+            if (s === "top" || s === "bottom") {
+                var row = (s === "top") ? r.eff[1] + r.eff[3] - 1 : r.eff[1];
+                if (!r.trimLeft) borderOps.push([px, row, mixedAttachedJunction(boxStyle, cc.border_style, "left")]);
+                if (!r.trimRight) borderOps.push([px + pw - 1, row, mixedAttachedJunction(boxStyle, cc.border_style, "right")]);
+            } else {
+                var col3 = (s === "left") ? r.eff[0] + r.eff[2] - 1 : r.eff[0];
+                if (!r.trimTop) borderOps.push([col3, py, attachedVJunction(boxStyle, cc.border_style, "top")]);
+                if (!r.trimBottom) borderOps.push([col3, py + ph - 1, attachedVJunction(boxStyle, cc.border_style, "bottom")]);
+            }
+        }
+        return { borderOps: borderOps, meetingOps: meetingOps, plan: plan };
     }
 
     // Port of PseudoGraphicRenderer._draw_grid: the outer border (per
@@ -978,23 +1285,68 @@
             if (inner[2] <= inner[0] || inner[3] <= inner[1]) return;
         }
 
+        // Attached header/footer/sidebar children of a box: effective
+        // geometry + corner dominance are planned here (todo-0007/0008/
+        // 0009). plan gives each attached child's effective absolute
+        // geometry (trimmed at a shared corner) plus the parent-drawn
+        // junction cells (border junctions outside the inner clip; inner
+        // corner T-junctions over the child lines).
+        var planned = planAttached(parent, allBlocks);
+
+        // Border junctions live on the parent's border cells — outside the
+        // inner clip — so draw them under the outer clip, before it narrows.
+        var bi;
+        for (bi = 0; bi < planned.borderOps.length; bi++) {
+            var bo = planned.borderOps[bi];
+            setCell(grid, gw, gh, clip, bo[0], bo[1], bo[2]);
+        }
+
         for (var i = 0; i < children.length; i++) {
             var child = children[i];
-            // Adjusted copy — never mutate the store's blocks
-            var c = {
-                id: child.id,
-                x: parent.x + padX + child.x,
-                y: parent.y + padY + child.y,
-                width: child.width,
-                height: child.height,
-                block_type: child.block_type,
-                content: child.content,
-                border_style: child.border_style,
-                meta: child.meta,
-                order: child.order,
-                parent_id: child.parent_id,
-            };
+            var p = planned.plan[child.id];
+            // Adjusted copy — never mutate the store's blocks. An attached
+            // child carries its planned effective geometry + side; a
+            // normal child is placed at the inner origin + relative coords.
+            var c;
+            if (p && p.attached) {
+                c = {
+                    id: child.id,
+                    x: p.x, y: p.y, width: p.width, height: p.height,
+                    block_type: child.block_type,
+                    content: child.content,
+                    border_style: child.border_style,
+                    meta: child.meta,
+                    order: child.order,
+                    parent_id: child.parent_id,
+                    attached: true,
+                    attached_side: p.side,
+                };
+            } else {
+                c = {
+                    id: child.id,
+                    x: parent.x + padX + child.x,
+                    y: parent.y + padY + child.y,
+                    width: child.width, height: child.height,
+                    block_type: child.block_type,
+                    content: child.content,
+                    border_style: child.border_style,
+                    meta: child.meta,
+                    order: child.order,
+                    parent_id: child.parent_id,
+                    attached: false,
+                    attached_side: "",
+                };
+            }
             renderBlock(c, grid, gw, gh, allBlocks, inner);
+        }
+
+        // Inner corner T-junctions: drawn after the children so the
+        // junction overrides the trimmed block's line end (both child
+        // lines pass through the meeting cell).
+        var mi;
+        for (mi = 0; mi < planned.meetingOps.length; mi++) {
+            var mo = planned.meetingOps[mi];
+            setCell(grid, gw, gh, inner, mo[0], mo[1], mo[2]);
         }
     }
 
@@ -1015,6 +1367,24 @@
 
         if (block.block_type === "divider") {
             drawDivider(block, style, grid, gw, gh, clip);
+            return;
+        }
+
+        // A header attached to the top of its box parent (todo-0007), a
+        // footer attached to the bottom (todo-0008), or a sidebar attached
+        // to the left/right (todo-0009): no border on the three outer
+        // sides — only the line across the box's inner extent, the content
+        // on the other side of it. The junctions with the box's border and
+        // the inner corner junctions are drawn by the parent (in
+        // renderChildrenInContainer — the child is clipped to the inner
+        // area).
+        if ((block.block_type === "header" || block.block_type === "footer"
+                || block.block_type === "sidebar") && block.attached) {
+            drawAttached(block, style, grid, gw, gh, clip);
+            var hasAttachedChildren = allBlocks.some(function (b) { return b.parent_id === block.id; });
+            if (hasAttachedChildren) {
+                renderChildrenInContainer(block, style, grid, gw, gh, allBlocks, clip);
+            }
             return;
         }
 
@@ -1184,6 +1554,24 @@
         return parts.join("");
     }
 
+    // Port of _attached_line_html: the HTML overlay of an attached
+    // header/footer/sidebar's line (todo-0007/0008/0009). Header/footer
+    // (side "top"/"bottom"): a zero-height div with a border-top at the
+    // line row's vertical center — the last row for a header, the first
+    // for a footer. Sidebar (side "left"/"right"): a zero-width div with a
+    // border-left at the line column's horizontal center — the last
+    // column for a left sidebar, the first for a right sidebar.
+    function attachedLineHtml(width, height, charWidthPx, charHeightPx, style, side) {
+        if (side === "left" || side === "right") {
+            var left = round1(((side === "left") ? width - 0.5 : 0.5) * charWidthPx);
+            return '<div class="block-line block-line--v block-line--seg block-line--' + style +
+                '" style="left:' + fmtPx(left) + ";top:0;height:100%;\"></div>";
+        }
+        var top = round1((side === "bottom" ? 0.5 : height - 0.5) * charHeightPx);
+        return '<div class="block-line block-line--h block-line--seg block-line--' + style +
+            '" style="top:' + fmtPx(top) + ";left:0;width:100%;\"></div>";
+    }
+
     // Build the HTML for a block and its nested children (recursive).
     // A root block is positioned relative to the canvas (paddingOffset +
     // grid * charSize). A child is positioned relative to its parent's div
@@ -1192,8 +1580,15 @@
     // them at the container border — mirroring the ASCII clip. The clip
     // lives on the wrapper, not on .block-preview itself, so the
     // container's own outline (drawn OUTSIDE its border box) is not
-    // clipped. Must stay in sync with Python's _block_preview_html.
-    function _blockPreviewHtml(bd, opts, isRoot) {
+    // clipped. effective/attached (todo-0007/0008): a header whose top
+    // border is clipped by the box's top edge (relative y < 0) or a
+    // footer whose bottom border is clipped by the box's bottom edge
+    // (relative y + h > inner_h) is attached — the caller passes its
+    // effective geometry (flush with the top/bottom of the inner area,
+    // full inner width) and the line (bottom for a header, top for a
+    // footer) is drawn instead of the full outline. Must stay in sync
+    // with Python's _block_preview_html.
+    function _blockPreviewHtml(bd, opts, isRoot, effective, attached, attachedSide) {
         var x = bd.x || 0;
         var y = bd.y || 0;
         var width = bd.width != null ? bd.width : 20;
@@ -1201,6 +1596,10 @@
         var order = bd.order || 0;
         var blockType = bd.block_type || "box";
         var borderStyle = bd.border_style || "solid";
+        if (effective) {
+            x = effective[0]; y = effective[1];
+            width = effective[2]; height = effective[3];
+        }
 
         var left, top;
         if (isRoot) {
@@ -1225,6 +1624,9 @@
             borderHtml = '<div class="block-line block-line--' + direction + ' block-line--' + bs + '"></div>';
         } else if (blockType === "divider") {
             borderHtml = dividerSegmentsHtml(bd, opts, bs);
+        } else if (attached) {
+            var side = attachedSide || (blockType === "footer" ? "bottom" : "top");
+            borderHtml = attachedLineHtml(width, height, opts.charWidthPx, opts.charHeightPx, bs, side);
         } else {
             borderHtml = '<div class="block-border block-border--' + bs +
                 '" style="width:100%;height:100%;"></div>';
@@ -1232,7 +1634,31 @@
 
         var childrenHtml = "";
         children.forEach(function (c) {
-            childrenHtml += _blockPreviewHtml(c, opts, false);
+            // A header whose top border is clipped (y < 0), a footer whose
+            // bottom border is clipped (y + h > inner_h), or a sidebar
+            // whose left/right border is clipped (x < 0 / x + w > inner_w)
+            // is attached (todo-0007/0008/0009): effective geometry — flush
+            // with the inner area at the full inner extent, the line
+            // instead of the full outline. A block merely touching an edge
+            // stays detached.
+            var eff = null, att = false, attSide = "";
+            var cType = c.block_type || "box";
+            var cX = c.x || 0;
+            var cY = c.y || 0;
+            var cW = c.width != null ? c.width : 20;
+            var cH = c.height != null ? c.height : 3;
+            var innerW = Math.max(0, width - 2);
+            var innerH = Math.max(0, height - 2);
+            if (blockType === "box" && cType === "header" && cY < 0) {
+                att = true; attSide = "top"; eff = [0, 0, innerW, cH];
+            } else if (blockType === "box" && cType === "footer" && cY + cH > innerH) {
+                att = true; attSide = "bottom"; eff = [0, innerH - cH, innerW, cH];
+            } else if (blockType === "box" && cType === "sidebar" && cX < 0) {
+                att = true; attSide = "left"; eff = [0, 0, cW, innerH];
+            } else if (blockType === "box" && cType === "sidebar" && cX + cW > innerW) {
+                att = true; attSide = "right"; eff = [innerW - cW, 0, cW, innerH];
+            }
+            childrenHtml += _blockPreviewHtml(c, opts, false, eff, att, attSide);
         });
         if (children.length) {
             // Clip wrapper: children are clipped at the container border here,
@@ -1421,6 +1847,11 @@
         gridSplit: gridSplit,
         gridReshapeWidths: gridReshapeWidths,
         gridJunction: gridJunction,
+        mixedAttachedJunction: mixedAttachedJunction,
+        attachedVJunction: attachedVJunction,
+        twoLineJunction: twoLineJunction,
+        dominantCorner: dominantCorner,
+        planAttached: planAttached,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,
         renderBoundsHtml: renderBoundsHtml,

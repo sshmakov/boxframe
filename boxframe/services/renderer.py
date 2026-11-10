@@ -47,6 +47,14 @@ class RenderBlock:
     # Free-form block metadata (extended properties — fill, text/vertical
     # alignment, line arrows — tasks/0051). Absent keys inherit defaults.
     meta: dict = field(default_factory=dict)
+    # A header attached to the top of its box parent (todo-0007), a
+    # footer attached to the bottom (todo-0008), or a sidebar attached to
+    # the left/right (todo-0009): no border on the three outer sides,
+    # only the line across the box's inner extent (the side is in
+    # attached_side). Set by _render_children_in_container (render-time,
+    # the stored geometry is not touched).
+    attached: bool = False
+    attached_side: str = ""  # "top" | "bottom" | "left" | "right"
 
     # ── HTML preview generation ─────────────────────────────
 
@@ -427,6 +435,82 @@ def _grid_junction(
     return None
 
 
+_MIXED_LEFT = {("solid", "double"): "╞", ("double", "solid"): "╟"}
+_MIXED_RIGHT = {("solid", "double"): "╡", ("double", "solid"): "╢"}
+# Mixed junctions where an attached sidebar's VERTICAL line meets the
+# box's HORIZONTAL border (todo-0009). Top: the through line is the box's
+# horizontal border, the stem is the sidebar descending into the box.
+# box=double/child=solid → ╤ (double horizontal, single down);
+# box=solid/child=double → ╥ (single horizontal, double down). Bottom is
+# the mirror (stem up): ╧ / ╨.
+_MIXED_TOP = {("double", "solid"): "╤", ("solid", "double"): "╥"}
+_MIXED_BOTTOM = {("double", "solid"): "╧", ("solid", "double"): "╨"}
+# Mixed T junctions for a corner where two attached chrome lines meet
+# (todo-0009, two_line_junction): keyed (through_style, stem_style) —
+# orient selects the table so the through arms and the stem each keep
+# their own line's weight. down/up = horizontal through (╤╥╧╨);
+# right/left = vertical through (╞╟╡╢).
+_MIXED_BY_ORIENT = {
+    "down": _MIXED_TOP, "up": _MIXED_BOTTOM,
+    "right": _MIXED_LEFT, "left": _MIXED_RIGHT,
+}
+
+
+def _attached_v_junction(box_style: str, child_style: str, end: str) -> str:
+    """Junction where an attached sidebar's vertical line meets the box's
+    horizontal border (todo-0009). Same styles → the style map's t_t (top)
+    / b_l (bottom). Mixed solid/double → ╤╥ (top) / ╧╨ (bottom). Other
+    mixes (dashed/dotted) → fallback to the box's junction (no dashed
+    junction glyphs)."""
+    key = "t_t" if end == "top" else "b_l"
+    if box_style == child_style:
+        return BORDERS.get(box_style, BORDERS["solid"])[key]
+    table = _MIXED_TOP if end == "top" else _MIXED_BOTTOM
+    junction = table.get((box_style, child_style))
+    if junction:
+        return junction
+    return BORDERS.get(box_style, BORDERS["solid"])[key]
+
+
+def _two_line_junction(through_style: str, stem_style: str, orient: str) -> str:
+    """Junction at a corner where an attached horizontal line (a header/
+    footer, trimmed by a dominant sidebar) or a vertical line (a sidebar,
+    trimmed by a dominant header/footer) meets the dominant block's line
+    (todo-0009). `through_style` is the dominant line (the two arms),
+    `stem_style` the subordinate stem. `orient` gives the stem direction
+    relative to the meeting cell: "down" (┬ family), "up" (┴), "right"
+    (├), "left" (┤). Same styles → the style map glyph; mixed solid/double
+    → the matching Unicode mixed T (╤╥ down, ╧╨ up — horizontal through;
+    ╞╟ right, ╡╢ left — vertical through), so the stem keeps its own line's
+    weight rather than adopting the dominant's. Other mixes (dashed/dotted)
+    → fallback to the dominant style's glyph (no dashed junction glyphs),
+    same as the box-border junctions."""
+    key = {"down": "t_t", "up": "b_l", "right": "t_l", "left": "t_r"}[orient]
+    if through_style == stem_style:
+        return BORDERS.get(through_style, BORDERS["solid"])[key]
+    table = _MIXED_BY_ORIENT[orient]
+    junction = table.get((through_style, stem_style))
+    if junction:
+        return junction
+    return BORDERS.get(through_style, BORDERS["solid"])[key]
+
+
+def _mixed_attached_junction(box_style: str, child_style: str, side: str) -> str:
+    """Junction where an attached header/footer line meets the box border.
+    The vertical arm belongs to the box border, the horizontal arm to the
+    child line. Same styles: use the style map's t_l/t_r. Mixed
+    solid/double: use Unicode mixed junctions (╞╡ left, ╟╢ right). Other
+    mixes (dashed/dotted): fallback to box style's junction (Unicode has
+    no dashed junctions)."""
+    if box_style == child_style:
+        return BORDERS.get(box_style, BORDERS["solid"])["t_l" if side == "left" else "t_r"]
+    table = _MIXED_LEFT if side == "left" else _MIXED_RIGHT
+    junction = table.get((box_style, child_style))
+    if junction:
+        return junction
+    return BORDERS.get(box_style, BORDERS["solid"])["t_l" if side == "left" else "t_r"]
+
+
 def _line_segment_html(
     top: float, col: int, length: int, char_width_px: float, style: str
 ) -> str:
@@ -484,12 +568,45 @@ def _divider_segments_html(
     return "".join(parts)
 
 
+def _attached_line_html(
+    width: int,
+    height: int,
+    char_width_px: float,
+    char_height_px: float,
+    style: str,
+    side: str,
+) -> str:
+    """HTML overlay of an attached header/footer/sidebar's line
+    (todo-0007/0008/0009). For a header/footer (side "top"/"bottom") a
+    zero-height div with a border-top at the line row's vertical center —
+    the last row for a header, the first row for a footer. For a sidebar
+    (side "left"/"right") a zero-width div with a border-left at the line
+    column's horizontal center — the last column for a left sidebar, the
+    first column for a right sidebar."""
+    if side in ("left", "right"):
+        left = round(((width - 0.5) if side == "left" else 0.5) * char_width_px, 1)
+        return (
+            f'<div class="block-line block-line--v block-line--seg block-line--{style}"'
+            f' style="left:{_fmt_px(left)}px;top:0;height:100%;">'
+            f"</div>"
+        )
+    top = round((0.5 if side == "bottom" else height - 0.5) * char_height_px, 1)
+    return (
+        f'<div class="block-line block-line--h block-line--seg block-line--{style}"'
+        f' style="top:{_fmt_px(top)}px;left:0;width:100%;">'
+        f"</div>"
+    )
+
+
 def _block_preview_html(
     bd: dict,
     char_width_px: float,
     char_height_px: float,
     padding_offset: float,
     is_root: bool,
+    effective: tuple[int, int, int, int] | None = None,
+    attached: bool = False,
+    attached_side: str = "",
 ) -> str:
     """Build the HTML for a block and its nested children.
 
@@ -500,6 +617,14 @@ def _block_preview_html(
     clips them at the container border — mirroring the ASCII clip. The
     clip lives on the wrapper, not on ``.block-preview`` itself, so the
     container's own outline (drawn OUTSIDE its border box) is not clipped.
+
+    effective/attached (todo-0007/0008): a header whose top border is
+    clipped by the box's top edge (relative y < 0) or a footer whose
+    bottom border is clipped by the box's bottom edge (relative y + h >
+    inner_h) is attached — the caller passes its effective geometry
+    (flush with the top/bottom of the inner area, full inner width) and
+    the line (bottom for a header, top for a footer) is drawn instead of
+    the full outline.
     """
     x = bd.get("x", 0)
     y = bd.get("y", 0)
@@ -508,6 +633,8 @@ def _block_preview_html(
     order = bd.get("order", 0)
     block_type = bd.get("block_type", "box")
     border_style = bd.get("border_style", "solid")
+    if effective is not None:
+        x, y, width, height = effective
 
     if is_root:
         left = round(padding_offset + x * char_width_px, 1)
@@ -538,13 +665,47 @@ def _block_preview_html(
         border_html = f'<div class="block-line block-line--{direction} block-line--{bs}"></div>'
     elif block_type == "divider":
         border_html = _divider_segments_html(bd, char_width_px, char_height_px, bs)
+    elif attached:
+        side = attached_side or ("bottom" if block_type == "footer" else "top")
+        border_html = _attached_line_html(width, height, char_width_px, char_height_px, bs, side)
     else:
         border_html = f'<div class="block-border block-border--{bs}" style="width:100%;height:100%;"></div>'
 
-    children_html = "".join(
-        _block_preview_html(c, char_width_px, char_height_px, padding_offset, False)
-        for c in children
-    )
+    children_html = []
+    for c in children:
+        # A header whose top border is clipped by the box's top edge
+        # (relative y < 0), a footer whose bottom border is clipped by the
+        # box's bottom edge (relative y + h > inner_h), or a sidebar whose
+        # left/right border is clipped (x < 0 / x + w > inner_w) is
+        # attached (todo-0007/0008/0009): effective geometry — flush with
+        # the inner area at the full inner extent, the line instead of the
+        # full outline. A block merely touching an edge stays detached.
+        eff = None
+        att = False
+        att_side = ""
+        c_type = c.get("block_type", "box")
+        c_x = c.get("x", 0)
+        c_y = c.get("y", 0)
+        c_w = c.get("width", 20)
+        c_h = c.get("height", 3)
+        inner_w = max(0, width - 2)
+        inner_h = max(0, height - 2)
+        if block_type == "box" and c_type == "header" and c_y < 0:
+            att, att_side = True, "top"
+            eff = (0, 0, inner_w, c_h)
+        elif block_type == "box" and c_type == "footer" and c_y + c_h > inner_h:
+            att, att_side = True, "bottom"
+            eff = (0, inner_h - c_h, inner_w, c_h)
+        elif block_type == "box" and c_type == "sidebar" and c_x < 0:
+            att, att_side = True, "left"
+            eff = (0, 0, c_w, inner_h)
+        elif block_type == "box" and c_type == "sidebar" and c_x + c_w > inner_w:
+            att, att_side = True, "right"
+            eff = (inner_w - c_w, 0, c_w, inner_h)
+        children_html.append(
+            _block_preview_html(c, char_width_px, char_height_px, padding_offset, False, eff, att, att_side)
+        )
+    children_html = "".join(children_html)
     if children:
         # Clip wrapper: children are clipped at the container border here,
         # while the container's own outline (outside its border box) stays
@@ -660,6 +821,20 @@ class PseudoGraphicRenderer:
 
         if block.block_type == "divider":
             self._draw_divider(block, style_map)
+            return
+
+        # A header attached to the top of its box parent (todo-0007) or a
+        # footer attached to the bottom (todo-0008): no border on the
+        # three outer sides — only the line across the box's inner extent
+        # (bottom for a header, top for a footer, the far column for a
+        # sidebar), the content on the other side of it. The junctions
+        # with the box's border and the inner corner junctions are drawn
+        # by the parent (in _render_children_in_container — the child is
+        # clipped to the inner area).
+        if block.block_type in ("header", "footer", "sidebar") and block.attached:
+            self._draw_attached(block, style_map)
+            if block.children:
+                self._render_children_in_container(block, style_map)
             return
 
         # A grid with explicit structure in meta (a valid cols or rows)
@@ -898,6 +1073,300 @@ class PseudoGraphicRenderer:
                 off = h_align_offset(len(line), w, align)
                 for col, ch in enumerate(line):
                     self._set(x + off + col, row, ch)
+
+    def _draw_attached(self, block: RenderBlock, style: dict[str, str]) -> None:
+        """Draw a header/footer/sidebar attached to its box parent
+        (todo-0007/0008/0009). The side is in block.attached_side.
+
+        The effective geometry (set by _render_children_in_container) is
+        flush with the box's inner area — full inner width for a
+        header/footer (top/bottom), full inner height for a sidebar
+        (left/right). No border on the three outer sides — only the line
+        across the full effective extent (the block's own border_style):
+        the last/first row (header/footer) or the last/first column
+        (sidebar-left/right). The content area is the strip on the other
+        side of the line (full extent minus the line, or the full extent
+        when border_style is none). Trimming by a dominant orthogonal
+        attached block (todo-0009 corner) is already reflected in the
+        effective width/height. The junctions with the box's border and
+        the inner corner junctions are drawn by the parent (the child is
+        clipped to the inner area and cannot write the border cells — the
+        grid frame-node pattern, 0063)."""
+        # Clamp to grid (same logic as _draw_border)
+        x = max(0, min(block.x, self.grid_width - 2))
+        y = max(0, min(block.y, self.grid_height - 2))
+        w = min(block.width, self.grid_width - x)
+        h = min(block.height, self.grid_height - y)
+
+        if w < 1 or h < 1:
+            return
+
+        side = block.attached_side
+        vertical = side in ("left", "right")
+        has_line = block.border_style != "none"
+
+        if vertical:
+            if has_line:
+                # The vertical line: the right column of the effective
+                # rectangle for a left sidebar, the left column for a
+                # right sidebar, full effective height.
+                line_col = x + w - 1 if side == "left" else x
+                for j in range(h):
+                    self._set(line_col, y + j, style["v"])
+            # Content area: w−1 columns on the side away from the line
+            # (w when there is no line) × full height.
+            if has_line and side == "left":
+                content_x, content_w = x, w - 1
+            elif has_line and side == "right":
+                content_x, content_w = x + 1, w - 1
+            else:
+                content_x, content_w = x, w
+            content_y, content_h = y, h
+        else:
+            is_bottom = side == "bottom"
+            if has_line:
+                # The line: the first row for a footer (bottom attach),
+                # the last row for a header (top attach), full width.
+                line_row = y if is_bottom else y + h - 1
+                for i in range(w):
+                    self._set(x + i, line_row, style["h"])
+            # Content area: full width × h−1 rows on the other side of
+            # the line (× h when there is no line).
+            content_x, content_y = x, y
+            if has_line and is_bottom:
+                content_y = y + 1
+            content_w = w
+            content_h = h - (1 if has_line else 0)
+
+        # Fill (meta.fill) paints the content area first; the content is
+        # drawn on top (content wins) and the [type] hint is suppressed.
+        fill = fill_char(block.block_type, block.meta)
+        if fill and content_w > 0 and content_h > 0:
+            for j in range(content_h):
+                row = content_y + j
+                if row >= self.grid_height:
+                    break
+                for i in range(content_w):
+                    self._set(content_x + i, row, fill)
+
+        # Hide text (meta.hide_text): the content and the [type] hint are
+        # not drawn — the fill (above) and the line remain.
+        if (block.meta or {}).get("hide_text"):
+            return
+
+        if not block.content:
+            if has_line and content_w >= 4 and content_h > 0 and not fill:
+                hint = f"[{block.block_type}]"
+                for i, ch in enumerate(hint):
+                    if content_x + i < content_x + content_w and content_y < self.grid_height:
+                        self._set(content_x + i, content_y, ch)
+            return
+
+        if content_w <= 0 or content_h <= 0:
+            return
+
+        # Wrap content by words to fit the content area, then align (the
+        # same rules as _draw_content: meta.text_align / vertical_align;
+        # a sidebar keeps the box default top/left — no type override).
+        lines = self._wrap_text(block.content, content_w)
+        v_off = v_align_offset(len(lines), content_h, (block.meta or {}).get("vertical_align"))
+        h_align = (block.meta or {}).get("text_align")
+        for line_idx, line in enumerate(lines):
+            if line_idx + v_off >= content_h:
+                break
+            row = content_y + line_idx + v_off
+            if row >= self.grid_height:
+                break
+            off = h_align_offset(len(line), content_w, h_align)
+            for col_idx, ch in enumerate(line):
+                self._set(content_x + off + col_idx, row, ch)
+
+    def _dominant_corner(self, hr: dict, vr: dict) -> str | None:
+        """Which of an attached horizontal (header/footer, `hr`) and
+        vertical (sidebar, `vr`) block owns the corner they share
+        (todo-0009). "H" → the horizontal block is full, the sidebar is
+        trimmed; "V" → the sidebar is full, the horizontal block is
+        trimmed; None → their *effective* rects do not overlap.
+
+        The away test uses the EFFECTIVE (render-time, stretched) rects,
+        not the saved positions: the block whose effective rect lies
+        entirely beyond the other is the subordinate. Because an attached
+        header/footer spans the full inner width and an attached sidebar
+        the full inner height, their effective rects always intersect, so
+        the away branches never fire in practice and dominance falls
+        through to `order` (higher wins; on a tie the horizontal block —
+        the classic app-chrome default). The saved-position test that
+        preceded this used stored `x`/`y` and could wrongly report two
+        blocks that physically cross as placed "diagonally apart" (a
+        double-framed corner); basing it on the effective geometry makes
+        every real intersection merge. """
+        h_top = hr["side"] == "top"
+        v_left = vr["side"] == "left"
+        hx, hy, hw, hh = hr["eff"]
+        vx, vy, vw, vh = vr["eff"]
+        # Horizontal effective rect entirely beyond the vertical one (→ V full)
+        away_h = (hx >= vx + vw) if v_left else (hx + hw <= vx)
+        # Vertical effective rect entirely beyond the horizontal one (→ H full)
+        away_v = (vy >= hy + hh) if h_top else (vy + vh <= hy)
+        if away_h and away_v:
+            return None  # effective rects do not overlap — no corner
+        if away_h:
+            return "V"
+        if away_v:
+            return "H"
+        h_order, v_order = hr["c"].order, vr["c"].order
+        if v_order > h_order:
+            return "V"
+        return "H"  # tie or higher h-order
+
+    def _plan_attached(self, parent: RenderBlock) -> tuple[list, list]:
+        """Plan attached header/footer/sidebar children of a box parent
+        (todo-0007/0008/0009): set each attached child's `attached`,
+        `attached_side` and its effective absolute geometry (flush with
+        the inner area, full inner extent; trimmed at a shared corner by
+        the dominant block). Returns (border_ops, meeting_ops) — lists of
+        `(col, row, char)` the parent draws: border junctions (cells
+        outside the inner clip — ├/┤ for header/footer, ┬/┴ for sidebar)
+        and inner corner T-junctions where a trimmed block meets the
+        dominant block's line. The child is clipped to the inner area and
+        cannot write the border/meeting cells itself (grid frame-node
+        pattern, 0063)."""
+        border_ops: list[tuple[int, int, str]] = []
+        meeting_ops: list[tuple[int, int, str]] = []
+        if parent.block_type != "box":
+            return border_ops, meeting_ops
+
+        px, py = parent.x, parent.y
+        pw, ph = parent.width, parent.height
+        inner_w, inner_h = pw - 2, ph - 2
+        box_style = parent.border_style
+
+        for c in parent.children:
+            c.attached = False
+            c.attached_side = ""
+        if inner_w < 1 or inner_h < 1:
+            return border_ops, meeting_ops
+
+        recs: list[dict] = []
+        for c in parent.children:
+            t = c.block_type
+            cx, cy, cw, chh = c.x, c.y, c.width, c.height
+            if t == "header" and cy < 0:
+                side, clipped = "top", chh > inner_h
+                eff = [px + 1, py + 1, inner_w, max(1, chh)]
+            elif t == "footer" and cy + chh > inner_h:
+                side, clipped = "bottom", chh > inner_h
+                eff = [px + 1, py + 1 + inner_h - max(1, chh), inner_w, max(1, chh)]
+            elif t == "sidebar" and cx < 0:
+                side, clipped = "left", cw > inner_w
+                eff = [px + 1, py + 1, max(1, cw), inner_h]
+            elif t == "sidebar" and cx + cw > inner_w:
+                side, clipped = "right", cw > inner_w
+                eff = [px + 1 + inner_w - max(1, cw), py + 1, max(1, cw), inner_h]
+            else:
+                continue
+            c.attached = True
+            c.attached_side = side
+            recs.append({
+                "c": c, "side": side, "cx": cx, "cy": cy, "cw": cw, "ch": chh,
+                "eff": eff, "clipped": clipped,
+                "trim_left": False, "trim_right": False,
+                "trim_top": False, "trim_bottom": False,
+            })
+
+        def line_col(vr):
+            return vr["eff"][0] + vr["eff"][2] - 1 if vr["side"] == "left" else vr["eff"][0]
+
+        def line_row(hr):
+            return hr["eff"][1] + hr["eff"][3] - 1 if hr["side"] == "top" else hr["eff"][1]
+
+        # Corner dominance → trim the subordinate and record the meeting
+        # T-junction. Horizontal×vertical pairs only.
+        for hr in recs:
+            if hr["side"] not in ("top", "bottom") or hr["clipped"]:
+                continue
+            for vr in recs:
+                if vr["side"] not in ("left", "right") or vr["clipped"]:
+                    continue
+                dom = self._dominant_corner(hr, vr)
+                if dom == "H":
+                    # Sidebar trimmed so its body sits on the far side of
+                    # the header/footer line; the meeting T sits ON the
+                    # dominant line and connects to the sidebar's line.
+                    lr = line_row(hr)
+                    col = line_col(vr)
+                    if hr["side"] == "top":
+                        # header line at row lr; sidebar body starts at lr+1,
+                        # keeping its current bottom edge (so a footer trim
+                        # that ran first is preserved)
+                        bottom = vr["eff"][1] + vr["eff"][3] - 1
+                        vr["eff"][1] = lr + 1
+                        vr["eff"][3] = bottom - (lr + 1) + 1
+                        vr["trim_top"] = True
+                        orient = "down"
+                    else:
+                        # footer line at row lr; sidebar body ends at lr−1,
+                        # keeping its current top edge (a header trim may have
+                        # already moved it down — anchor there, not at py+1)
+                        vr["eff"][3] = (lr - 1) - vr["eff"][1] + 1
+                        vr["trim_bottom"] = True
+                        orient = "up"
+                    if vr["eff"][3] < 1:
+                        vr["eff"][3] = 1
+                    meeting_ops.append((col, lr, _two_line_junction(
+                        hr["c"].border_style, vr["c"].border_style, orient)))
+                elif dom == "V":
+                    # Header/footer trimmed so its body sits on the far
+                    # side of the sidebar line; the meeting T sits ON the
+                    # dominant (sidebar) line and connects to its line.
+                    col = line_col(vr)
+                    lr = line_row(hr)
+                    if vr["side"] == "left":
+                        # sidebar line at col; header body starts at col+1,
+                        # keeping its current right edge (a right-sidebar
+                        # trim that ran first is preserved)
+                        right = hr["eff"][0] + hr["eff"][2] - 1
+                        hr["eff"][0] = col + 1
+                        hr["eff"][2] = right - (col + 1) + 1
+                        hr["trim_left"] = True
+                        orient = "right"
+                    else:
+                        # sidebar line at col; header body ends at col−1,
+                        # keeping its current left edge (a left-sidebar trim
+                        # may have already moved it — anchor there, not px+1)
+                        hr["eff"][2] = (col - 1) - hr["eff"][0] + 1
+                        hr["trim_right"] = True
+                        orient = "left"
+                    if hr["eff"][2] < 1:
+                        hr["eff"][2] = 1
+                    meeting_ops.append((col, lr, _two_line_junction(
+                        vr["c"].border_style, hr["c"].border_style, orient)))
+
+        # Apply effective geometry and emit the border junctions for the
+        # ends that were not trimmed away. A borderless parent draws no
+        # junctions (there is no border to join) — the line just ends at
+        # the inner edge (todo-0007/0008).
+        for r in recs:
+            c = r["c"]
+            ex, ey, ew, eh = r["eff"]
+            c.x, c.y, c.width, c.height = ex, ey, ew, eh
+            if r["clipped"] or c.border_style == "none" or box_style == "none":
+                continue
+            side = r["side"]
+            if side in ("top", "bottom"):
+                row = ey + eh - 1 if side == "top" else ey
+                if not r["trim_left"]:
+                    border_ops.append((px, row, _mixed_attached_junction(box_style, c.border_style, "left")))
+                if not r["trim_right"]:
+                    border_ops.append((px + pw - 1, row, _mixed_attached_junction(box_style, c.border_style, "right")))
+            else:
+                col = ex + ew - 1 if side == "left" else ex
+                if not r["trim_top"]:
+                    border_ops.append((col, py, _attached_v_junction(box_style, c.border_style, "top")))
+                if not r["trim_bottom"]:
+                    border_ops.append((col, py + ph - 1, _attached_v_junction(box_style, c.border_style, "bottom")))
+
+        return border_ops, meeting_ops
 
     def _draw_grid(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw a grid (todo-0005): the outer border (per border_style)
@@ -1281,15 +1750,37 @@ class PseudoGraphicRenderer:
             if inner[2] <= inner[0] or inner[3] <= inner[1]:
                 return
 
+        # Attached header/footer/sidebar children of a box: effective
+        # geometry + corner dominance are planned here (render-time — the
+        # stored relative geometry is consumed, not mutated outside this
+        # pass). The plan sets child.attached/attached_side and the
+        # effective absolute x/y/width/height, and returns the junction
+        # cells the parent must draw (border junctions outside the inner
+        # clip; inner corner T-junctions over the child lines).
+        border_ops, meeting_ops = self._plan_attached(parent)
+
         prev_clip = self._clip
+        # Border junctions live on the parent's border cells — outside the
+        # inner clip — so draw them under the outer clip, before it narrows.
+        for col, row, ch in border_ops:
+            self._set(col, row, ch)
         self._clip = inner
         try:
             # Sort by order (ascending) — higher order renders on top,
             # same z-index rule as root blocks in render().
             for child in sorted(parent.children, key=lambda c: c.order):
-                child.x = parent.x + pad_x + child.x
-                child.y = parent.y + pad_y + child.y
+                # An attached child already carries its effective absolute
+                # geometry from _plan_attached; a normal child is placed
+                # at the parent's inner origin + its relative coords.
+                if not child.attached:
+                    child.x = parent.x + pad_x + child.x
+                    child.y = parent.y + pad_y + child.y
                 self._render_block(child)
+            # Inner corner T-junctions: drawn after the children so the
+            # junction overrides the trimmed block's line end (both child
+            # lines pass through the meeting cell).
+            for col, row, ch in meeting_ops:
+                self._set(col, row, ch)
         finally:
             self._clip = prev_clip
 

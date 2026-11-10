@@ -259,6 +259,13 @@ test("_blockDefaults: grid is 24x8 with empty content (todo-0005)", () => {
         { width: 24, height: 8, content: "" });
 });
 
+test("_blockDefaults: sidebar is 12x16 with the [sidebar] label (todo-0009)", () => {
+    const app = editorApp();
+    // A tall side column: 12 wide × 16 tall (was the generic 20×3).
+    assert.deepEqual(app._blockDefaults("sidebar"),
+        { width: 12, height: 16, content: "[sidebar]" });
+});
+
 // ── Sections ──────────────────────────────────────────────
 
 test("sectionsForType: groups in declaration order, all properties applicable", () => {
