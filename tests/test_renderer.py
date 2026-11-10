@@ -4101,3 +4101,89 @@ def test_render_html_preview_detached_footer_full_border():
     foot_start = html.index('data-block-id="foot"')
     assert "block-border--solid" in html[foot_start:]
     assert "block-line--seg" not in html[foot_start:]
+
+
+# ── Mixed junctions for attached header/footer (Unicode mixed box-drawing) ──
+
+
+def test_mixed_attached_junction_unit():
+    """_mixed_attached_junction: same styles → t_l/t_r; solid×double →
+    Unicode mixed (╞╡/╟╢); dashed/dotted combinations fall back to the
+    box's junction (Unicode has no dashed junctions)."""
+    from boxframe.services.renderer import _mixed_attached_junction as J
+    # Same style → style-map junction
+    assert J("solid", "solid", "left") == "├"
+    assert J("solid", "solid", "right") == "┤"
+    assert J("double", "double", "left") == "╠"
+    assert J("double", "double", "right") == "╣"
+    # Mixed solid/double
+    assert J("solid", "double", "left") == "╞"
+    assert J("solid", "double", "right") == "╡"
+    assert J("double", "solid", "left") == "╟"
+    assert J("double", "solid", "right") == "╢"
+    # dashed/dotted → fallback to box's junction
+    assert J("solid", "dashed", "left") == "├"
+    assert J("dashed", "solid", "left") == "├"
+    assert J("solid", "dotted", "left") == "├"
+    assert J("dotted", "solid", "left") == "├"
+    assert J("double", "dashed", "left") == "╠"
+    assert J("dashed", "double", "left") == "├"
+
+
+def test_attached_header_double_line_solid_box():
+    """box solid + header double: line uses ═, junctions use ╞/╡
+    (single vertical + double horizontal)."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    lines = _render(_box_with_header(header)).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    assert lines[3] == "╞" + "═" * 18 + "╡"
+    assert lines[4] == "│" + " " * 18 + "│"
+
+
+def test_attached_header_solid_line_double_box():
+    """box double + header solid: line uses ─, junctions use ╟/╢
+    (double vertical + single horizontal)."""
+    lines = _render(_box_with_header(box_border="double")).split("\n")
+    assert lines[0] == "╔" + "═" * 18 + "╗"
+    assert lines[3] == "╟" + "─" * 18 + "╢"
+    assert lines[4] == "║" + " " * 18 + "║"
+    assert lines[7] == "╚" + "═" * 18 + "╝"
+
+
+def test_attached_header_double_both():
+    """Both solid-both and double-both keep the same-style junction."""
+    header = {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    lines = _render(_box_with_header(header, box_border="double")).split("\n")
+    assert lines[0] == "╔" + "═" * 18 + "╗"
+    assert lines[3] == "╠" + "═" * 18 + "╣"
+
+
+def test_attached_footer_double_line_solid_box():
+    """box solid + footer double: line uses ═, junctions use ╞/╡."""
+    footer = {"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 3,
+              "content": "", "border_style": "double"}
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 8,
+        "content": "", "border_style": "solid", "children": [footer],
+    }]
+    lines = _render(blocks).split("\n")
+    assert lines[0] == "┌" + "─" * 18 + "┐"
+    # The footer line at y+1+inner_h−ch = 1+6−3 = 4
+    assert lines[4] == "╞" + "═" * 18 + "╡"
+    assert lines[7] == "└" + "─" * 18 + "┘"
+
+
+def test_attached_footer_solid_line_double_box():
+    """box double + footer solid: line uses ─, junctions use ╟/╢."""
+    footer = {"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 3,
+              "content": "Footer", "border_style": "solid"}
+    blocks = [{
+        "block_type": "box", "x": 0, "y": 0, "width": 20, "height": 8,
+        "content": "", "border_style": "double", "children": [footer],
+    }]
+    lines = _render(blocks).split("\n")
+    assert lines[0] == "╔" + "═" * 18 + "╗"
+    assert lines[4] == "╟" + "─" * 18 + "╢"
+    assert lines[7] == "╚" + "═" * 18 + "╝"

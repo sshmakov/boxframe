@@ -434,6 +434,26 @@ def _grid_junction(
     return None
 
 
+_MIXED_LEFT = {("solid", "double"): "╞", ("double", "solid"): "╟"}
+_MIXED_RIGHT = {("solid", "double"): "╡", ("double", "solid"): "╢"}
+
+
+def _mixed_attached_junction(box_style: str, child_style: str, side: str) -> str:
+    """Junction where an attached header/footer line meets the box border.
+    The vertical arm belongs to the box border, the horizontal arm to the
+    child line. Same styles: use the style map's t_l/t_r. Mixed
+    solid/double: use Unicode mixed junctions (╞╡ left, ╟╢ right). Other
+    mixes (dashed/dotted): fallback to box style's junction (Unicode has
+    no dashed junctions)."""
+    if box_style == child_style:
+        return BORDERS.get(box_style, BORDERS["solid"])["t_l" if side == "left" else "t_r"]
+    table = _MIXED_LEFT if side == "left" else _MIXED_RIGHT
+    junction = table.get((box_style, child_style))
+    if junction:
+        return junction
+    return BORDERS.get(box_style, BORDERS["solid"])["t_l" if side == "left" else "t_r"]
+
+
 def _line_segment_html(
     top: float, col: int, length: int, char_width_px: float, style: str
 ) -> str:
@@ -1065,13 +1085,21 @@ class PseudoGraphicRenderer:
 
     def _draw_attached_junctions(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw the junctions where attached headers'/footers' lines meet
-        the box's border (todo-0007/0008): ├/┤ (the box's style map) on
-        the left and right border at each line's row — y + ch for a
-        header (top attach), y + 1 + inner_h − ch for a footer (bottom
-        attach). Only for children whose line is actually drawn (border
-        style != none, the line row inside the inner area) — the child is
-        clipped to the inner area and cannot write to the border cells
-        itself (the frame-node pattern of the grid, 0063).
+        the box's border (todo-0007/0008): on the left and right border
+        at each line's row — y + ch for a header (top attach), y + 1 +
+        inner_h − ch for a footer (bottom attach). Only for children whose
+        line is actually drawn (border style != none, the line row inside
+        the inner area) — the child is clipped to the inner area and
+        cannot write to the border cells itself (the frame-node pattern of
+        the grid, 0063).
+
+        The junction character reflects the styles of both connecting
+        lines: the vertical arm belongs to the box's border, the
+        horizontal arm belongs to the header/footer's line. When styles
+        match, the style map's t_l/t_r is used. When box=solid and
+        child=double (or vice versa), Unicode mixed junctions ╞╟╡╢ are
+        used. When dashed/dotted is involved (Unicode has no dashed
+        junctions), the box's junction is the fallback.
         """
         # Clamp to grid (same logic as _draw_border)
         x = max(0, min(block.x, self.grid_width - 2))
@@ -1098,8 +1126,8 @@ class PseudoGraphicRenderer:
                 row = y + 1 + inner_h - child.height
             else:
                 continue
-            self._set(x, row, style["t_l"])
-            self._set(x + w - 1, row, style["t_r"])
+            self._set(x, row, _mixed_attached_junction(block.border_style, child.border_style, "left"))
+            self._set(x + w - 1, row, _mixed_attached_junction(block.border_style, child.border_style, "right"))
 
     def _draw_grid(self, block: RenderBlock, style: dict[str, str]) -> None:
         """Draw a grid (todo-0005): the outer border (per border_style)

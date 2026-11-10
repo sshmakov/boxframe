@@ -3597,3 +3597,77 @@ test("gridReshapeWidths: split/merge the last", () => {
     assert.deepEqual(r([4, 10, 4, 4], 4, 3), [4, 10, 8]);
     assert.deepEqual(r([4, 10, 8], 3, 2), [4, 18]);
 });
+
+// ── Mixed junctions for attached header/footer (Unicode mixed box-drawing) ──
+
+test("mixedAttachedJunction: unit", () => {
+    const J = PG.mixedAttachedJunction;
+    // Same style → style-map junction
+    assert.equal(J("solid", "solid", "left"), "├");
+    assert.equal(J("solid", "solid", "right"), "┤");
+    assert.equal(J("double", "double", "left"), "╠");
+    assert.equal(J("double", "double", "right"), "╣");
+    // Mixed solid/double
+    assert.equal(J("solid", "double", "left"), "╞");
+    assert.equal(J("solid", "double", "right"), "╡");
+    assert.equal(J("double", "solid", "left"), "╟");
+    assert.equal(J("double", "solid", "right"), "╢");
+    // dashed/dotted → fallback to box's junction
+    assert.equal(J("solid", "dashed", "left"), "├");
+    assert.equal(J("dashed", "solid", "left"), "├");
+    assert.equal(J("solid", "dotted", "left"), "├");
+    assert.equal(J("dotted", "solid", "left"), "├");
+    assert.equal(J("double", "dashed", "left"), "╠");
+    assert.equal(J("dashed", "double", "left"), "├");
+});
+
+test("attached header double line in solid box", () => {
+    const header = {
+        id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+        content: "", border_style: "double", parent_id: "b",
+    };
+    const ls = lines(render(boxWithHeader(header)));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[3], "╞" + "═".repeat(18) + "╡");
+    assert.equal(ls[4], "│" + " ".repeat(18) + "│");
+});
+
+test("attached header solid line in double box", () => {
+    const ls = lines(render(boxWithHeader(null, 20, 8, "double")));
+    assert.equal(ls[0], "╔" + "═".repeat(18) + "╗");
+    assert.equal(ls[3], "╟" + "─".repeat(18) + "╢");
+    assert.equal(ls[4], "║" + " ".repeat(18) + "║");
+    assert.equal(ls[7], "╚" + "═".repeat(18) + "╝");
+});
+
+test("attached header both double", () => {
+    const header = {
+        id: "h", block_type: "header", x: 0, y: -1, width: 18, height: 3,
+        content: "", border_style: "double", parent_id: "b",
+    };
+    const ls = lines(render(boxWithHeader(header, 20, 8, "double")));
+    assert.equal(ls[0], "╔" + "═".repeat(18) + "╗");
+    assert.equal(ls[3], "╠" + "═".repeat(18) + "╣");
+});
+
+test("attached footer double line in solid box", () => {
+    const f = {
+        id: "f", block_type: "footer", x: 0, y: 5, width: 18, height: 3,
+        content: "", border_style: "double", parent_id: "b",
+    };
+    const ls = lines(render(boxWithFooter(f)));
+    assert.equal(ls[0], "┌" + "─".repeat(18) + "┐");
+    assert.equal(ls[4], "╞" + "═".repeat(18) + "╡");
+    assert.equal(ls[7], "└" + "─".repeat(18) + "┘");
+});
+
+test("attached footer solid line in double box", () => {
+    const f = {
+        id: "f", block_type: "footer", x: 0, y: 5, width: 18, height: 3,
+        content: "Footer", border_style: "solid", parent_id: "b",
+    };
+    const ls = lines(render(boxWithFooter(f, 20, 8, "double")));
+    assert.equal(ls[0], "╔" + "═".repeat(18) + "╗");
+    assert.equal(ls[4], "╟" + "─".repeat(18) + "╢");
+    assert.equal(ls[7], "╚" + "═".repeat(18) + "╝");
+});

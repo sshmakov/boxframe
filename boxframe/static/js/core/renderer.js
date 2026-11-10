@@ -421,6 +421,24 @@
         return null;
     }
 
+    // Mixed junctions when an attached header/footer's line style differs
+    // from the parent box border (Unicode has dedicated symbols for the
+    // solid×double combinations; dashed/dotted fall back to the box's).
+    var MIXED_LEFT = { "solid|double": "╞", "double|solid": "╟" };
+    var MIXED_RIGHT = { "solid|double": "╡", "double|solid": "╢" };
+
+    function mixedAttachedJunction(boxStyle, childStyle, side) {
+        function fallback() {
+            var map = BORDERS[boxStyle] || BORDERS.solid;
+            return side === "left" ? map.t_l : map.t_r;
+        }
+        if (boxStyle === childStyle) return fallback();
+        var table = side === "left" ? MIXED_LEFT : MIXED_RIGHT;
+        var ch = table[boxStyle + "|" + childStyle];
+        if (ch) return ch;
+        return fallback();
+    }
+
     // ── Grid drawing (ports of the PseudoGraphicRenderer methods) ──
 
     // Write a cell, respecting the grid bounds and the active clip rect
@@ -777,8 +795,8 @@
             } else {
                 continue;
             }
-            setCell(grid, gw, gh, clip, x, row, style.t_l);
-            setCell(grid, gw, gh, clip, x + w - 1, row, style.t_r);
+            setCell(grid, gw, gh, clip, x, row, mixedAttachedJunction(block.border_style, c.border_style, "left"));
+            setCell(grid, gw, gh, clip, x + w - 1, row, mixedAttachedJunction(block.border_style, c.border_style, "right"));
         }
     }
 
@@ -1633,6 +1651,7 @@
         gridSplit: gridSplit,
         gridReshapeWidths: gridReshapeWidths,
         gridJunction: gridJunction,
+        mixedAttachedJunction: mixedAttachedJunction,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,
         renderBoundsHtml: renderBoundsHtml,
