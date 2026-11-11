@@ -1,22 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <!-- Background -->
-  <rect width="64" height="64" rx="8" fill="#0f0f23"/>
+  <rect width="64" height="64" rx="10" fill="#13131f"/>
 
-  <!-- Outer double-line frame (═║ style) -->
-  <rect x="6" y="6" width="52" height="52" rx="2" fill="none" stroke="#e94560" stroke-width="2.5"/>
-  <rect x="10" y="10" width="44" height="44" rx="1" fill="none" stroke="#e94560" stroke-width="1.5"/>
+  <!-- Outer frame (box-drawing style) -->
+  <rect x="6" y="6" width="52" height="52" rx="3" fill="none" stroke="#6b9ec4" stroke-width="2.5"/>
 
-  <!-- Inner block (solid-line, offset) -->
-  <rect x="16" y="18" width="30" height="26" fill="none" stroke="#e0e0e0" stroke-width="2"/>
+  <!-- Corner accents (┌┐└┘ hint) -->
+  <line x1="6" y1="10" x2="6" y2="6" stroke="#8fbdd9" stroke-width="3" stroke-linecap="round"/>
+  <line x1="6" y1="6" x2="10" y2="6" stroke="#8fbdd9" stroke-width="3" stroke-linecap="round"/>
+  <line x1="58" y1="10" x2="58" y2="6" stroke="#8fbdd9" stroke-width="3" stroke-linecap="round"/>
+  <line x1="58" y1="6" x2="54" y2="6" stroke="#8fbdd9" stroke-width="3" stroke-linecap="round"/>
+  <line x1="6" y1="54" x2="6" y2="58" stroke="#8fbdd9" stroke-width="3" stroke-linecap="round"/>
+  <line x1="6" y1="58" x2="10" y2="58" stroke="#8fbdd9" stroke-width="3" stroke-linecap="round"/>
+  <line x1="58" y1="54" x2="58" y2="58" stroke="#8fbdd9" stroke-width="3" stroke-linecap="round"/>
+  <line x1="58" y1="58" x2="54" y2="58" stroke="#8fbdd9" stroke-width="3" stroke-linecap="round"/>
 
-  <!-- Small header line inside inner block -->
-  <line x1="16" y1="26" x2="46" y2="26" stroke="#e0e0e0" stroke-width="1.5"/>
+  <!-- "bf" monogram -->
+  <text x="32" y="37" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="bold" fill="#d4d4d4">bf</text>
 
-  <!-- Text lines inside inner block body -->
-  <line x1="20" y1="32" x2="40" y2="32" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="20" y1="36" x2="36" y2="36" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="20" y1="40" x2="38" y2="40" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
-
-  <!-- Cursor -->
-  <rect x="40" y="39" width="2" height="4" fill="#2ecc71"/>
+  <!-- Underscore cursor -->
+  <rect x="27" y="41" width="10" height="2" rx="1" fill="#6b9ec4" opacity="0.7"/>
 </svg>
