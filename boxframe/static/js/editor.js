@@ -1734,11 +1734,32 @@ function editorApp() {
             const pad = 16; // matches .render-wrapper padding
             const b = this.editingBlock;
             const r = this._absoluteRect(b);
+
+            const MIN_W = 320;
+            const MIN_H = 96;
+
+            let w = Math.max(b.width * this.charWidth, MIN_W);
+            let h = Math.max(b.height * this.charHeight, MIN_H);
+
+            let left = pad + r.x * this.charWidth;
+            let top = pad + r.y * this.charHeight;
+
+            if (this.layoutWidth && this.charWidth) {
+                const maxRight = pad + this.layoutWidth * this.charWidth;
+                if (left + w > maxRight) left = maxRight - w;
+            }
+            if (this.layoutHeight && this.charHeight) {
+                const maxBottom = pad + this.layoutHeight * this.charHeight;
+                if (top + h > maxBottom) top = maxBottom - h;
+            }
+            left = Math.max(pad, left);
+            top = Math.max(pad, top);
+
             return (
-                `left:${pad + r.x * this.charWidth}px;` +
-                `top:${pad + r.y * this.charHeight}px;` +
-                `width:${b.width * this.charWidth}px;` +
-                `height:${b.height * this.charHeight}px;`
+                `left:${left}px;` +
+                `top:${top}px;` +
+                `width:${w}px;` +
+                `height:${h}px;`
             );
         },
 
