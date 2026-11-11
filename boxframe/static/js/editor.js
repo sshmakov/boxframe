@@ -491,47 +491,54 @@ function editorApp() {
         },
 
         // Absolute (canvas) rectangle of a block — walks up the parent
-        // chain, adding the 1-cell container padding at each level. A
-        // header whose top border is clipped by the box's top edge
-        // (todo-0007: relative y < 0) or a footer whose bottom border is
-        // clipped by the box's bottom edge (todo-0008: relative y + h >
-        // inner_h) starts from its effective geometry relative to the
-        // direct parent — flush with the top/bottom of the inner area at
-        // the full inner width (the stored x/width are ignored while
-        // attached), same rule as the renderer. A sidebar whose left/right
-        // border is clipped by the box's left/right edge (todo-0009:
-        // relative x < 0 / x + w > inner_w) is flush with that edge at the
-        // full inner height (the stored y/height are ignored while
-        // attached). A block merely touching the edge is not clipped and
-        // uses its stored geometry.
+        // chain, adding the 1-cell container padding at each level. An
+        // attached chrome block (header todo-0007 / footer todo-0008 with
+        // its border clipped by the box's top/bottom edge; sidebar todo-0009
+        // clipped by its left/right edge) is drawn at its effective geometry
+        // — flush with that inner edge at the full inner extent, the stored
+        // parallel dimension ignored while attached. The effective rect comes
+        // from PGRenderer.planAttached, so it also carries the corner trim the
+        // renderer applies when a sibling chrome block wins the shared corner
+        // (e.g. a header shortened by a dominant sidebar) — keeping selection
+        // frame / hit-test aligned with the rendered ASCII. A block merely
+        // touching the edge is not clipped and uses its stored geometry.
         _absoluteRect(block) {
+            const directParent = block.parent_id
+                ? this.blocks.find(b => b.id === block.parent_id)
+                : null;
+
+            // Attached chrome (header/footer/sidebar in a box): reuse the
+            // renderer's own corner-dominance plan (PGRenderer.planAttached
+            // mirrors _plan_attached) so the editor's effective rect equals
+            // the trimmed ASCII render. A sibling chrome block that wins the
+            // shared corner trims this one (e.g. a header narrowed by a
+            // dominant sidebar); the old per-block stretch could not see the
+            // sibling, so the selection frame / hit-test reached into corner
+            // cells where the renderer draws no chrome. planAttached takes
+            // the parent in absolute coords + the flat parent-relative block
+            // list and returns absolute effective geometry, so an attached
+            // block is returned directly (no walk-up).
+            if (directParent && this._attachedSide(block)) {
+                const pr = this._absoluteRect(directParent);
+                const plan = PGRenderer.planAttached(
+                    {
+                        ...directParent,
+                        x: pr.x, y: pr.y, width: pr.width, height: pr.height,
+                    },
+                    this.blocks,
+                ).plan[block.id];
+                if (plan && plan.attached) {
+                    return { x: plan.x, y: plan.y, width: plan.width, height: plan.height };
+                }
+                // Degenerate parent (inner < 1): planAttached disables
+                // attaching and the renderer draws the child at its stored
+                // position — fall through to the normal path below.
+            }
+
             let x = block.x;
             let y = block.y;
             let width = block.width;
             let height = block.height;
-            const directParent = block.parent_id
-                ? this.blocks.find(b => b.id === block.parent_id)
-                : null;
-            const side = this._attachedSide(block);
-            if (directParent && side) {
-                if (side === 'top') {
-                    x = 0;
-                    y = 0;
-                    width = directParent.width - 2;
-                } else if (side === 'bottom') {
-                    x = 0;
-                    y = directParent.height - 2 - block.height;
-                    width = directParent.width - 2;
-                } else if (side === 'left') {
-                    x = 0;
-                    y = 0;
-                    height = directParent.height - 2;
-                } else {
-                    x = directParent.width - 2 - block.width;
-                    y = 0;
-                    height = directParent.height - 2;
-                }
-            }
             let pid = block.parent_id;
             while (pid) {
                 const parent = this.blocks.find(b => b.id === pid);

@@ -1300,3 +1300,49 @@ def test_parity_attached_sidebar_html():
         assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(
             to_nested(blocks)
         ), (sidebar, bw, bh, bb)
+
+
+def test_parity_attached_corner_html():
+    """Corner dominance (header/footer × sidebar trim) in the HTML overlay
+    matches byte-for-byte. This is the single-source guarantee: the trimmed
+    overlay divs — which the hover outline, selection outline and resize
+    handle all ride on — must mirror the trimmed ASCII, not a per-block
+    full-inner-extent stretch."""
+    corner_cases = [
+        # header dominant → sidebar trimmed at its top edge
+        ({"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": 3, "width": 5, "height": 3,
+          "content": "Side", "border_style": "solid"}, "header dominant"),
+        # tie (equal order) → header dominant, sidebar trimmed top
+        ({"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+          "content": "Header", "border_style": "solid", "order": 0},
+         {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid", "order": 0}, "tie -> header"),
+        # sidebar higher order → header trimmed at its left edge
+        ({"block_type": "header", "x": -1, "y": -1, "width": 18, "height": 3,
+          "content": "Header", "border_style": "solid", "order": 0},
+         {"block_type": "sidebar", "x": -1, "y": -1, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid", "order": 5}, "sidebar dominant"),
+        # right sidebar dominant → header trimmed at its right edge
+        ({"block_type": "header", "x": 7, "y": -1, "width": 12, "height": 3,
+          "content": "Header", "border_style": "solid"},
+         {"block_type": "sidebar", "x": 12, "y": 0, "width": 6, "height": 3,
+          "content": "Side", "border_style": "solid"}, "right sidebar dominant"),
+        # footer × sidebar (bottom corner)
+        ({"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "solid"},
+         {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "Side", "border_style": "solid"}, "footer dominant"),
+        # mixed border styles at the meeting (double × solid)
+        ({"block_type": "footer", "x": 0, "y": 7, "width": 18, "height": 3,
+          "content": "Footer", "border_style": "double"},
+         {"block_type": "sidebar", "x": -1, "y": 0, "width": 5, "height": 3,
+          "content": "Side", "border_style": "solid", "order": 5}, "mixed styles"),
+    ]
+    for header, sidebar, _note in corner_cases:
+        blocks = _box_with_corner_blocks(header, sidebar, 20, 10, "solid")
+        assert render_js_html(blocks) == PseudoGraphicRenderer.render_html_preview(
+            to_nested(blocks)
+        ), _note
+

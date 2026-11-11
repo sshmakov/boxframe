@@ -3813,6 +3813,65 @@ def test_render_html_preview_detached_header_full_border():
     assert "block-line--seg" not in html[head_start:]
 
 
+def test_render_html_preview_attached_header_trimmed_by_sidebar():
+    """A higher-order sidebar at the corner trims the attached header's
+    overlay to begin past the sidebar's line — the single-source
+    `_attached_geometry` core drives both ASCII and HTML. So the hover
+    outline, selection outline and resize handle that ride on the overlay
+    div match the trimmed ASCII instead of stretching to the box's full
+    inner width."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid", "order": 0,
+        "children": [
+            {"id": "head", "x": 0, "y": -1, "width": 28, "height": 2,
+             "block_type": "header", "content": "T", "border_style": "solid", "order": 0},
+            {"id": "side", "x": -1, "y": 0, "width": 5, "height": 8,
+             "block_type": "sidebar", "content": "S", "border_style": "solid", "order": 5},
+        ],
+    }])
+    # Sidebar (left, width 5) line column = 4 → header trimmed on the left:
+    # eff = [5, 0, 23, 2] in inner coords → left (1+5)×12, width 23×12.
+    tag = _opening_tag(html, "head")
+    assert "left:72px" in tag
+    assert "width:276px" in tag
+    assert "top:14.4px" in tag
+    # The dominant sidebar keeps its full inner-height extent (untrimmed):
+    # left (1+0)×12, top (1+0)×14.4, height 8×14.4.
+    stag = _opening_tag(html, "side")
+    assert "left:12px" in stag
+    assert "top:14.4px" in stag
+    assert "height:115.2px" in stag
+
+
+def test_render_html_preview_attached_sidebar_trimmed_by_header():
+    """The mirror case: a header dominant at the corner trims the sidebar's
+    overlay so its body begins below the header's line — the sidebar's
+    bottom-left resize handle must sit at the trim, not at the box's bottom
+    border."""
+    html = PseudoGraphicRenderer.render_html_preview([{
+        "id": "parent", "x": 0, "y": 0, "width": 30, "height": 10,
+        "block_type": "box", "content": "", "border_style": "solid", "order": 0,
+        "children": [
+            {"id": "head", "x": 0, "y": -1, "width": 28, "height": 2,
+             "block_type": "header", "content": "T", "border_style": "solid", "order": 5},
+            {"id": "side", "x": -1, "y": 0, "width": 5, "height": 8,
+             "block_type": "sidebar", "content": "S", "border_style": "solid", "order": 0},
+        ],
+    }])
+    # Header (top, height 2) line row = 1 → sidebar trimmed on top: eff
+    # body starts at row 2, keeping its bottom edge → eff = [0, 2, 5, 6].
+    # top = (1+2)×14.4 = 43.2, height = 6×14.4 = 86.4.
+    stag = _opening_tag(html, "side")
+    assert "top:43.2px" in stag
+    assert "height:86.4px" in stag
+    assert "left:12px" in stag
+    # The dominant header spans the full inner width (untrimmed).
+    tag = _opening_tag(html, "head")
+    assert "left:12px" in tag
+    assert "width:336px" in tag
+
+
 # ── Footer attach (todo-0008) ─────────────────────────────
 
 

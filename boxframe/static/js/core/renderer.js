@@ -834,7 +834,14 @@
     // falls through to order (higher wins; tie → H, app-chrome). Using
     // saved positions could mislabel two physically-crossing blocks as
     // apart (a double-framed corner).
-    function dominantCorner(hr, vr) {
+    // Single-source attach-geometry core — port of Python
+    // _dominant_corner_rec + _attached_geometry. Records use plain
+    // {side, eff, order} and geometry is computed in INNER coordinates
+    // (0,0 = the box's first inner cell; the 1-cell border padding is
+    // applied by each consumer). Both the ASCII path (planAttached) and
+    // the HTML overlay (_blockPreviewHtml) call attachedGeometry, so every
+    // attach variant and clip/corner case lives in exactly one place.
+    function dominantCornerCore(hr, vr) {
         var hTop = hr.side === "top", vLeft = vr.side === "left";
         var hx = hr.eff[0], hy = hr.eff[1], hw = hr.eff[2], hh = hr.eff[3];
         var vx = vr.eff[0], vy = vr.eff[1], vw = vr.eff[2], vh = vr.eff[3];
@@ -843,9 +850,109 @@
         if (awayH && awayV) return null;
         if (awayH) return "V";
         if (awayV) return "H";
-        var ho = hr.c.order || 0, vo = vr.c.order || 0;
+        var ho = hr.order || 0, vo = vr.order || 0;
         if (vo > ho) return "V";
         return "H";
+    }
+
+    // Port of Python _attached_geometry. `children` are plain block dicts
+    // (block_type,x,y,width,height,order,border_style) relative to the box
+    // frame. Returns {results, meetings} in inner coords: results[i] is
+    // parallel to children ({attached, side, eff:[x,y,w,h], clipped,
+    // trimLeft/Right/Top/Bottom}); meetings are inner-coord corner T-
+    // junctions {col,row,orient,a_style,b_style} (a/b in the order the
+    // junction glyph helper expects).
+    function attachedGeometry(children, innerW, innerH) {
+        var results = [], meetings = [], i;
+        for (i = 0; i < children.length; i++) {
+            results.push({ attached: false, side: "", eff: null, clipped: false,
+                           trimLeft: false, trimRight: false, trimTop: false, trimBottom: false });
+        }
+        if (innerW < 1 || innerH < 1) return { results: results, meetings: meetings };
+
+        var recs = [];
+        for (i = 0; i < children.length; i++) {
+            var c = children[i];
+            var t = c.block_type, cx = c.x, cy = c.y, cw = c.width, ch = c.height;
+            var side, clipped, eff;
+            if (t === "header" && cy < 0) {
+                side = "top"; clipped = ch > innerH; eff = [0, 0, innerW, Math.max(1, ch)];
+            } else if (t === "footer" && cy + ch > innerH) {
+                side = "bottom"; clipped = ch > innerH;
+                eff = [0, innerH - Math.max(1, ch), innerW, Math.max(1, ch)];
+            } else if (t === "sidebar" && cx < 0) {
+                side = "left"; clipped = cw > innerW; eff = [0, 0, Math.max(1, cw), innerH];
+            } else if (t === "sidebar" && cx + cw > innerW) {
+                side = "right"; clipped = cw > innerW;
+                eff = [innerW - Math.max(1, cw), 0, Math.max(1, cw), innerH];
+            } else {
+                continue;
+            }
+            recs.push({ i: i, side: side, eff: eff, clipped: clipped, order: c.order,
+                        border_style: c.border_style,
+                        trimLeft: false, trimRight: false, trimTop: false, trimBottom: false });
+        }
+
+        function lineCol(vr) { return vr.side === "left" ? vr.eff[0] + vr.eff[2] - 1 : vr.eff[0]; }
+        function lineRow(hr) { return hr.side === "top" ? hr.eff[1] + hr.eff[3] - 1 : hr.eff[1]; }
+
+        for (var hi = 0; hi < recs.length; hi++) {
+            var hr = recs[hi];
+            if (hr.side !== "top" && hr.side !== "bottom") continue;
+            if (hr.clipped) continue;
+            for (var vi = 0; vi < recs.length; vi++) {
+                var vr = recs[vi];
+                if (vr.side !== "left" && vr.side !== "right") continue;
+                if (vr.clipped) continue;
+                var dom = dominantCornerCore(hr, vr);
+                if (dom === "H") {
+                    var lr = lineRow(hr), col = lineCol(vr), orient;
+                    if (hr.side === "top") {
+                        var bottom = vr.eff[1] + vr.eff[3] - 1;
+                        vr.eff[1] = lr + 1;
+                        vr.eff[3] = bottom - (lr + 1) + 1;
+                        vr.trimTop = true; orient = "down";
+                    } else {
+                        vr.eff[3] = (lr - 1) - vr.eff[1] + 1;
+                        vr.trimBottom = true; orient = "up";
+                    }
+                    if (vr.eff[3] < 1) vr.eff[3] = 1;
+                    meetings.push({ col: col, row: lr, orient: orient,
+                                    a_style: hr.border_style, b_style: vr.border_style });
+                } else if (dom === "V") {
+                    var col2 = lineCol(vr), lr2 = lineRow(hr), orient2;
+                    if (vr.side === "left") {
+                        var right = hr.eff[0] + hr.eff[2] - 1;
+                        hr.eff[0] = col2 + 1;
+                        hr.eff[2] = right - (col2 + 1) + 1;
+                        hr.trimLeft = true; orient2 = "right";
+                    } else {
+                        hr.eff[2] = (col2 - 1) - hr.eff[0] + 1;
+                        hr.trimRight = true; orient2 = "left";
+                    }
+                    if (hr.eff[2] < 1) hr.eff[2] = 1;
+                    meetings.push({ col: col2, row: lr2, orient: orient2,
+                                    a_style: vr.border_style, b_style: hr.border_style });
+                }
+            }
+        }
+
+        for (var k = 0; k < recs.length; k++) {
+            var r = recs[k];
+            results[r.i] = { attached: true, side: r.side, eff: r.eff, clipped: r.clipped,
+                             trimLeft: r.trimLeft, trimRight: r.trimRight,
+                             trimTop: r.trimTop, trimBottom: r.trimBottom };
+        }
+        return { results: results, meetings: meetings };
+    }
+
+    // Kept for external callers (editor) — delegates to the core, mapping
+    // the legacy `.c.order` shape onto the core's plain {side,eff,order}.
+    function dominantCorner(hr, vr) {
+        return dominantCornerCore(
+            { side: hr.side, eff: hr.eff, order: hr.c ? hr.c.order : hr.order },
+            { side: vr.side, eff: vr.eff, order: vr.c ? vr.c.order : vr.order }
+        );
     }
 
     // Port of PseudoGraphicRenderer._plan_attached: plan attached
@@ -866,97 +973,34 @@
         for (i = 0; i < children.length; i++) plan[children[i].id] = { attached: false, side: "" };
         if (innerW < 1 || innerH < 1) return { borderOps: borderOps, meetingOps: meetingOps, plan: plan };
 
-        var recs = [];
+        var geo = attachedGeometry(children, innerW, innerH);
+        var results = geo.results, meetings = geo.meetings;
+
+        // Offset inner eff to absolute (+px+1, +py+1) and emit the border
+        // junctions the clipped child cannot draw itself, skipping ends
+        // trimmed by corner dominance.
         for (i = 0; i < children.length; i++) {
-            var c = children[i];
-            var t = c.block_type, cx = c.x, cy = c.y, cw = c.width, chh = c.height;
-            var side, clipped, eff;
-            if (t === "header" && cy < 0) {
-                side = "top"; clipped = chh > innerH; eff = [px + 1, py + 1, innerW, Math.max(1, chh)];
-            } else if (t === "footer" && cy + chh > innerH) {
-                side = "bottom"; clipped = chh > innerH;
-                eff = [px + 1, py + 1 + innerH - Math.max(1, chh), innerW, Math.max(1, chh)];
-            } else if (t === "sidebar" && cx < 0) {
-                side = "left"; clipped = cw > innerW; eff = [px + 1, py + 1, Math.max(1, cw), innerH];
-            } else if (t === "sidebar" && cx + cw > innerW) {
-                side = "right"; clipped = cw > innerW;
-                eff = [px + 1 + innerW - Math.max(1, cw), py + 1, Math.max(1, cw), innerH];
-            } else {
-                continue;
-            }
-            recs.push({
-                c: c, side: side, cx: cx, cy: cy, cw: cw, ch: chh, eff: eff, clipped: clipped,
-                trimLeft: false, trimRight: false, trimTop: false, trimBottom: false,
-            });
-        }
-
-        function lineCol(vr) { return vr.side === "left" ? vr.eff[0] + vr.eff[2] - 1 : vr.eff[0]; }
-        function lineRow(hr) { return hr.side === "top" ? hr.eff[1] + hr.eff[3] - 1 : hr.eff[1]; }
-
-        for (var hi = 0; hi < recs.length; hi++) {
-            var hr = recs[hi];
-            if (hr.side !== "top" && hr.side !== "bottom") continue;
-            if (hr.clipped) continue;
-            for (var vi = 0; vi < recs.length; vi++) {
-                var vr = recs[vi];
-                if (vr.side !== "left" && vr.side !== "right") continue;
-                if (vr.clipped) continue;
-                var dom = dominantCorner(hr, vr);
-                if (dom === "H") {
-                    var lr = lineRow(hr), col = lineCol(vr), orient;
-                    if (hr.side === "top") {
-                        // keep the current bottom edge so a footer trim that
-                        // ran first survives
-                        var sb = vr.eff[1] + vr.eff[3] - 1;
-                        vr.eff[1] = lr + 1;
-                        vr.eff[3] = sb - (lr + 1) + 1;
-                        vr.trimTop = true; orient = "down";
-                    } else {
-                        // anchor on the current top edge (a header trim may
-                        // have moved it), not the box's py+1
-                        vr.eff[3] = (lr - 1) - vr.eff[1] + 1;
-                        vr.trimBottom = true; orient = "up";
-                    }
-                    if (vr.eff[3] < 1) vr.eff[3] = 1;
-                    meetingOps.push([col, lr, twoLineJunction(hr.c.border_style, vr.c.border_style, orient)]);
-                } else if (dom === "V") {
-                    var col2 = lineCol(vr), lr2 = lineRow(hr), orient2;
-                    if (vr.side === "left") {
-                        // keep the current right edge so a right-sidebar trim
-                        // that ran first survives
-                        var hr2 = hr.eff[0] + hr.eff[2] - 1;
-                        hr.eff[0] = col2 + 1;
-                        hr.eff[2] = hr2 - (col2 + 1) + 1;
-                        hr.trimLeft = true; orient2 = "right";
-                    } else {
-                        // anchor on the current left edge (a left-sidebar trim
-                        // may have moved it), not the box's px+1
-                        hr.eff[2] = (col2 - 1) - hr.eff[0] + 1;
-                        hr.trimRight = true; orient2 = "left";
-                    }
-                    if (hr.eff[2] < 1) hr.eff[2] = 1;
-                    meetingOps.push([col2, lr2, twoLineJunction(vr.c.border_style, hr.c.border_style, orient2)]);
-                }
-            }
-        }
-
-        for (var ri = 0; ri < recs.length; ri++) {
-            var r = recs[ri], cc = r.c;
-            plan[cc.id] = {
-                attached: true, side: r.side,
-                x: r.eff[0], y: r.eff[1], width: r.eff[2], height: r.eff[3],
-            };
-            if (r.clipped || cc.border_style === "none" || boxStyle === "none") continue;
+            var c = children[i], r = results[i];
+            if (!r.attached) continue;
+            var ex = r.eff[0] + px + 1, ey = r.eff[1] + py + 1, ew = r.eff[2], eh = r.eff[3];
+            plan[c.id] = { attached: true, side: r.side, x: ex, y: ey, width: ew, height: eh };
+            if (r.clipped || c.border_style === "none" || boxStyle === "none") continue;
             var s = r.side;
             if (s === "top" || s === "bottom") {
-                var row = (s === "top") ? r.eff[1] + r.eff[3] - 1 : r.eff[1];
-                if (!r.trimLeft) borderOps.push([px, row, mixedAttachedJunction(boxStyle, cc.border_style, "left")]);
-                if (!r.trimRight) borderOps.push([px + pw - 1, row, mixedAttachedJunction(boxStyle, cc.border_style, "right")]);
+                var row = (s === "top") ? ey + eh - 1 : ey;
+                if (!r.trimLeft) borderOps.push([px, row, mixedAttachedJunction(boxStyle, c.border_style, "left")]);
+                if (!r.trimRight) borderOps.push([px + pw - 1, row, mixedAttachedJunction(boxStyle, c.border_style, "right")]);
             } else {
-                var col3 = (s === "left") ? r.eff[0] + r.eff[2] - 1 : r.eff[0];
-                if (!r.trimTop) borderOps.push([col3, py, attachedVJunction(boxStyle, cc.border_style, "top")]);
-                if (!r.trimBottom) borderOps.push([col3, py + ph - 1, attachedVJunction(boxStyle, cc.border_style, "bottom")]);
+                var col3 = (s === "left") ? ex + ew - 1 : ex;
+                if (!r.trimTop) borderOps.push([col3, py, attachedVJunction(boxStyle, c.border_style, "top")]);
+                if (!r.trimBottom) borderOps.push([col3, py + ph - 1, attachedVJunction(boxStyle, c.border_style, "bottom")]);
             }
+        }
+        // Inner corner T-junctions (inner meeting T sits ON the dominant
+        // line, over the child's line end).
+        for (i = 0; i < meetings.length; i++) {
+            var m = meetings[i];
+            meetingOps.push([m.col + px + 1, m.row + py + 1, twoLineJunction(m.a_style, m.b_style, m.orient)]);
         }
         return { borderOps: borderOps, meetingOps: meetingOps, plan: plan };
     }
@@ -1633,30 +1677,30 @@
         }
 
         var childrenHtml = "";
-        children.forEach(function (c) {
-            // A header whose top border is clipped (y < 0), a footer whose
-            // bottom border is clipped (y + h > inner_h), or a sidebar
-            // whose left/right border is clipped (x < 0 / x + w > inner_w)
-            // is attached (todo-0007/0008/0009): effective geometry — flush
-            // with the inner area at the full inner extent, the line
-            // instead of the full outline. A block merely touching an edge
-            // stays detached.
-            var eff = null, att = false, attSide = "";
-            var cType = c.block_type || "box";
-            var cX = c.x || 0;
-            var cY = c.y || 0;
-            var cW = c.width != null ? c.width : 20;
-            var cH = c.height != null ? c.height : 3;
+        // Attached chrome geometry (attach side + corner-dominance trim)
+        // comes from the single `attachedGeometry` core — the same one the
+        // ASCII renderer runs — so the overlay divs (and the hover outline,
+        // selection outline and resize handle that ride on them) match the
+        // trimmed ASCII, not a per-block full-inner-extent stretch.
+        var attPlan = null;
+        if (blockType === "box") {
             var innerW = Math.max(0, width - 2);
             var innerH = Math.max(0, height - 2);
-            if (blockType === "box" && cType === "header" && cY < 0) {
-                att = true; attSide = "top"; eff = [0, 0, innerW, cH];
-            } else if (blockType === "box" && cType === "footer" && cY + cH > innerH) {
-                att = true; attSide = "bottom"; eff = [0, innerH - cH, innerW, cH];
-            } else if (blockType === "box" && cType === "sidebar" && cX < 0) {
-                att = true; attSide = "left"; eff = [0, 0, cW, innerH];
-            } else if (blockType === "box" && cType === "sidebar" && cX + cW > innerW) {
-                att = true; attSide = "right"; eff = [innerW - cW, 0, cW, innerH];
+            var records = children.map(function (c) {
+                return { block_type: c.block_type || "box", x: c.x || 0, y: c.y || 0,
+                         width: c.width != null ? c.width : 20,
+                         height: c.height != null ? c.height : 3,
+                         order: c.order || 0, border_style: c.border_style || "solid" };
+            });
+            attPlan = attachedGeometry(records, innerW, innerH).results;
+        }
+        children.forEach(function (c, idx) {
+            var eff = null, att = false, attSide = "";
+            if (attPlan !== null) {
+                var r = attPlan[idx];
+                if (r.attached) {
+                    att = true; attSide = r.side; eff = r.eff;
+                }
             }
             childrenHtml += _blockPreviewHtml(c, opts, false, eff, att, attSide);
         });
@@ -1851,6 +1895,8 @@
         attachedVJunction: attachedVJunction,
         twoLineJunction: twoLineJunction,
         dominantCorner: dominantCorner,
+        dominantCornerCore: dominantCornerCore,
+        attachedGeometry: attachedGeometry,
         planAttached: planAttached,
         toHtmlPreview: toHtmlPreview,
         renderHtmlPreview: renderHtmlPreview,

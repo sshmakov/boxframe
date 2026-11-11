@@ -1537,6 +1537,8 @@ def _create_project_with_blocks(page: Page, specs: list[dict]) -> tuple[str, lis
             payload["border_style"] = spec["border_style"]
         if "meta" in spec:
             payload["meta"] = spec["meta"]
+        if "order" in spec:
+            payload["order"] = spec["order"]
         # parent_index references an earlier block in the same list — used
         # to seed nested (container → child) layouts.
         if "parent_index" in spec:
@@ -3377,6 +3379,109 @@ def test_group_resize_box_and_attached_header(page: Page):
     # w = 1 + dW(+2) = 3 and h = 1 + dH(−1) clamps to the text minimum of 1.
     c = blocks[child_id]
     assert (c["x"], c["y"], c["width"], c["height"]) == (2, 4, 3, 1)
+
+
+def test_attached_header_trimmed_by_sidebar_selection_matches_render(page: Page):
+    """A header attached to a box and trimmed on the left by a dominant
+    sidebar (higher order) shows a selection frame at the trimmed effective
+    rect — not at the box's inner-left edge. The editor used to stretch
+    attached chrome to the full inner width without running the renderer's
+    corner-dominance trim, so the selection frame reached the box's left
+    border where no header chrome is actually drawn."""
+    layout_id, (box_id, header_id, sidebar_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 10},
+        # header created first (order 1), sidebar second (order 2) → the
+        # sidebar wins the shared top-left corner and trims the header's
+        # left edge to the cell past the sidebar's line (col 6 → header
+        # starts at col 7).
+        {"block_type": "header", "x": 0, "y": -1, "width": 18, "height": 3,
+         "parent_index": 0, "content": "H", "order": 1},
+        {"block_type": "sidebar", "x": -1, "y": 0, "width": 4, "height": 8,
+         "parent_index": 0, "content": "S", "order": 2},
+    ])
+
+    metrics = _canvas_metrics(page, box_id, 20, 10)
+    cw, ch = metrics["cw"], metrics["ch"]
+    origin_x = metrics["container"]["x"] + 16  # render-wrapper padding
+    origin_y = metrics["container"]["y"] + 16
+
+    # Select the header via the elements list (deterministic, unlike a
+    # canvas hit-test); its stored coords are (0,-1).
+    page.locator('.block-item[data-coords="0,-1"]', has_text="header").click()
+    expect(page.locator(".block-selection")).to_be_visible()
+
+    def frame_cells(p):
+        geom = p.evaluate(
+            """() => {
+                const f = document.querySelector('.block-selection').getBoundingClientRect();
+                return {x: f.x, y: f.y, w: f.width, h: f.height};
+            }"""
+        )
+        return {
+            "left": (geom["x"] - origin_x) / cw,
+            "top": (geom["y"] - origin_y) / ch,
+            "width": geom["w"] / cw,
+        }
+
+    # The trimmed header body spans cols 7..20, rows 3..5.
+    def settled(p):
+        g = frame_cells(p)
+        return abs(g["left"] - 7) < 1.0 and abs(g["width"] - 14) < 1.0
+    _poll_until(settled, page)
+
+    g = frame_cells(page)
+    assert abs(g["left"] - 7) < 1.0, g
+    assert abs(g["top"] - 3) < 1.0, g
+    assert abs(g["width"] - 14) < 1.0, g
+    # Regression guard: the frame must NOT reach the box's inner-left column
+    # (col 3, adjacent to the left border at col 2) as the old stretch did.
+    assert g["left"] > 5.0, g
+
+
+def test_attached_sidebar_trimmed_by_footer_hover_matches_render(page: Page):
+    """Hovering the tree row of a left sidebar trimmed at its bottom by a
+    dominant footer highlights the TRIMMED effective box, not the sidebar's
+    full inner-height extent — the same single-source attach geometry the
+    ASCII renderer uses. The bottom-left resize handle rides on this same
+    box, so it sits at the trim rather than at the box's bottom border."""
+    layout_id, (box_id, sidebar_id, footer_id) = _create_project_with_blocks(page, [
+        {"block_type": "box", "x": 2, "y": 2, "width": 20, "height": 10},
+        # sidebar (order 1) attaches left at full inner height (8); the
+        # footer (order 2, taller) wins the shared bottom-left corner and
+        # trims the sidebar so its body starts past the footer's line —
+        # height 4 instead of 8.
+        {"block_type": "sidebar", "x": -1, "y": 0, "width": 4, "height": 8,
+         "parent_index": 0, "content": "S", "order": 1},
+        {"block_type": "footer", "x": 0, "y": 5, "width": 18, "height": 4,
+         "parent_index": 0, "content": "F", "order": 2},
+    ])
+
+    metrics = _canvas_metrics(page, box_id, 20, 10)
+    ch = metrics["ch"]
+    origin_y = metrics["container"]["y"] + 16  # render-wrapper padding
+
+    page.locator('.block-item[data-coords="-1,0"]', has_text="sidebar").hover()
+    sel = f'.block-preview--hover[data-block-id="{sidebar_id}"]'
+    expect(page.locator(sel)).to_be_visible()
+
+    def sidebar_cells(p):
+        geom = p.evaluate(
+            """(sel) => {
+                const b = document.querySelector(sel).getBoundingClientRect();
+                return {y: b.y, h: b.height};
+            }""", sel)
+        return {"top": (geom["y"] - origin_y) / ch, "height": geom["h"] / ch}
+
+    def settled(p):
+        return abs(sidebar_cells(p)["height"] - 4) < 1.0
+    _poll_until(settled, page)
+
+    g = sidebar_cells(page)
+    assert abs(g["top"] - 3) < 1.0, g      # inner top row (box y=2 → row 3)
+    assert abs(g["height"] - 4) < 1.0, g   # trimmed: rows 3..6, not 3..10
+    # Regression guard: an untrimmed overlay would span the full inner
+    # height (8 cells), reaching the box's bottom border.
+    assert g["height"] < 6.0, g
 
 
 def test_tree_row_hover_highlights_block(page: Page):
