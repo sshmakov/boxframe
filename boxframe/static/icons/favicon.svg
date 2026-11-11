@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Background -->
+  <rect width="64" height="64" rx="8" fill="#0f0f23"/>
+
+  <!-- Outer double-line frame (═║ style) -->
+  <rect x="6" y="6" width="52" height="52" rx="2" fill="none" stroke="#e94560" stroke-width="2.5"/>
+  <rect x="10" y="10" width="44" height="44" rx="1" fill="none" stroke="#e94560" stroke-width="1.5"/>
+
+  <!-- Inner block (solid-line, offset) -->
+  <rect x="16" y="18" width="30" height="26" fill="none" stroke="#e0e0e0" stroke-width="2"/>
+
+  <!-- Small header line inside inner block -->
+  <line x1="16" y1="26" x2="46" y2="26" stroke="#e0e0e0" stroke-width="1.5"/>
+
+  <!-- Text lines inside inner block body -->
+  <line x1="20" y1="32" x2="40" y2="32" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="20" y1="36" x2="36" y2="36" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="20" y1="40" x2="38" y2="40" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Cursor -->
+  <rect x="40" y="39" width="2" height="4" fill="#2ecc71"/>
+</svg>

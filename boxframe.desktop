@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Boxframe
+Comment=Pseudo-graphic UI mockup editor
+Exec=boxframe
+Icon=/media/sshmakov/home_disk/projects/boxframe/boxframe/static/icons/icon-256.png
+Terminal=false
+Categories=Development;Graphics;
+StartupWMClass=boxframe
