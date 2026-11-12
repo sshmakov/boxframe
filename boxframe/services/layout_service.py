@@ -116,6 +116,86 @@ class LayoutService:
             await self.db.delete(layout)
             await self.db.commit()
 
+    async def rename_layout(self, layout_id: str, name: str) -> Layout | None:
+        layout = await self.db.get(Layout, layout_id)
+        if not layout:
+            return None
+        layout.name = name
+        await self.db.commit()
+        await self.db.refresh(layout)
+        return layout
+
+    async def duplicate_layout(self, layout_id: str, new_name: str) -> Layout | None:
+        """Deep-copy a layout (and all its blocks) into the same project."""
+        source = await self.db.get(Layout, layout_id)
+        if not source:
+            return None
+
+        # Load blocks without normalizing orders (we copy them as-is).
+        result = await self.db.execute(
+            select(Block).where(Block.layout_id == layout_id)
+        )
+        source_blocks = list(result.scalars().all())
+
+        new_layout = Layout(
+            project_id=source.project_id,
+            name=new_name,
+            width=source.width,
+            height=source.height,
+        )
+        self.db.add(new_layout)
+        await self.db.flush()
+
+        # Map old block ids → new ids to rebuild the parent-child tree.
+        id_map: dict[str, str] = {}
+        # Process parents before children so parent_id is always resolvable.
+        sorted_blocks = sorted(source_blocks, key=lambda b: 0 if not b.parent_id else 1)
+        for b in sorted_blocks:
+            new_id = str(uuid.uuid4())
+            id_map[b.id] = new_id
+            self.db.add(
+                Block(
+                    id=new_id,
+                    layout_id=new_layout.id,
+                    parent_id=id_map.get(b.parent_id) if b.parent_id else None,
+                    block_type=b.block_type,
+                    x=b.x,
+                    y=b.y,
+                    width=b.width,
+                    height=b.height,
+                    content=b.content,
+                    border_style=b.border_style,
+                    meta=b.meta or {},
+                    order=b.order,
+                )
+            )
+
+        await self.db.commit()
+        # Re-query with eager loading for a clean response.
+        result = await self.db.execute(
+            select(Layout)
+            .options(selectinload(Layout.blocks))
+            .filter(Layout.id == new_layout.id)
+        )
+        return result.scalar_one()
+
+    async def move_layouts(self, layout_ids: list[str], target_project_id: str) -> int:
+        """Move layouts to another project. Returns the number moved."""
+        target = await self.db.get(Project, target_project_id)
+        if not target:
+            raise ValueError("Target project not found")
+
+        result = await self.db.execute(
+            select(Layout).filter(Layout.id.in_(layout_ids))
+        )
+        layouts = result.scalars().all()
+        count = 0
+        for layout in layouts:
+            layout.project_id = target_project_id
+            count += 1
+        await self.db.commit()
+        return count
+
     # ── Blocks ────────────────────────────────────────────────
 
     async def create_block(

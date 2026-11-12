@@ -51,6 +51,15 @@ class LayoutUpdate(BaseModel):
     height: int | None = None
 
 
+class LayoutDuplicate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class LayoutsMove(BaseModel):
+    layout_ids: list[str] = Field(..., min_length=1)
+    target_project_id: str
+
+
 class LayoutOut(BaseModel):
     id: str
     project_id: str
@@ -194,6 +203,36 @@ async def delete_layout(layout_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Layout not found")
     await service.delete_layout(layout_id)
     return {"ok": True}
+
+
+@router.put("/{layout_id}", response_model=LayoutOut)
+async def rename_layout(layout_id: str, data: LayoutUpdate, db: AsyncSession = Depends(get_db)):
+    service = LayoutService(db)
+    if not data.name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    layout = await service.rename_layout(layout_id, data.name)
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout not found")
+    return layout
+
+
+@router.post("/{layout_id}/duplicate", response_model=LayoutOut)
+async def duplicate_layout(layout_id: str, data: LayoutDuplicate, db: AsyncSession = Depends(get_db)):
+    service = LayoutService(db)
+    new_layout = await service.duplicate_layout(layout_id, data.name)
+    if not new_layout:
+        raise HTTPException(status_code=404, detail="Layout not found")
+    return new_layout
+
+
+@router.post("/move")
+async def move_layouts(data: LayoutsMove, db: AsyncSession = Depends(get_db)):
+    service = LayoutService(db)
+    try:
+        moved = await service.move_layouts(data.layout_ids, data.target_project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "moved": moved}
 
 
 # ── Block CRUD ────────────────────────────────────────────

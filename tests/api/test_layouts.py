@@ -2028,3 +2028,131 @@ def test_grid_is_a_container(client: TestClient):
     assert r.status_code == 200
     r = client.get(f"/api/layouts/{layout_id}")
     assert r.json()["blocks"] == []
+
+
+# ── Layout management: rename, duplicate, move ──────────────
+
+
+def test_rename_layout(client: TestClient):
+    """Test renaming a layout."""
+    _, layout_id = _create_project_with_layout(client)
+
+    r = client.put(f"/api/layouts/{layout_id}", json={"name": "Renamed Layout"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["name"] == "Renamed Layout"
+    assert data["id"] == layout_id
+
+
+def test_rename_layout_not_found(client: TestClient):
+    """Test renaming a non-existent layout."""
+    r = client.put("/api/layouts/nonexistent-id", json={"name": "Whatever"})
+    assert r.status_code == 404
+
+
+def test_rename_layout_empty_name(client: TestClient):
+    """Test that renaming with missing name returns 400."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.put(f"/api/layouts/{layout_id}", json={})
+    assert r.status_code == 400
+
+
+def test_duplicate_layout(client: TestClient):
+    """Test duplicating a layout creates a new one with blocks."""
+    project_id, layout_id = _create_project_with_layout(client)
+
+    # Add blocks (parent + child)
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 5, "y": 3, "width": 20, "height": 10,
+        "content": "parent",
+    })
+    parent_id = r.json()["id"]
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button", "x": 2, "y": 1, "width": 8, "height": 1,
+        "content": "OK", "parent_id": parent_id,
+    })
+
+    # Duplicate
+    r = client.post(f"/api/layouts/{layout_id}/duplicate", json={"name": "Copied Layout"})
+    assert r.status_code == 200
+    new = r.json()
+    assert new["id"] != layout_id
+    assert new["name"] == "Copied Layout"
+    assert new["project_id"] == project_id
+    assert new["width"] == 40
+    assert new["height"] == 12
+    assert len(new["blocks"]) == 2
+
+    # Verify parent-child structure is preserved
+    blocks = new["blocks"]
+    parent_block = next(b for b in blocks if b["block_type"] == "box")
+    child_block = next(b for b in blocks if b["block_type"] == "button")
+    assert child_block["parent_id"] == parent_block["id"]
+
+    # New ids differ from originals
+    assert parent_block["id"] != parent_id
+
+
+def test_duplicate_layout_not_found(client: TestClient):
+    """Test duplicating a non-existent layout."""
+    r = client.post("/api/layouts/nonexistent-id/duplicate", json={"name": "X"})
+    assert r.status_code == 404
+
+
+def test_move_layouts_to_another_project(client: TestClient):
+    """Test moving layouts between projects."""
+    # Create two projects
+    r1 = client.post("/api/projects/", json={"name": "Project A"})
+    r2 = client.post("/api/projects/", json={"name": "Project B"})
+    proj_a = r1.json()["id"]
+    proj_b = r2.json()["id"]
+
+    # Create two layouts in project A
+    la = client.post(f"/api/layouts/{proj_a}/layouts", json={"name": "Layout 1"}).json()["id"]
+    lb = client.post(f"/api/layouts/{proj_a}/layouts", json={"name": "Layout 2"}).json()["id"]
+
+    # Move both to project B
+    r = client.post("/api/layouts/move", json={
+        "layout_ids": [la, lb],
+        "target_project_id": proj_b,
+    })
+    assert r.status_code == 200
+    assert r.json()["moved"] == 2
+
+    # Verify they now belong to project B
+    r = client.get(f"/api/layouts/{la}")
+    assert r.json()["project_id"] == proj_b
+    r = client.get(f"/api/layouts/{lb}")
+    assert r.json()["project_id"] == proj_b
+
+
+def test_move_layouts_target_not_found(client: TestClient):
+    """Test moving layouts to a non-existent project."""
+    _, layout_id = _create_project_with_layout(client)
+    r = client.post("/api/layouts/move", json={
+        "layout_ids": [layout_id],
+        "target_project_id": "nonexistent-project-id",
+    })
+    assert r.status_code == 404
+
+
+def test_move_layouts_preserves_blocks(client: TestClient):
+    """Test that moving a layout preserves its blocks."""
+    proj_a = client.post("/api/projects/", json={"name": "MoveSrc"}).json()["id"]
+    proj_b = client.post("/api/projects/", json={"name": "MoveDst"}).json()["id"]
+
+    layout_id = client.post(f"/api/layouts/{proj_a}/layouts", json={"name": "HasBlocks"}).json()["id"]
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 1, "y": 1, "width": 10, "height": 5, "content": "hello",
+    })
+
+    r = client.post("/api/layouts/move", json={
+        "layout_ids": [layout_id],
+        "target_project_id": proj_b,
+    })
+    assert r.status_code == 200
+
+    # Blocks survive the move
+    r = client.get(f"/api/layouts/{layout_id}")
+    assert len(r.json()["blocks"]) == 1
+    assert r.json()["blocks"][0]["content"] == "hello"
