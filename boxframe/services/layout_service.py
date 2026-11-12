@@ -63,6 +63,91 @@ class LayoutService:
             await self.db.delete(project)
             await self.db.commit()
 
+    async def rename_project(self, project_id: str, name: str) -> Project | None:
+        project = await self.db.get(Project, project_id)
+        if not project:
+            return None
+        project.name = name
+        await self.db.commit()
+        await self.db.refresh(project)
+        return project
+
+    async def duplicate_project(self, project_id: str, new_name: str) -> Project | None:
+        """Deep-copy a project: all layouts and their blocks (with hierarchy)."""
+        source = await self.get_project(project_id)
+        if not source:
+            return None
+
+        new_project = Project(name=new_name)
+        self.db.add(new_project)
+        await self.db.flush()
+
+        for source_layout in source.layouts:
+            new_layout = Layout(
+                project_id=new_project.id,
+                name=source_layout.name,
+                width=source_layout.width,
+                height=source_layout.height,
+            )
+            self.db.add(new_layout)
+            await self.db.flush()
+
+            # Load this layout's blocks as-is (orders are copied, not
+            # normalized) and rebuild the parent-child tree via id_map.
+            result = await self.db.execute(
+                select(Block).where(Block.layout_id == source_layout.id)
+            )
+            source_blocks = list(result.scalars().all())
+            id_map: dict[str, str] = {}
+            for b in self._order_blocks_parents_first(source_blocks):
+                new_id = str(uuid.uuid4())
+                id_map[b.id] = new_id
+                self.db.add(
+                    Block(
+                        id=new_id,
+                        layout_id=new_layout.id,
+                        parent_id=id_map.get(b.parent_id) if b.parent_id else None,
+                        block_type=b.block_type,
+                        x=b.x,
+                        y=b.y,
+                        width=b.width,
+                        height=b.height,
+                        content=b.content,
+                        border_style=b.border_style,
+                        meta=b.meta or {},
+                        order=b.order,
+                    )
+                )
+
+        await self.db.commit()
+        await self.db.refresh(new_project)
+        return new_project
+
+    @staticmethod
+    def _order_blocks_parents_first(blocks: list[Block]) -> list[Block]:
+        """Order blocks so every parent precedes its children (any depth).
+
+        A copy needs the parent's new id before a child can reference it.
+        A two-level sort is not enough for arbitrary nesting, so this
+        resolves parents iteratively; orphans/cycles are appended at the end.
+        """
+        by_id = {b.id for b in blocks}
+        remaining = list(blocks)
+        ordered: list[Block] = []
+        placed: set[str] = set()
+        while remaining:
+            progressed = False
+            for b in list(remaining):
+                if not b.parent_id or b.parent_id not in by_id or b.parent_id in placed:
+                    ordered.append(b)
+                    placed.add(b.id)
+                    remaining.remove(b)
+                    progressed = True
+            if not progressed:
+                ordered.extend(remaining)  # cycle in the data — copy as-is
+                break
+        return ordered
+
     # ── Layouts ───────────────────────────────────────────────
 
     async def create_layout(

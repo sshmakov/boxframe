@@ -245,6 +245,25 @@ form { display: flex; gap: 8px; align-items: center; }
     border-radius: 6px;
 }
 
+/* ── Project cards (projects list) ────────────────────── */
+.project-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.project-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.project-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    align-items: center;
+}
+
 /* ── X-Cloak ───────────────────────────────────────────── */
 [x-cloak] { display: none !important; }
 

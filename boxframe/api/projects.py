@@ -21,6 +21,14 @@ class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
 
 
+class ProjectUpdate(BaseModel):
+    name: str | None = None
+
+
+class ProjectDuplicate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+
 class ProjectOut(BaseModel):
     id: str
     name: str
@@ -96,6 +104,28 @@ async def create_project(data: ProjectCreate, db: AsyncSession = Depends(get_db)
 async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
     service = LayoutService(db)
     project = await service.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@router.put("/{project_id}", response_model=ProjectOut)
+async def rename_project(project_id: str, data: ProjectUpdate, db: AsyncSession = Depends(get_db)):
+    service = LayoutService(db)
+    if not data.name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    project = await service.rename_project(project_id, data.name)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@router.post("/{project_id}/duplicate", response_model=ProjectOut)
+async def duplicate_project(
+    project_id: str, data: ProjectDuplicate, db: AsyncSession = Depends(get_db)
+):
+    service = LayoutService(db)
+    project = await service.duplicate_project(project_id, data.name)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
