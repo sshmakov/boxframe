@@ -132,7 +132,8 @@ function projectsPage() {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(data)
-                }).then(r => r.json()).then(res => {
+                }).then(async (r) => {
+                    const res = await r.json();
                     if (!r.ok) { alert('Import failed: ' + (res.detail || r.status)); return; }
                     window.location.href = '/project/' + res.id;
                 }).catch(err => alert('Import failed: ' + err.message));
