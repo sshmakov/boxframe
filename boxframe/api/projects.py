@@ -4,7 +4,8 @@ Project API routes.
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,6 +85,12 @@ class BlockOut(BaseModel):
         from_attributes = True
 
 
+def _safe_filename(name: str) -> str:
+    """Filesystem/HTTP-safe download name from a project name."""
+    cleaned = "".join(c if c.isalnum() or c in "-_" else "_" for c in name).strip("_")
+    return cleaned or "project"
+
+
 # ── Routes ────────────────────────────────────────────────
 
 @router.get("/", response_model=list[ProjectOut])
@@ -128,6 +135,36 @@ async def duplicate_project(
     project = await service.duplicate_project(project_id, data.name)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@router.get("/{project_id}/export")
+async def export_project(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Download the project as a JSON file (all layouts + blocks)."""
+    service = LayoutService(db)
+    data = await service.export_project(project_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    filename = _safe_filename(data["name"]) + ".json"
+    return JSONResponse(
+        content=data,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/import", response_model=ProjectOut)
+async def import_project(data: dict = Body(...), db: AsyncSession = Depends(get_db)):
+    """Create a new project from an exported project JSON file.
+
+    Every entity gets a fresh id (the file's ids are ignored), so importing
+    never collides with existing data. The block hierarchy, geometry, meta
+    and z-order are preserved as-is.
+    """
+    service = LayoutService(db)
+    try:
+        project = await service.import_project(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return project
 
 

@@ -361,6 +361,8 @@ boxframe/
 | GET | `/api/projects/` | Список проектов |
 | POST | `/api/projects/` | Создать проект |
 | GET | `/api/projects/{id}/info` | Метаданные + доступные типы |
+| GET | `/api/projects/{id}/export` | Экспорт проекта (layout'ы + блоки) в JSON-файл |
+| POST | `/api/projects/import` | Импорт проекта из JSON (новый проект, свежие id) |
 | DELETE | `/api/projects/{id}` | Удалить проект |
 | POST | `/api/projects/{id}/layouts` | Создать layout |
 | GET | `/api/layouts/{id}` | Layout + блоки |

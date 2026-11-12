@@ -183,3 +183,144 @@ def test_duplicate_project_empty_name(client: TestClient):
     project_id = r.json()["id"]
     r = client.post(f"/api/projects/{project_id}/duplicate", json={"name": ""})
     assert r.status_code == 422
+
+
+# ── Export / import ────────────────────────────────────────
+
+def _seed_project(client: TestClient, name: str = "Export Source") -> str:
+    """Create a project with one layout, a parent box and a nested button."""
+    r = client.post("/api/projects/", json={"name": name})
+    project_id = r.json()["id"]
+    r = client.post(f"/api/projects/{project_id}/layouts", json={
+        "name": "Main", "width": 40, "height": 12,
+    })
+    layout_id = r.json()["id"]
+    r = client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "box", "x": 5, "y": 3, "width": 20, "height": 10,
+        "content": "parent",
+    })
+    parent_id = r.json()["id"]
+    client.post(f"/api/layouts/{layout_id}/blocks", json={
+        "block_type": "button", "x": 2, "y": 1, "width": 8, "height": 1,
+        "content": "OK", "parent_id": parent_id,
+    })
+    return project_id
+
+
+def _strip_ids(obj):
+    """Recursively drop every 'id' key so two exports compare structurally."""
+    if isinstance(obj, dict):
+        return {k: _strip_ids(v) for k, v in obj.items() if k != "id"}
+    if isinstance(obj, list):
+        return [_strip_ids(x) for x in obj]
+    return obj
+
+
+def test_export_project(client: TestClient):
+    """Export a project as JSON with the nested layout/block tree."""
+    project_id = _seed_project(client)
+
+    r = client.get(f"/api/projects/{project_id}/export")
+    assert r.status_code == 200
+    assert "attachment;" in r.headers.get("content-disposition", "")
+
+    data = r.json()
+    assert data["kind"] == "boxframe.project"
+    assert data["format_version"] == 1
+    assert data["name"] == "Export Source"
+    assert len(data["layouts"]) == 1
+
+    layout = data["layouts"][0]
+    assert layout["name"] == "Main"
+    assert layout["width"] == 40 and layout["height"] == 12
+    # Root block carries the child nested inside it.
+    assert len(layout["blocks"]) == 1
+    root = layout["blocks"][0]
+    assert root["type"] == "box"
+    assert len(root["children"]) == 1
+    assert root["children"][0]["type"] == "button"
+
+
+def test_export_project_not_found(client: TestClient):
+    """Exporting a non-existent project returns 404."""
+    r = client.get("/api/projects/00000000-0000-0000-0000-000000000000/export")
+    assert r.status_code == 404
+
+
+def test_import_project(client: TestClient):
+    """Importing a project file creates a fresh copy with new ids."""
+    payload = {
+        "kind": "boxframe.project",
+        "format_version": 1,
+        "name": "Imported",
+        "layouts": [
+            {
+                "name": "L1", "width": 30, "height": 8,
+                "blocks": [
+                    {
+                        "id": "old-parent-id", "type": "box",
+                        "x": 1, "y": 2, "width": 15, "height": 6,
+                        "content": "p", "border_style": "solid",
+                        "metadata": {"text_align": "center"}, "order": 1,
+                        "children": [
+                            {
+                                "id": "old-child-id", "type": "text",
+                                "x": 0, "y": 0, "width": 5, "height": 1,
+                                "content": "hi", "border_style": "none",
+                                "metadata": {}, "order": 2, "children": [],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    r = client.post("/api/projects/import", json=payload)
+    assert r.status_code == 200
+    new = r.json()
+    assert new["name"] == "Imported"
+
+    info = client.get(f"/api/projects/{new['id']}/info").json()
+    assert len(info["layouts"]) == 1
+    layout_id = info["layouts"][0]["id"]
+
+    layout = client.get(f"/api/layouts/{layout_id}").json()
+    assert layout["width"] == 30 and layout["height"] == 8
+    blocks = layout["blocks"]
+    assert len(blocks) == 2
+    parent = next(b for b in blocks if b["block_type"] == "box")
+    child = next(b for b in blocks if b["block_type"] == "text")
+    # Hierarchy rebuilt with fresh ids (file's ids are ignored).
+    assert child["parent_id"] == parent["id"]
+    assert parent["id"] not in ("old-parent-id", "old-child-id")
+    assert child["id"] not in ("old-parent-id", "old-child-id")
+    # Geometry, meta, order and border preserved as-is.
+    assert parent["x"] == 1 and parent["y"] == 2 and parent["order"] == 1
+    assert parent["meta"] == {"text_align": "center"}
+    assert child["border_style"] == "none"
+
+
+def test_project_export_import_round_trip(client: TestClient):
+    """export -> import -> export is structurally identical (ids aside)."""
+    project_id = _seed_project(client, name="Roundtrip")
+    first = client.get(f"/api/projects/{project_id}/export").json()
+
+    r = client.post("/api/projects/import", json=first)
+    assert r.status_code == 200
+    new_id = r.json()["id"]
+
+    second = client.get(f"/api/projects/{new_id}/export").json()
+    assert _strip_ids(first) == _strip_ids(second)
+
+
+def test_import_project_bad_kind(client: TestClient):
+    """Importing a payload that isn't a project file is rejected."""
+    r = client.post("/api/projects/import", json={"kind": "not.a.project", "layouts": []})
+    assert r.status_code == 400
+
+
+def test_import_project_missing_kind(client: TestClient):
+    """A layout file (no project 'kind') cannot be imported as a project."""
+    r = client.post("/api/projects/import", json={"name": "X", "blocks": []})
+    assert r.status_code == 400

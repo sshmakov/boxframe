@@ -30,6 +30,32 @@ def default_border_style(block_type: str) -> str:
     return "none" if block_type == "text" else "solid"
 
 
+# Project export/import file contract. `kind` lets the importer reject an
+# unrelated JSON file; `format_version` lets the format evolve without
+# breaking older files.
+PROJECT_KIND = "boxframe.project"
+PROJECT_FORMAT_VERSION = 1
+
+
+def _int(value: Any, fallback: int) -> int:
+    """Coerce a value to int, falling back when missing/invalid."""
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return fallback
+
+
+def _opt_int(value: Any) -> int | None:
+    """Coerce a value to a positive int, or None (a missing layout bound)."""
+    if value is None:
+        return None
+    n = _int(value, -1)
+    return n if n >= 1 else None
+
+
 class LayoutService:
     """Business logic for project/layout/block management."""
 
@@ -689,12 +715,14 @@ class LayoutService:
 
     # ── Export ────────────────────────────────────────────────
 
-    async def export_json(self, layout_id: str) -> dict[str, Any] | None:
-        """Export layout as JSON structure."""
-        layout = await self.get_layout(layout_id)
-        if not layout:
-            return None
+    @staticmethod
+    def _layout_to_json(layout: Layout) -> dict[str, Any]:
+        """Serialize one layout (with its nested block tree) to a dict.
 
+        Shared by `export_json` and `export_project` so a layout embedded in
+        a project file has the exact same shape as a standalone layout
+        export (round-trip compatible).
+        """
         # Build the tree from the flat block list — arbitrary depth, and no
         # lazy loading of the ORM `children` relationship (only two levels
         # are eager-loaded).
@@ -724,6 +752,113 @@ class LayoutService:
             "height": layout.height,
             "blocks": [to_dict(b) for b in children_by_parent.get(None, [])],
         }
+
+    async def export_json(self, layout_id: str) -> dict[str, Any] | None:
+        """Export layout as JSON structure."""
+        layout = await self.get_layout(layout_id)
+        if not layout:
+            return None
+        return self._layout_to_json(layout)
+
+    async def export_project(self, project_id: str) -> dict[str, Any] | None:
+        """Export a project as JSON: name + every layout (with its blocks).
+
+        Each embedded layout uses the exact standalone export shape (see
+        `_layout_to_json`), so a project file round-trips cleanly. `kind`
+        and `format_version` let the importer validate and evolve the format.
+        """
+        result = await self.db.execute(
+            select(Project)
+            .options(selectinload(Project.layouts).selectinload(Layout.blocks))
+            .filter(Project.id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            return None
+
+        return {
+            "kind": PROJECT_KIND,
+            "format_version": PROJECT_FORMAT_VERSION,
+            "name": project.name,
+            "layouts": [self._layout_to_json(l) for l in project.layouts],
+        }
+
+    async def import_project(self, data: dict[str, Any]) -> Project:
+        """Create a new project from an exported project dict.
+
+        Faithful copy semantics (mirrors `duplicate_project`): geometry,
+        content, border style, meta and z-order are stored as-is, the block
+        hierarchy is rebuilt, and every entity gets a fresh id (imported ids
+        are ignored, so there are no collisions with existing data). No
+        autosize/normalization runs — an imported layout renders exactly as
+        the source did. Raises ValueError when the payload is not a valid
+        project export.
+        """
+        kind = data.get("kind")
+        if kind != PROJECT_KIND:
+            raise ValueError(f"Not a boxframe project file (kind={kind!r})")
+
+        layouts = data.get("layouts")
+        if not isinstance(layouts, list):
+            raise ValueError("Project file has no 'layouts' array")
+
+        project = Project(name=str(data.get("name") or "Imported Project"))
+        self.db.add(project)
+        await self.db.flush()
+
+        for layout_data in layouts:
+            if not isinstance(layout_data, dict):
+                continue
+            layout = Layout(
+                project_id=project.id,
+                name=str(layout_data.get("name") or "Imported Layout"),
+                width=_opt_int(layout_data.get("width")),
+                height=_opt_int(layout_data.get("height")),
+            )
+            self.db.add(layout)
+            await self.db.flush()
+
+            blocks = layout_data.get("blocks")
+            if isinstance(blocks, list):
+                # The export is a nested tree, so a recursive walk creates
+                # every parent before its children — new ids are assigned as
+                # we go and passed down as parent_id.
+                self._import_blocks(layout.id, blocks, parent_id=None)
+
+        await self.db.commit()
+        await self.db.refresh(project)
+        return project
+
+    def _import_blocks(
+        self, layout_id: str, blocks: list[dict[str, Any]], parent_id: str | None
+    ) -> None:
+        """Recursively create blocks from a nested export tree (fresh ids)."""
+        for node in blocks:
+            if not isinstance(node, dict):
+                continue
+            block_type = node.get("type") or node.get("block_type") or "box"
+            border_style = node.get("border_style") or default_border_style(block_type)
+            meta = node.get("metadata")
+            if meta is None:
+                meta = node.get("meta") or {}
+            block = Block(
+                id=str(uuid.uuid4()),
+                layout_id=layout_id,
+                parent_id=parent_id,
+                block_type=block_type,
+                x=_int(node.get("x"), 0),
+                y=_int(node.get("y"), 0),
+                width=_int(node.get("width"), 20),
+                height=_int(node.get("height"), 3),
+                content=node.get("content") if node.get("content") is not None else "",
+                border_style=border_style,
+                meta=meta,
+                order=_int(node.get("order"), 0),
+            )
+            self.db.add(block)
+            children = node.get("children")
+            if isinstance(children, list) and children:
+                self._import_blocks(layout_id, children, parent_id=block.id)
 
     async def export_markdown(self, layout_id: str) -> str | None:
         """Export layout as markdown table representation."""
